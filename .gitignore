@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# Environment variables (보안)
+.env
+!.env.example
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 엑셀 파일 (테스트용 제외)
+*.xlsx
+!example/*.xlsx
+
+# Output files
+output_*.xlsx
+*_프로젝션_*.xlsx
+*_Exit분석_*.xlsx
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/debug/
+.claude/file-history/
+.claude/shell-snapshots/
+.claude/session-env/
+
+# Session & Feedback data
+chat_history/
+feedback/
+
+# Temporary files
+temp/
+
+# Test coverage
+.coverage
+htmlcov/

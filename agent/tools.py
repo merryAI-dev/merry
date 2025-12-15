@@ -1,0 +1,683 @@
+"""Tool definitions for VC Investment Agent"""
+
+import os
+import sys
+import json
+import subprocess
+from pathlib import Path
+from typing import Any, Dict, List
+
+# 프로젝트 루트를 Python 경로에 추가
+PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+
+def register_tools() -> List[Dict[str, Any]]:
+    """에이전트가 사용할 도구 등록"""
+
+    return [
+        {
+            "name": "read_excel_as_text",
+            "description": "엑셀 파일을 텍스트로 변환하여 읽습니다. 모든 시트의 내용을 텍스트 형식으로 반환하므로, 엑셀 구조가 다양해도 유연하게 대응할 수 있습니다. 이 도구로 먼저 엑셀 내용을 읽은 후, 필요한 정보를 파악하세요.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "excel_path": {
+                        "type": "string",
+                        "description": "읽을 엑셀 파일 경로"
+                    },
+                    "sheet_names": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "읽을 시트 이름 리스트 (선택사항, 없으면 모든 시트)"
+                    },
+                    "max_rows": {
+                        "type": "integer",
+                        "description": "각 시트에서 읽을 최대 행 수 (기본값: 50)"
+                    }
+                },
+                "required": ["excel_path"]
+            }
+        },
+        {
+            "name": "analyze_excel",
+            "description": "투자 검토 엑셀 파일을 자동으로 분석하여 투자조건, IS요약(연도별 당기순이익), Cap Table(총발행주식수)을 추출합니다. 일반적인 엑셀 구조에서 작동하지만, 구조가 특이하면 read_excel_as_text를 사용하세요.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "excel_path": {
+                        "type": "string",
+                        "description": "분석할 엑셀 파일 경로"
+                    }
+                },
+                "required": ["excel_path"]
+            }
+        },
+        {
+            "name": "analyze_and_generate_projection",
+            "description": "엑셀 파일을 분석하고 즉시 Exit 프로젝션을 생성합니다. 파일에서 투자 조건과 재무 데이터를 자동으로 추출한 후, 지정된 연도와 PER 배수로 Exit 시나리오를 계산하여 새로운 엑셀 파일을 생성합니다.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "excel_path": {
+                        "type": "string",
+                        "description": "분석할 투자검토 엑셀 파일 경로"
+                    },
+                    "target_year": {
+                        "type": "integer",
+                        "description": "Exit 목표 연도 (예: 2028, 2030)"
+                    },
+                    "per_multiples": {
+                        "type": "array",
+                        "items": {"type": "number"},
+                        "description": "PER 배수 리스트 (예: [10, 20, 30])"
+                    },
+                    "company_name": {
+                        "type": "string",
+                        "description": "회사명 (선택사항)"
+                    },
+                    "output_filename": {
+                        "type": "string",
+                        "description": "출력 파일명 (선택사항, 기본값: exit_projection_YYYYMMDD_HHMMSS.xlsx)"
+                    }
+                },
+                "required": ["excel_path", "target_year", "per_multiples"]
+            }
+        },
+        {
+            "name": "calculate_valuation",
+            "description": "다양한 방법론으로 기업가치를 계산합니다 (PER, EV/Revenue, EV/EBITDA 등)",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "method": {
+                        "type": "string",
+                        "enum": ["per", "ev_revenue", "ev_ebitda"],
+                        "description": "밸류에이션 방법론"
+                    },
+                    "base_value": {
+                        "type": "number",
+                        "description": "기준 값 (순이익, 매출, EBITDA 등)"
+                    },
+                    "multiple": {
+                        "type": "number",
+                        "description": "적용할 배수"
+                    }
+                },
+                "required": ["method", "base_value", "multiple"]
+            }
+        },
+        {
+            "name": "calculate_dilution",
+            "description": "SAFE 전환, 신규 투자 라운드 등으로 인한 지분 희석 효과를 계산합니다.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "event_type": {
+                        "type": "string",
+                        "enum": ["safe", "new_round", "call_option"],
+                        "description": "희석 이벤트 종류"
+                    },
+                    "current_shares": {
+                        "type": "number",
+                        "description": "현재 총 발행주식수"
+                    },
+                    "event_details": {
+                        "type": "object",
+                        "description": "이벤트 상세 정보 (investment_amount, valuation_cap 등)"
+                    }
+                },
+                "required": ["event_type", "current_shares", "event_details"]
+            }
+        },
+        {
+            "name": "calculate_irr",
+            "description": "현금흐름 기반으로 IRR(내부수익률)과 멀티플을 계산합니다.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "cash_flows": {
+                        "type": "array",
+                        "description": "현금흐름 리스트 [{year: 2025, amount: -300000000}, {year: 2029, amount: 3150000000}]",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "year": {"type": "number"},
+                                "amount": {"type": "number"}
+                            }
+                        }
+                    }
+                },
+                "required": ["cash_flows"]
+            }
+        },
+        {
+            "name": "generate_exit_projection",
+            "description": "Exit 프로젝션 엑셀 파일을 생성합니다 (basic/advanced/complete 중 선택)",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "projection_type": {
+                        "type": "string",
+                        "enum": ["basic", "advanced", "complete"],
+                        "description": "프로젝션 타입 (basic: 기본, advanced: 부분매각+NPV, complete: SAFE+콜옵션)"
+                    },
+                    "parameters": {
+                        "type": "object",
+                        "description": "생성에 필요한 파라미터 (investment_amount, company_name, per_multiples 등)"
+                    }
+                },
+                "required": ["projection_type", "parameters"]
+            }
+        }
+    ]
+
+
+# === Tool Execution Functions ===
+
+def execute_read_excel_as_text(
+    excel_path: str,
+    sheet_names: List[str] = None,
+    max_rows: int = 50
+) -> Dict[str, Any]:
+    """엑셀 파일을 텍스트로 변환하여 읽기"""
+
+    try:
+        from openpyxl import load_workbook
+
+        wb = load_workbook(excel_path, data_only=True)
+
+        sheets_data = {}
+        target_sheets = sheet_names if sheet_names else wb.sheetnames
+
+        for sheet_name in target_sheets:
+            if sheet_name not in wb.sheetnames:
+                continue
+
+            ws = wb[sheet_name]
+            sheet_text = []
+
+            for row_idx, row in enumerate(ws.iter_rows(values_only=True), start=1):
+                if row_idx > max_rows:
+                    break
+
+                # None이 아닌 값들만 필터링
+                row_values = [str(cell) if cell is not None else "" for cell in row]
+
+                # 빈 행 스킵
+                if not any(val.strip() for val in row_values):
+                    continue
+
+                # 행 텍스트 생성
+                row_text = " | ".join(row_values[:15])  # 처음 15개 컬럼만
+                sheet_text.append(f"Row {row_idx}: {row_text}")
+
+            sheets_data[sheet_name] = "\n".join(sheet_text)
+
+        wb.close()
+
+        # 텍스트 결과 생성
+        result_text = ""
+        for sheet_name, content in sheets_data.items():
+            result_text += f"\n{'='*60}\n"
+            result_text += f"시트: {sheet_name}\n"
+            result_text += f"{'='*60}\n"
+            result_text += content + "\n"
+
+        return {
+            "success": True,
+            "file_path": excel_path,
+            "sheets": list(sheets_data.keys()),
+            "content": result_text,
+            "total_sheets": len(sheets_data)
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"엑셀 파일 읽기 실패: {str(e)}"
+        }
+
+
+def execute_analyze_excel(excel_path: str) -> Dict[str, Any]:
+    """엑셀 파일 분석 실행 - openpyxl로 직접 읽기"""
+
+    try:
+        from openpyxl import load_workbook
+
+        # 엑셀 파일 열기
+        wb = load_workbook(excel_path, data_only=True)
+
+        result = {
+            "success": True,
+            "file_path": excel_path,
+            "sheets": wb.sheetnames,
+            "investment_terms": {},
+            "income_statement": {},
+            "cap_table": {}
+        }
+
+        # IS요약 시트에서 순이익 데이터 추출
+        is_sheet = None
+        for sheet_name in wb.sheetnames:
+            if 'IS' in sheet_name or '손익' in sheet_name:
+                is_sheet = wb[sheet_name]
+                break
+
+        if is_sheet:
+            # 헤더 행 찾기 (구분, 2021년, 2022년... 형태)
+            year_row_idx = None
+            year_cols = {}
+
+            for row_idx, row in enumerate(is_sheet.iter_rows(min_row=1, max_row=10), start=1):
+                for col_idx, cell in enumerate(row):
+                    if cell.value and isinstance(cell.value, str) and '년' in cell.value:
+                        try:
+                            year_val = int(cell.value.replace('년', '').replace(',', ''))
+                            if 2020 <= year_val <= 2040:
+                                year_row_idx = row_idx
+                                year_cols[year_val] = col_idx
+                        except:
+                            pass
+
+            # 당기순이익 행 찾기
+            net_income_data = {}
+            if year_cols:
+                for row in is_sheet.iter_rows(min_row=year_row_idx if year_row_idx else 1):
+                    first_cell = row[1].value if len(row) > 1 else None  # 2번째 컬럼 확인
+                    if first_cell and '당기순이익' in str(first_cell):
+                        for year, col_idx in year_cols.items():
+                            if col_idx < len(row):
+                                value = row[col_idx].value
+                                if value and isinstance(value, (int, float)):
+                                    net_income_data[year] = int(value)
+                        break
+
+            result["income_statement"] = {
+                "years": sorted(year_cols.keys()) if year_cols else [],
+                "net_income": net_income_data
+            }
+
+        # Cap Table에서 총 발행주식수 추출
+        cap_sheet = None
+        for sheet_name in wb.sheetnames:
+            if 'cap' in sheet_name.lower() or '주주' in sheet_name:
+                cap_sheet = wb[sheet_name]
+                break
+
+        if cap_sheet:
+            # "합계" 행에서 주식수 찾기
+            for row in cap_sheet.iter_rows():
+                first_cell = row[0].value if row else None
+                if first_cell and '합계' in str(first_cell):
+                    # Incorporation 라운드의 주식수 (4번째 컬럼)
+                    if len(row) > 3 and row[3].value and isinstance(row[3].value, (int, float)):
+                        incorporation_shares = int(row[3].value)
+                        # Seed 라운드 주식수 (7번째 컬럼)
+                        seed_shares = 0
+                        if len(row) > 6 and row[6].value and isinstance(row[6].value, (int, float)):
+                            seed_shares = int(row[6].value)
+
+                        total_shares = incorporation_shares + seed_shares
+                        result["cap_table"]["total_shares"] = total_shares
+                        result["cap_table"]["incorporation_shares"] = incorporation_shares
+                        result["cap_table"]["seed_shares"] = seed_shares
+                        break
+
+        # 투자조건 시트에서 투자 정보 추출
+        invest_sheet = None
+        for sheet_name in wb.sheetnames:
+            if '투자조건' in sheet_name:
+                invest_sheet = wb[sheet_name]
+                break
+
+        if invest_sheet:
+            for row_idx, row in enumerate(invest_sheet.iter_rows(min_row=1, max_row=30)):
+                # 두 번째 컬럼이 주 정보 컬럼
+                if len(row) < 4:
+                    continue
+
+                second_cell = row[1].value if row[1] else None
+                if not second_cell:
+                    continue
+
+                second_val = str(second_cell)
+
+                # 투자금액(원)
+                if '투자금액' in second_val and '원' in second_val:
+                    # 4번째 컬럼부터 찾기 (투자조건 열)
+                    for cell in row[3:]:
+                        if cell.value and isinstance(cell.value, (int, float)):
+                            result["investment_terms"]["investment_amount"] = int(cell.value)
+                            break
+
+                # 투자단가(원)
+                if '투자단가' in second_val and '원' in second_val:
+                    for cell in row[3:]:
+                        if cell.value and isinstance(cell.value, (int, float)):
+                            result["investment_terms"]["price_per_share"] = int(cell.value)
+                            break
+
+                # 투자주식수
+                if '투자주식수' in second_val:
+                    for cell in row[3:]:
+                        if cell.value and isinstance(cell.value, (int, float)):
+                            result["investment_terms"]["shares"] = int(cell.value)
+                            break
+
+        wb.close()
+        return result
+
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"엑셀 파일 분석 실패: {str(e)}"
+        }
+
+
+def execute_calculate_valuation(
+    method: str,
+    base_value: float,
+    multiple: float
+) -> Dict[str, Any]:
+    """기업가치 계산 실행"""
+
+    enterprise_value = base_value * multiple
+
+    return {
+        "success": True,
+        "method": method,
+        "base_value": base_value,
+        "multiple": multiple,
+        "enterprise_value": enterprise_value,
+        "formatted": f"{enterprise_value:,.0f}원"
+    }
+
+
+def execute_calculate_dilution(
+    event_type: str,
+    current_shares: float,
+    event_details: Dict[str, Any]
+) -> Dict[str, Any]:
+    """지분 희석 계산 실행"""
+
+    if event_type == "safe":
+        safe_amount = event_details.get("safe_amount")
+        valuation_cap = event_details.get("valuation_cap")
+
+        new_shares = (safe_amount / valuation_cap) * current_shares
+
+    elif event_type == "new_round":
+        investment = event_details.get("investment_amount")
+        pre_money = event_details.get("pre_money_valuation")
+
+        new_shares = (investment / pre_money) * current_shares
+
+    elif event_type == "call_option":
+        new_shares = 0  # 콜옵션은 희석 없음 (주식 매입)
+
+    else:
+        return {
+            "success": False,
+            "error": f"Unknown event type: {event_type}"
+        }
+
+    total_shares = current_shares + new_shares
+    dilution_ratio = new_shares / total_shares if total_shares > 0 else 0
+
+    return {
+        "success": True,
+        "event_type": event_type,
+        "current_shares": current_shares,
+        "new_shares": new_shares,
+        "total_shares": total_shares,
+        "dilution_ratio": dilution_ratio,
+        "dilution_percentage": f"{dilution_ratio * 100:.2f}%"
+    }
+
+
+def execute_calculate_irr(cash_flows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """IRR 계산 실행"""
+
+    if len(cash_flows) < 2:
+        return {
+            "success": False,
+            "error": "최소 2개의 현금흐름이 필요합니다 (투자 + 회수)"
+        }
+
+    # 간단한 IRR 계산 (Newton's method)
+    def npv(rate, cfs):
+        return sum([
+            cf["amount"] / ((1 + rate) ** (cf["year"] - cfs[0]["year"]))
+            for cf in cfs
+        ])
+
+    # IRR 추정 (초기값 10%)
+    rate = 0.1
+    for _ in range(100):  # 최대 100번 반복
+        npv_value = npv(rate, cash_flows)
+
+        # NPV가 0에 가까우면 종료
+        if abs(npv_value) < 1:
+            break
+
+        # Newton's method로 업데이트
+        delta = 0.0001
+        npv_delta = npv(rate + delta, cash_flows)
+        derivative = (npv_delta - npv_value) / delta
+
+        if abs(derivative) < 1e-10:
+            break
+
+        rate = rate - npv_value / derivative
+
+    # 멀티플 계산
+    initial_investment = abs(cash_flows[0]["amount"])
+    total_return = sum([cf["amount"] for cf in cash_flows[1:]])
+    multiple = total_return / initial_investment if initial_investment > 0 else 0
+
+    # 투자기간
+    holding_period = cash_flows[-1]["year"] - cash_flows[0]["year"]
+
+    return {
+        "success": True,
+        "irr": rate,
+        "irr_percentage": f"{rate * 100:.1f}%",
+        "multiple": multiple,
+        "multiple_formatted": f"{multiple:.2f}x",
+        "holding_period": holding_period,
+        "cash_flows": cash_flows
+    }
+
+
+def execute_generate_exit_projection(
+    projection_type: str,
+    parameters: Dict[str, Any]
+) -> Dict[str, Any]:
+    """Exit 프로젝션 엑셀 생성 실행"""
+
+    # 스크립트 선택
+    script_map = {
+        "basic": "generate_exit_projection.py",
+        "advanced": "generate_advanced_exit_projection.py",
+        "complete": "generate_complete_exit_projection.py"
+    }
+
+    script_name = script_map.get(projection_type)
+    if not script_name:
+        return {
+            "success": False,
+            "error": f"Unknown projection type: {projection_type}"
+        }
+
+    script_path = PROJECT_ROOT / "scripts" / script_name
+
+    # 파라미터를 CLI 인자로 변환
+    cmd = [sys.executable, str(script_path)]
+
+    for key, value in parameters.items():
+        cmd.append(f"--{key}")
+        cmd.append(str(value))
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        # 출력 파일 경로 추출 (stdout에서)
+        output_file = None
+        for line in result.stdout.split('\n'):
+            if '생성 완료' in line or 'xlsx' in line:
+                # 파일 경로 추출
+                parts = line.split(':')
+                if len(parts) > 1:
+                    output_file = parts[-1].strip()
+
+        return {
+            "success": True,
+            "projection_type": projection_type,
+            "output_file": output_file,
+            "message": result.stdout
+        }
+
+    except subprocess.CalledProcessError as e:
+        return {
+            "success": False,
+            "error": e.stderr
+        }
+
+
+def execute_analyze_and_generate_projection(
+    excel_path: str,
+    target_year: int,
+    per_multiples: List[float],
+    company_name: str = None,
+    output_filename: str = None
+) -> Dict[str, Any]:
+    """엑셀 파일 분석 후 즉시 Exit 프로젝션 생성"""
+
+    # 1단계: 엑셀 파일 분석
+    analysis = execute_analyze_excel(excel_path)
+
+    if not analysis["success"]:
+        return analysis
+
+    data = analysis
+    income_statement = data.get("income_statement", {})
+    net_income_data = income_statement.get("net_income", {})
+    investment_terms = data.get("investment_terms", {})
+    cap_table = data.get("cap_table", {})
+
+    # 2단계: 필수 데이터 검증
+    if target_year not in net_income_data:
+        return {
+            "success": False,
+            "error": f"{target_year}년 순이익 데이터를 찾을 수 없습니다. 사용 가능한 연도: {list(net_income_data.keys())}"
+        }
+
+    net_income = net_income_data[target_year]
+    investment_amount = investment_terms.get("investment_amount")
+    price_per_share = investment_terms.get("price_per_share")
+    shares = investment_terms.get("shares")
+    total_shares = cap_table.get("total_shares")
+
+    if not all([investment_amount, price_per_share, shares, total_shares]):
+        return {
+            "success": False,
+            "error": "필수 투자 정보가 부족합니다",
+            "found_data": {
+                "investment_amount": investment_amount,
+                "price_per_share": price_per_share,
+                "shares": shares,
+                "total_shares": total_shares
+            }
+        }
+
+    # 3단계: Exit 프로젝션 생성
+    from datetime import datetime
+    if not output_filename:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"exit_projection_{timestamp}.xlsx"
+
+    if not company_name:
+        company_name = Path(excel_path).stem
+
+    # generate_exit_projection.py 스크립트 호출
+    script_path = PROJECT_ROOT / "scripts" / "generate_exit_projection.py"
+
+    cmd = [
+        sys.executable, str(script_path),
+        "--investment_amount", str(investment_amount),
+        "--price_per_share", str(price_per_share),
+        "--shares", str(shares),
+        "--total_shares", str(total_shares),
+        "--net_income_company", str(net_income),
+        "--net_income_reviewer", str(net_income),  # 같은 값 사용
+        "--target_year", str(target_year),
+        "--company_name", company_name,
+        "--per_multiples", ",".join(map(str, per_multiples)),
+        "--output", output_filename
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            cwd=str(PROJECT_ROOT)
+        )
+
+        return {
+            "success": True,
+            "output_file": output_filename,
+            "analysis_data": {
+                "target_year": target_year,
+                "net_income": net_income,
+                "investment_amount": investment_amount,
+                "per_multiples": per_multiples,
+                "company_name": company_name
+            },
+            "message": f"✅ Exit 프로젝션 생성 완료: {output_filename}"
+        }
+
+    except subprocess.CalledProcessError as e:
+        return {
+            "success": False,
+            "error": f"Exit 프로젝션 생성 실패: {e.stderr}"
+        }
+
+
+# Tool 실행 함수 매핑
+TOOL_EXECUTORS = {
+    "read_excel_as_text": execute_read_excel_as_text,
+    "analyze_excel": execute_analyze_excel,
+    "analyze_and_generate_projection": execute_analyze_and_generate_projection,
+    "calculate_valuation": execute_calculate_valuation,
+    "calculate_dilution": execute_calculate_dilution,
+    "calculate_irr": execute_calculate_irr,
+    "generate_exit_projection": execute_generate_exit_projection
+}
+
+
+def execute_tool(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
+    """도구 실행 디스패처"""
+
+    executor = TOOL_EXECUTORS.get(tool_name)
+
+    if not executor:
+        return {
+            "success": False,
+            "error": f"Unknown tool: {tool_name}"
+        }
+
+    try:
+        return executor(**tool_input)
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Tool execution error: {str(e)}"
+        }
