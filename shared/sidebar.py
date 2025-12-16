@@ -150,10 +150,11 @@ def _load_session(selected_session: str):
     if session_data:
         # 메시지 복원
         st.session_state.exit_messages = []
-        for msg in session_data["messages"]:
+        messages = session_data.get("messages", [])
+        for msg in messages:
             st.session_state.exit_messages.append({
-                "role": msg["role"],
-                "content": msg["content"]
+                "role": msg.get("role", "user"),
+                "content": msg.get("content", "")
             })
 
         # 에이전트 컨텍스트 복원
@@ -161,15 +162,15 @@ def _load_session(selected_session: str):
         st.session_state.agent.memory.session_metadata["analyzed_files"] = session_data.get("analyzed_files", [])
         st.session_state.agent.memory.session_metadata["generated_files"] = session_data.get("generated_files", [])
         st.session_state.agent.memory.session_metadata["user_info"] = session_data.get("user_info", {})
-        st.session_state.agent.memory.session_id = session_data.get("session_id")
+        st.session_state.agent.memory.session_id = session_data.get("session_id", selected_session_id)
 
         # 대화 히스토리 복원
         st.session_state.agent.conversation_history = []
-        for msg in session_data["messages"]:
-            if msg["role"] in ["user", "assistant"]:
+        for msg in messages:
+            if msg.get("role") in ["user", "assistant"]:
                 st.session_state.agent.conversation_history.append({
-                    "role": msg["role"],
-                    "content": msg["content"]
+                    "role": msg.get("role"),
+                    "content": msg.get("content", "")
                 })
 
         # 사용자 정보 수집 상태 복원

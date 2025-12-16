@@ -122,6 +122,16 @@ class SupabaseStorage:
                 session["user_info"] = json.loads(session.get("user_info", "{}"))
                 session["analyzed_files"] = json.loads(session.get("analyzed_files", "[]"))
                 session["generated_files"] = json.loads(session.get("generated_files", "[]"))
+
+                # 메시지 수 조회
+                try:
+                    msg_response = self.client.table("chat_messages").select("id", count="exact").eq(
+                        "session_id", session["session_id"]
+                    ).eq("user_id", self.user_id).execute()
+                    session["message_count"] = msg_response.count or 0
+                except Exception:
+                    session["message_count"] = 0
+
                 sessions.append(session)
             return sessions
         except Exception as e:

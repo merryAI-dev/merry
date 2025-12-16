@@ -233,11 +233,15 @@ class ChatMemory:
         if not session_data:
             return None
 
+        session_id = session_data.get('session_id', 'unknown')
+        start_time = session_data.get('start_time') or session_data.get('created_at', 'N/A')
+        messages = session_data.get('messages', [])
+
         lines = [
-            f"# 채팅 히스토리 - {session_data['session_id']}",
+            f"# 채팅 히스토리 - {session_id}",
             f"",
-            f"**시작 시간:** {session_data.get('start_time', 'N/A')}",
-            f"**메시지 수:** {len(session_data.get('messages', []))}",
+            f"**시작 시간:** {start_time}",
+            f"**메시지 수:** {len(messages)}",
             f"",
             f"---",
             f""
@@ -260,8 +264,8 @@ class ChatMemory:
         lines.append("## 대화 내용")
         lines.append("")
 
-        for msg in session_data.get("messages", []):
-            timestamp = msg.get("timestamp", "")
+        for msg in messages:
+            timestamp = msg.get("timestamp") or msg.get("created_at", "")
             role = msg.get("role", "unknown")
             content = msg.get("content", "")
 
@@ -274,7 +278,7 @@ class ChatMemory:
             lines.append("")
 
         if not output_path:
-            output_path = self.storage_dir / f"export_{session_data['session_id']}.md"
+            output_path = self.storage_dir / f"export_{session_id}.md"
 
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write("\n".join(lines))
