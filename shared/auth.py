@@ -45,8 +45,13 @@ def check_authentication() -> bool:
             st.markdown("이 앱은 MYSC 임직원 전용입니다.")
             st.markdown("---")
 
-            if st.button("🔑 Google 계정으로 로그인", type="primary", use_container_width=True):
-                st.login()
+            # on_click 콜백으로 st.login 호출
+            st.button(
+                "🔑 Google 계정으로 로그인",
+                type="primary",
+                use_container_width=True,
+                on_click=st.login
+            )
 
             st.caption("@mysc.co.kr 또는 승인된 이메일만 접근 가능합니다.")
             st.stop()
