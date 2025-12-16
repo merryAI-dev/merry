@@ -169,9 +169,56 @@ NPV IRR = (NPV 멀티플)^(1/투자기간) - 1
 | 주황색 배경 (`SAFE_FILL`) | SAFE 관련 | SAFE 전환 관련 셀 (완전판만) |
 | 회색 배경 (`CALL_FILL`) | 콜옵션 관련 | 콜옵션 행사 관련 셀 (완전판만) |
 
+## Peer PER 분석 기능 (신규)
+
+### 개요
+
+유사 상장 기업의 PER을 조회하여 투자 대상 기업의 적정 밸류에이션을 산정한다.
+
+### 워크플로우
+```
+PDF 업로드 (기업 소개서)
+    ↓
+Claude가 비즈니스 모델/산업 분석
+    ↓
+유사 상장 기업 검색 (WebSearch)
+    ↓
+yfinance로 PER/매출/영업이익률 조회
+    ↓
+Peer 기업 PER 비교표 + 평균/중간값 계산
+    ↓
+대화형 재무 프로젝션 지원
+```
+
+### 새로운 도구 (agent/tools.py)
+
+| 도구명 | 설명 | 입력 |
+|--------|------|------|
+| `read_pdf_as_text` | PDF → 텍스트 변환 | `pdf_path`, `max_pages` |
+| `get_stock_financials` | 개별 기업 재무 지표 조회 | `ticker` (예: AAPL, 005930.KS) |
+| `analyze_peer_per` | 여러 Peer 기업 PER 일괄 조회 | `tickers`, `include_forward_per` |
+
+### 티커 형식
+- 미국: `AAPL`, `MSFT`, `GOOGL`
+- 한국 KOSPI: `005930.KS` (삼성전자)
+- 한국 KOSDAQ: `035720.KQ` (카카오)
+
+### 사용 예시
+```python
+# 개별 기업 조회
+result = execute_get_stock_financials("AAPL")
+# -> trailing_per, forward_per, revenue, operating_margin 등
+
+# 여러 기업 비교
+result = execute_analyze_peer_per(["CRM", "NOW", "WDAY"])
+# -> peers: [...], statistics: {trailing_per: {mean, median, min, max}}
+```
+
 ## 의존성
 
 - **openpyxl**: 엑셀 읽기/쓰기 (`.xlsx` 파일 처리)
   - `load_workbook()`: 엑셀 읽기 (`data_only=True`로 수식 계산값 로드)
   - `Workbook()`: 엑셀 생성
   - 스타일링: `Font`, `PatternFill`, `Alignment`, `Border`
+- **yfinance**: Yahoo Finance API (Peer PER 분석)
+- **PyMuPDF (fitz)**: PDF 텍스트 추출

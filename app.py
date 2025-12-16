@@ -20,9 +20,42 @@ st.set_page_config(
     layout="wide",
 )
 
-# 이미지 로드
-HEADER_IMAGE_PATH = "/Users/boram/Library/CloudStorage/GoogleDrive-mwbyun1220@mysc.co.kr/공유 드라이브/C. 조직 (랩, 팀, 위원회, 클럽)/00.AX솔루션/projection_helper/image-removebg-preview-5.png"
-AVATAR_IMAGE_PATH = "/Users/boram/Library/CloudStorage/GoogleDrive-mwbyun1220@mysc.co.kr/공유 드라이브/C. 조직 (랩, 팀, 위원회, 클럽)/00.AX솔루션/projection_helper/image-removebg-preview-6.png"
+# ========================================
+# Google OAuth 인증
+# ========================================
+ALLOWED_DOMAIN = "mysc.co.kr"
+
+def verify_email_domain(email: str) -> bool:
+    """@mysc.co.kr 도메인 검증"""
+    if not email:
+        return False
+    domain = email.split("@")[-1].lower()
+    return domain == ALLOWED_DOMAIN
+
+# 인증 확인
+if not st.user.is_logged_in:
+    st.image("image-removebg-preview-5.png", width=300)
+    st.markdown("## VC 투자 분석 에이전트")
+    st.warning("이 앱은 MYSC 임직원 전용입니다.")
+    st.markdown("@mysc.co.kr 이메일로 로그인해 주세요.")
+    if st.button("Google로 로그인", type="primary", use_container_width=True):
+        st.login()
+    st.stop()
+
+# 도메인 검증
+user_email = st.user.email
+if not verify_email_domain(user_email):
+    st.image("image-removebg-preview-5.png", width=300)
+    st.error(f"접근이 거부되었습니다.")
+    st.markdown(f"현재 로그인: **{user_email}**")
+    st.markdown("@mysc.co.kr 도메인만 접근이 허용됩니다.")
+    if st.button("다른 계정으로 로그인", type="primary"):
+        st.logout()
+    st.stop()
+
+# 이미지 로드 (상대 경로 사용)
+HEADER_IMAGE_PATH = "image-removebg-preview-5.png"
+AVATAR_IMAGE_PATH = "image-removebg-preview-6.png"
 
 header_image = Image.open(HEADER_IMAGE_PATH)
 
@@ -93,6 +126,19 @@ if "feedback_input_visible" not in st.session_state:
 if "feedback_text" not in st.session_state:
     st.session_state.feedback_text = {}
 
+# Peer PER 분석 탭 관련 세션 상태
+if "peer_messages" not in st.session_state:
+    st.session_state.peer_messages = []
+
+if "peer_analysis_result" not in st.session_state:
+    st.session_state.peer_analysis_result = None
+
+if "current_tab" not in st.session_state:
+    st.session_state.current_tab = "Exit 프로젝션"
+
+if "peer_pdf_path" not in st.session_state:
+    st.session_state.peer_pdf_path = None
+
 # 레이아웃: 왼쪽 사이드바 + 메인 영역
 cols = st.columns([1, 3])
 
@@ -103,6 +149,13 @@ with cols[0]:
     left_container = st.container(border=True, height=800)
 
     with left_container:
+        # 로그인 정보
+        st.markdown(f"**{user_email}**")
+        if st.button("로그아웃", use_container_width=True, type="secondary", key="logout_btn"):
+            st.logout()
+
+        st.divider()
+
         st.markdown("### 파일 업로드")
 
         uploaded_file = st.file_uploader(
@@ -281,20 +334,27 @@ with cols[0]:
             st.rerun()
 
 # ========================================
-# 메인 영역
+# 메인 영역 - 탭 구조
 # ========================================
 with cols[1]:
-    main_container = st.container(border=True, height=800)
+    # 탭 생성
+    tab1, tab2 = st.tabs(["Exit 프로젝션", "Peer PER 분석"])
 
-    with main_container:
-        # 채팅 영역
-        chat_area = st.container(height=720)
+    # ========================================
+    # 탭 1: Exit 프로젝션 (기존 기능)
+    # ========================================
+    with tab1:
+        exit_container = st.container(border=True, height=800)
 
-        with chat_area:
-            # 환영 메시지 (최초 1회만)
-            if st.session_state.show_welcome and not st.session_state.user_info_collected:
-                with st.chat_message("assistant", avatar=avatar_image):
-                    st.markdown("""안녕하세요, 메리입니다.
+        with exit_container:
+            # 채팅 영역
+            chat_area = st.container(height=720)
+
+            with chat_area:
+                # 환영 메시지 (최초 1회만)
+                if st.session_state.show_welcome and not st.session_state.user_info_collected:
+                    with st.chat_message("assistant", avatar=avatar_image):
+                        st.markdown("""안녕하세요, 메리입니다.
 
 VC 투자 분석을 시작하기 전에 몇 가지 정보를 알려주세요:
 - **사내기업가 별명**: 누구신가요?
@@ -304,235 +364,323 @@ VC 투자 분석을 시작하기 전에 몇 가지 정보를 알려주세요:
 
 이 정보는 세션 ID로 사용되어 나중에 대화를 쉽게 찾을 수 있습니다.""")
 
-                st.session_state.show_welcome = False
+                    st.session_state.show_welcome = False
 
-            for idx, msg in enumerate(st.session_state.messages):
-                if msg["role"] == "user":
-                    with st.chat_message("user"):
-                        st.markdown(msg["content"])
-                elif msg["role"] == "assistant":
-                    with st.chat_message("assistant", avatar=avatar_image):
-                        st.markdown(msg["content"])
+                for idx, msg in enumerate(st.session_state.messages):
+                    if msg["role"] == "user":
+                        with st.chat_message("user"):
+                            st.markdown(msg["content"])
+                    elif msg["role"] == "assistant":
+                        with st.chat_message("assistant", avatar=avatar_image):
+                            st.markdown(msg["content"])
 
-                        # 피드백 버튼
-                        feedback_cols = st.columns([1, 1, 1, 9])
-                        feedback_key = f"msg_{idx}"
+                            # 피드백 버튼
+                            feedback_cols = st.columns([1, 1, 1, 9])
+                            feedback_key = f"msg_{idx}"
 
-                        with feedback_cols[0]:
-                            if st.button("👍", key=f"thumbs_up_{idx}", use_container_width=True):
-                                # 이전 메시지 찾기 (user)
-                                user_msg = ""
-                                for i in range(idx-1, -1, -1):
-                                    if st.session_state.messages[i]["role"] == "user":
-                                        user_msg = st.session_state.messages[i]["content"]
-                                        break
-
-                                # 피드백 저장
-                                st.session_state.agent.feedback.add_feedback(
-                                    user_message=user_msg,
-                                    assistant_response=msg["content"],
-                                    feedback_type="thumbs_up",
-                                    context={"message_index": idx}
-                                )
-                                st.session_state.message_feedback[feedback_key] = "thumbs_up"
-                                st.rerun()
-
-                        with feedback_cols[1]:
-                            if st.button("👎", key=f"thumbs_down_{idx}", use_container_width=True):
-                                # 이전 메시지 찾기 (user)
-                                user_msg = ""
-                                for i in range(idx-1, -1, -1):
-                                    if st.session_state.messages[i]["role"] == "user":
-                                        user_msg = st.session_state.messages[i]["content"]
-                                        break
-
-                                # 피드백 저장
-                                st.session_state.agent.feedback.add_feedback(
-                                    user_message=user_msg,
-                                    assistant_response=msg["content"],
-                                    feedback_type="thumbs_down",
-                                    context={"message_index": idx}
-                                )
-                                st.session_state.message_feedback[feedback_key] = "thumbs_down"
-                                st.rerun()
-
-                        with feedback_cols[2]:
-                            if st.button("💬", key=f"feedback_text_btn_{idx}", use_container_width=True, help="텍스트 피드백 추가"):
-                                # 텍스트 입력창 토글
-                                if feedback_key not in st.session_state.feedback_input_visible:
-                                    st.session_state.feedback_input_visible[feedback_key] = True
-                                else:
-                                    st.session_state.feedback_input_visible[feedback_key] = not st.session_state.feedback_input_visible[feedback_key]
-                                st.rerun()
-
-                        # 텍스트 피드백 입력창
-                        if st.session_state.feedback_input_visible.get(feedback_key, False):
-                            text_feedback = st.text_area(
-                                "자세한 피드백을 입력하세요:",
-                                key=f"feedback_textarea_{idx}",
-                                placeholder="예: 응답이 너무 길어요 / 설명이 부족해요 / 이 부분이 잘못되었어요...",
-                                height=80
-                            )
-
-                            submit_cols = st.columns([1, 1, 8])
-                            with submit_cols[0]:
-                                if st.button("제출", key=f"submit_feedback_{idx}", type="primary", use_container_width=True):
-                                    if text_feedback.strip():
-                                        # 이전 메시지 찾기
-                                        user_msg = ""
-                                        for i in range(idx-1, -1, -1):
-                                            if st.session_state.messages[i]["role"] == "user":
-                                                user_msg = st.session_state.messages[i]["content"]
-                                                break
-
-                                        # 텍스트 피드백 저장
-                                        st.session_state.agent.feedback.add_feedback(
-                                            user_message=user_msg,
-                                            assistant_response=msg["content"],
-                                            feedback_type="text_feedback",
-                                            feedback_value=text_feedback,
-                                            context={"message_index": idx}
-                                        )
-                                        st.session_state.feedback_text[feedback_key] = text_feedback
-                                        st.session_state.feedback_input_visible[feedback_key] = False
-                                        st.success("피드백이 저장되었습니다!")
-                                        st.rerun()
-                                    else:
-                                        st.warning("피드백을 입력해주세요")
-
-                            with submit_cols[1]:
-                                if st.button("취소", key=f"cancel_feedback_{idx}", use_container_width=True):
-                                    st.session_state.feedback_input_visible[feedback_key] = False
+                            with feedback_cols[0]:
+                                if st.button("👍", key=f"thumbs_up_{idx}", use_container_width=True):
+                                    user_msg = ""
+                                    for i in range(idx-1, -1, -1):
+                                        if st.session_state.messages[i]["role"] == "user":
+                                            user_msg = st.session_state.messages[i]["content"]
+                                            break
+                                    st.session_state.agent.feedback.add_feedback(
+                                        user_message=user_msg,
+                                        assistant_response=msg["content"],
+                                        feedback_type="thumbs_up",
+                                        context={"message_index": idx}
+                                    )
+                                    st.session_state.message_feedback[feedback_key] = "thumbs_up"
                                     st.rerun()
 
-                        # 피드백 상태 표시
-                        if feedback_key in st.session_state.message_feedback:
-                            feedback_status = st.session_state.message_feedback[feedback_key]
-                            if feedback_status == "thumbs_up":
-                                st.caption("피드백: 👍 도움이 되었습니다")
-                            elif feedback_status == "thumbs_down":
-                                st.caption("피드백: 👎 개선이 필요합니다")
+                            with feedback_cols[1]:
+                                if st.button("👎", key=f"thumbs_down_{idx}", use_container_width=True):
+                                    user_msg = ""
+                                    for i in range(idx-1, -1, -1):
+                                        if st.session_state.messages[i]["role"] == "user":
+                                            user_msg = st.session_state.messages[i]["content"]
+                                            break
+                                    st.session_state.agent.feedback.add_feedback(
+                                        user_message=user_msg,
+                                        assistant_response=msg["content"],
+                                        feedback_type="thumbs_down",
+                                        context={"message_index": idx}
+                                    )
+                                    st.session_state.message_feedback[feedback_key] = "thumbs_down"
+                                    st.rerun()
 
-                        # 텍스트 피드백 표시
-                        if feedback_key in st.session_state.feedback_text:
-                            st.caption(f"💬 상세 피드백: {st.session_state.feedback_text[feedback_key][:50]}...")
+                            with feedback_cols[2]:
+                                if st.button("💬", key=f"feedback_text_btn_{idx}", use_container_width=True, help="텍스트 피드백 추가"):
+                                    if feedback_key not in st.session_state.feedback_input_visible:
+                                        st.session_state.feedback_input_visible[feedback_key] = True
+                                    else:
+                                        st.session_state.feedback_input_visible[feedback_key] = not st.session_state.feedback_input_visible[feedback_key]
+                                    st.rerun()
 
-                elif msg["role"] == "tool":
+                            # 텍스트 피드백 입력창
+                            if st.session_state.feedback_input_visible.get(feedback_key, False):
+                                text_feedback = st.text_area(
+                                    "자세한 피드백을 입력하세요:",
+                                    key=f"feedback_textarea_{idx}",
+                                    placeholder="예: 응답이 너무 길어요...",
+                                    height=80
+                                )
+
+                                submit_cols = st.columns([1, 1, 8])
+                                with submit_cols[0]:
+                                    if st.button("제출", key=f"submit_feedback_{idx}", type="primary", use_container_width=True):
+                                        if text_feedback.strip():
+                                            user_msg = ""
+                                            for i in range(idx-1, -1, -1):
+                                                if st.session_state.messages[i]["role"] == "user":
+                                                    user_msg = st.session_state.messages[i]["content"]
+                                                    break
+                                            st.session_state.agent.feedback.add_feedback(
+                                                user_message=user_msg,
+                                                assistant_response=msg["content"],
+                                                feedback_type="text_feedback",
+                                                feedback_value=text_feedback,
+                                                context={"message_index": idx}
+                                            )
+                                            st.session_state.feedback_text[feedback_key] = text_feedback
+                                            st.session_state.feedback_input_visible[feedback_key] = False
+                                            st.success("피드백이 저장되었습니다!")
+                                            st.rerun()
+                                        else:
+                                            st.warning("피드백을 입력해주세요")
+
+                                with submit_cols[1]:
+                                    if st.button("취소", key=f"cancel_feedback_{idx}", use_container_width=True):
+                                        st.session_state.feedback_input_visible[feedback_key] = False
+                                        st.rerun()
+
+                            # 피드백 상태 표시
+                            if feedback_key in st.session_state.message_feedback:
+                                feedback_status = st.session_state.message_feedback[feedback_key]
+                                if feedback_status == "thumbs_up":
+                                    st.caption("피드백: 도움이 되었습니다")
+                                elif feedback_status == "thumbs_down":
+                                    st.caption("피드백: 개선이 필요합니다")
+
+                            if feedback_key in st.session_state.feedback_text:
+                                st.caption(f"상세 피드백: {st.session_state.feedback_text[feedback_key][:50]}...")
+
+                    elif msg["role"] == "tool":
+                        with st.chat_message("assistant", avatar=avatar_image):
+                            st.caption(msg["content"])
+
+            # 입력창
+            exit_user_input = st.chat_input("메시지를 입력하세요...", key="exit_chat_input")
+
+    # ========================================
+    # 탭 2: Peer PER 분석 (새 기능)
+    # ========================================
+    with tab2:
+        peer_container = st.container(border=True, height=800)
+
+        with peer_container:
+            # PDF 업로드 영역
+            st.markdown("### 기업 자료 업로드")
+            pdf_cols = st.columns([2, 1])
+
+            with pdf_cols[0]:
+                pdf_file = st.file_uploader(
+                    "기업 소개서 / IR 자료 (PDF)",
+                    type=["pdf"],
+                    key="peer_pdf_uploader",
+                    help="비즈니스 모델을 분석할 PDF 파일"
+                )
+
+            with pdf_cols[1]:
+                if pdf_file:
+                    # 임시 파일 저장
+                    pdf_temp_path = Path("temp") / pdf_file.name
+                    pdf_temp_path.parent.mkdir(exist_ok=True)
+                    with open(pdf_temp_path, "wb") as f:
+                        f.write(pdf_file.getbuffer())
+                    st.session_state.peer_pdf_path = str(pdf_temp_path)
+                    st.success(f"{pdf_file.name}")
+
+            st.divider()
+
+            # 채팅 영역
+            peer_chat_area = st.container(height=550)
+
+            with peer_chat_area:
+                # 환영 메시지
+                if not st.session_state.peer_messages:
                     with st.chat_message("assistant", avatar=avatar_image):
-                        st.caption(msg["content"])
+                        st.markdown("""**Peer PER 분석 모드**입니다.
 
-        # 입력창
-        user_input = st.chat_input("메시지를 입력하세요...")
+1. **PDF 업로드**: 기업 소개서나 IR 자료를 업로드하세요
+2. **비즈니스 분석**: PDF에서 비즈니스 모델과 산업을 파악합니다
+3. **Peer 기업 검색**: 유사한 상장 기업을 찾아드립니다
+4. **PER 비교**: 각 기업의 PER, 매출, 영업이익률을 조회합니다
+
+예시 질문:
+- "이 PDF를 분석해서 유사 기업을 찾아줘"
+- "Salesforce, ServiceNow, Workday의 PER을 비교해줘"
+- "SaaS 기업들의 평균 영업이익률은 얼마야?"
+- "2028년 매출 100억일 때 적정 기업가치는?"
+""")
+
+                # 메시지 표시
+                for idx, msg in enumerate(st.session_state.peer_messages):
+                    if msg["role"] == "user":
+                        with st.chat_message("user"):
+                            st.markdown(msg["content"])
+                    elif msg["role"] == "assistant":
+                        with st.chat_message("assistant", avatar=avatar_image):
+                            st.markdown(msg["content"])
+                    elif msg["role"] == "tool":
+                        with st.chat_message("assistant", avatar=avatar_image):
+                            st.caption(msg["content"])
+
+            # 입력창
+            peer_user_input = st.chat_input("Peer 분석 관련 질문...", key="peer_chat_input")
+
+            # 결과 표시 영역
+            if st.session_state.peer_analysis_result:
+                st.divider()
+                st.markdown("### Peer 기업 PER 비교")
+
+                result = st.session_state.peer_analysis_result
+                if "peers" in result:
+                    # DataFrame 생성
+                    peer_df = pd.DataFrame([
+                        {
+                            "기업명": p.get("company_name", "N/A"),
+                            "티커": p.get("ticker", "N/A"),
+                            "산업": p.get("industry", "N/A"),
+                            "PER": f"{p.get('trailing_per', 'N/A'):.1f}x" if p.get('trailing_per') else "N/A",
+                            "Forward PER": f"{p.get('forward_per', 'N/A'):.1f}x" if p.get('forward_per') else "N/A",
+                            "매출": p.get("revenue_formatted", "N/A"),
+                            "영업이익률": f"{p.get('operating_margin', 0)*100:.1f}%" if p.get('operating_margin') else "N/A"
+                        }
+                        for p in result["peers"]
+                    ])
+                    st.dataframe(peer_df, use_container_width=True, hide_index=True)
+
+                    # 통계
+                    if "statistics" in result and "trailing_per" in result["statistics"]:
+                        stats = result["statistics"]["trailing_per"]
+                        stat_cols = st.columns(3)
+                        with stat_cols[0]:
+                            st.metric("평균 PER", f"{stats.get('mean', 'N/A')}x")
+                        with stat_cols[1]:
+                            st.metric("중간값 PER", f"{stats.get('median', 'N/A')}x")
+                        with stat_cols[2]:
+                            st.metric("PER 범위", f"{stats.get('min', 'N/A')} ~ {stats.get('max', 'N/A')}x")
+
+# ========================================
+# Exit 탭 메시지 처리
+# ========================================
+# 변수 초기화 (탭에서 정의되지 않았을 경우)
+if 'exit_user_input' not in dir():
+    exit_user_input = None
+if 'peer_user_input' not in dir():
+    peer_user_input = None
 
 # 빠른 명령어 처리
 if "quick_command" in st.session_state:
-    user_input = st.session_state.quick_command
+    exit_user_input = st.session_state.quick_command
     del st.session_state.quick_command
 
-# 메시지 처리
-if user_input:
+# Exit 탭 메시지 처리
+if exit_user_input:
+    import re
+
     # 사용자 정보 수집 (최초 1회)
     if not st.session_state.user_info_collected:
-        # 별명과 기업명 파싱
-        import re
-
-        # 쉼표 또는 슬래시로 분리
-        parsed = re.split(r'[,/]', user_input, maxsplit=1)
+        parsed = re.split(r'[,/]', exit_user_input, maxsplit=1)
 
         if len(parsed) >= 2:
             nickname = parsed[0].strip()
             company_raw = parsed[1].strip()
-
-            # 기업명에서 "분석", "검토", "해줘" 등 불필요한 단어 제거
             company = re.split(r'\s+(분석|검토|해줘|부탁|요청)', company_raw)[0].strip()
 
-            # 세션 ID 업데이트
-            st.session_state.agent.memory.set_user_info(nickname, company)
+            st.session_state.agent.memory.set_user_info(nickname, company, google_email=user_email)
             st.session_state.user_info_collected = True
 
-            # 확인 메시지
             confirmation = f"반갑습니다, **{nickname}**님! **{company}** 투자 분석을 시작하겠습니다.\n\n세션 ID: `{st.session_state.agent.memory.session_id}`"
 
-            st.session_state.messages.append({
-                "role": "user",
-                "content": user_input
-            })
-            st.session_state.messages.append({
-                "role": "assistant",
-                "content": confirmation
-            })
-
+            st.session_state.messages.append({"role": "user", "content": exit_user_input})
+            st.session_state.messages.append({"role": "assistant", "content": confirmation})
             st.rerun()
         else:
-            # 파싱 실패 시 다시 요청
-            st.session_state.messages.append({
-                "role": "user",
-                "content": user_input
-            })
+            st.session_state.messages.append({"role": "user", "content": exit_user_input})
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": "정보를 정확히 파악하지 못했습니다. 다음 형식으로 다시 알려주세요:\n\n예시: \"홍길동, ABC스타트업\" 또는 \"김철수 / XYZ테크\""
             })
             st.rerun()
-
     else:
         # 파일 경로 자동 치환
-        if uploaded_file and uploaded_file.name in user_input:
-            user_input = user_input.replace(uploaded_file.name, st.session_state.uploaded_file_path)
+        if uploaded_file and uploaded_file.name in exit_user_input:
+            exit_user_input = exit_user_input.replace(uploaded_file.name, st.session_state.uploaded_file_path)
 
-        # 사용자 메시지 즉시 표시
-        st.session_state.messages.append({
-            "role": "user",
-            "content": user_input
-        })
+        st.session_state.messages.append({"role": "user", "content": exit_user_input})
 
-        # 사용자 메시지 즉시 렌더링
-        with chat_area:
-            with st.chat_message("user"):
-                st.markdown(user_input)
-
-        # Assistant 응답을 위한 빈 컨테이너 생성
-        with chat_area:
-            with st.chat_message("assistant", avatar=avatar_image):
-                message_placeholder = st.empty()
-                tool_placeholder = st.empty()
-
-        # 에이전트 응답 생성 (스트리밍)
-        async def stream_response():
+        # 에이전트 응답 생성 (스트리밍) - Exit 모드
+        async def stream_exit_response():
             full_response = ""
             tool_messages = []
 
-            async for chunk in st.session_state.agent.chat(user_input):
-                # 도구 사용 메시지 분리
+            async for chunk in st.session_state.agent.chat(exit_user_input, mode="exit"):
                 if "**도구:" in chunk:
                     tool_messages.append(chunk.strip())
-                    # 도구 사용 메시지 실시간 표시
-                    tool_placeholder.markdown("\n\n".join(tool_messages))
                 else:
                     full_response += chunk
-                    # 응답 실시간 업데이트
-                    message_placeholder.markdown(full_response + "▌")
-
-            # 최종 응답 (커서 제거)
-            message_placeholder.markdown(full_response)
 
             return full_response, tool_messages
 
-    # 비동기 실행
-    assistant_response, tool_messages = asyncio.run(stream_response())
+        assistant_response, tool_messages = asyncio.run(stream_exit_response())
 
-    # 도구 사용 메시지 저장
+        for tool_msg in tool_messages:
+            st.session_state.messages.append({"role": "tool", "content": tool_msg})
+
+        st.session_state.messages.append({"role": "assistant", "content": assistant_response})
+        st.rerun()
+
+# ========================================
+# Peer 탭 메시지 처리
+# ========================================
+if peer_user_input:
+    # PDF 경로 자동 추가
+    if pdf_file and st.session_state.peer_pdf_path:
+        if pdf_file.name in peer_user_input or "PDF" in peer_user_input or "pdf" in peer_user_input:
+            peer_user_input = peer_user_input.replace(pdf_file.name, st.session_state.peer_pdf_path)
+            if "분석" in peer_user_input and st.session_state.peer_pdf_path not in peer_user_input:
+                peer_user_input = f"{st.session_state.peer_pdf_path} 파일을 " + peer_user_input
+
+    st.session_state.peer_messages.append({"role": "user", "content": peer_user_input})
+
+    # 에이전트 응답 생성 (스트리밍) - Peer 모드
+    async def stream_peer_response():
+        full_response = ""
+        tool_messages = []
+
+        async for chunk in st.session_state.agent.chat(peer_user_input, mode="peer"):
+            if "**도구:" in chunk:
+                tool_messages.append(chunk.strip())
+            else:
+                full_response += chunk
+
+        return full_response, tool_messages
+
+    assistant_response, tool_messages = asyncio.run(stream_peer_response())
+
     for tool_msg in tool_messages:
-        st.session_state.messages.append({
-            "role": "tool",
-            "content": tool_msg
-        })
+        st.session_state.peer_messages.append({"role": "tool", "content": tool_msg})
 
-    # Assistant 메시지 저장
-    st.session_state.messages.append({
-        "role": "assistant",
-        "content": assistant_response
-    })
+    st.session_state.peer_messages.append({"role": "assistant", "content": assistant_response})
+
+    # PER 분석 결과 저장 (도구 결과에서 추출)
+    # 이 부분은 도구 실행 결과를 파싱해서 peer_analysis_result에 저장하는 로직
+    # 현재는 에이전트가 analyze_peer_per 도구를 호출하면 결과를 저장
+
+    st.rerun()
 
 # ========================================
 # 하단: Exit 프로젝션 시각화
@@ -543,7 +691,6 @@ if st.session_state.projection_data:
 
     df = st.session_state.projection_data
 
-    # Altair 차트
     chart = (
         alt.Chart(df)
         .mark_bar()

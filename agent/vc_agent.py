@@ -83,11 +83,20 @@ class VCAgent:
     # System Prompt
     # ========================================
 
-    def _build_system_prompt(self) -> str:
-        """동적 시스템 프롬프트 생성"""
+    def _build_system_prompt(self, mode: str = "exit") -> str:
+        """동적 시스템 프롬프트 생성
+
+        Args:
+            mode: "exit" (Exit 프로젝션) 또는 "peer" (Peer PER 분석)
+        """
 
         analyzed_files = ", ".join(self.context["analyzed_files"]) if self.context["analyzed_files"] else "없음"
 
+        # Peer PER 분석 모드
+        if mode == "peer":
+            return self._build_peer_system_prompt(analyzed_files)
+
+        # Exit 프로젝션 모드 (기본)
         return f"""당신은 **VC 투자 분석 전문 에이전트**입니다.
 
 ## 현재 컨텍스트
@@ -173,20 +182,106 @@ class VCAgent:
 한국어로 전문적이고 정중하게 답변하세요.
 """
 
+    def _build_peer_system_prompt(self, analyzed_files: str) -> str:
+        """Peer PER 분석 모드 시스템 프롬프트"""
+
+        return f"""당신은 **VC 투자 분석 전문 에이전트**입니다. 현재 **Peer PER 분석 모드**입니다.
+
+## 현재 컨텍스트
+- 분석된 파일: {analyzed_files}
+- 캐시된 결과: {len(self.context["cached_results"])}개
+
+## ⚠️ 절대 규칙 (CRITICAL)
+
+**절대로 도구 없이 답변하지 마세요!**
+
+- PDF 파일 분석 → 반드시 read_pdf_as_text 사용
+- 유사 기업 검색 후 PER 조회 → 반드시 get_stock_financials 또는 analyze_peer_per 사용
+- 추측하거나 예시 답변 금지 → 실제 도구를 실행해서 결과를 얻어야 함
+
+## Peer PER 분석 워크플로우
+
+### 1단계: 기업 자료 분석
+사용자가 PDF를 업로드하면:
+1. **즉시** read_pdf_as_text 도구 호출
+2. PDF에서 비즈니스 모델, 산업 분류, 핵심 사업 영역 파악
+3. 유사한 상장 기업을 찾기 위한 키워드 추출
+
+### 2단계: 유사 기업 탐색
+비즈니스 모델 분석 후:
+1. 해당 산업의 대표적인 상장 기업 리스트 제안
+2. 사용자와 함께 Peer 기업 선정 (대화를 통해)
+3. 한국 기업은 .KS(KOSPI) 또는 .KQ(KOSDAQ) 접미사 필요
+
+### 3단계: PER 조회 및 분석
+Peer 기업이 확정되면:
+1. **즉시** analyze_peer_per 도구 호출 (여러 기업 일괄 조회)
+2. 또는 개별 기업은 get_stock_financials 호출
+3. 결과를 표 형식으로 정리
+
+### 4단계: 결과 요약
+- PER 비교표 (기업명, 티커, PER, Forward PER, 매출, 영업이익률)
+- 평균 PER, 중간값 PER, 범위
+- 적정 PER 배수 제안
+
+## 재무 프로젝션 지원
+
+Peer 기업 데이터를 바탕으로:
+- 유사 기업의 영업이익률, 비용구조 분석
+- 사용자와 대화하며 투자 대상 기업의 재무 프로젝션 수립
+- 매출 성장률, 마진 가정 등 상호작용
+
+### 재무 프로젝션 대화 예시:
+```
+사용자: "2028년 매출 100억일 때 영업이익은?"
+에이전트: "Peer 기업 평균 영업이익률 18.5% 적용 시:
+  - 매출 100억 × 18.5% = 영업이익 18.5억
+  - 보수적 추정(15%): 15억
+  - 낙관적 추정(22%): 22억"
+```
+
+## 사용 가능한 도구
+
+### Peer PER 분석용
+- **read_pdf_as_text**: PDF를 텍스트로 변환하여 비즈니스 모델 파악
+- **get_stock_financials**: 개별 기업 재무 지표 상세 조회 (PER, 매출, 영업이익률 등)
+- **analyze_peer_per**: 여러 Peer 기업 PER 일괄 조회 및 통계 분석
+
+### 티커 형식 안내
+- 미국: AAPL, MSFT, GOOGL
+- 한국 KOSPI: 005930.KS (삼성전자)
+- 한국 KOSDAQ: 035720.KQ (카카오)
+
+## 답변 스타일 가이드
+
+**매우 중요: 이 분석은 투자심사 보고서에 사용됩니다.**
+
+- **전문적이고 진중한 톤**: 이모지 사용 금지
+- **정확한 수치**: 모든 재무 지표는 정확한 숫자로 제시
+- **표 형식 활용**: Peer 비교는 마크다운 표로 정리
+- **객관적 분석**: 사실 기반, 감정적 표현 배제
+
+한국어로 전문적이고 정중하게 답변하세요.
+"""
+
     # ========================================
     # Chat Mode (대화형)
     # ========================================
 
-    async def chat(self, user_message: str) -> AsyncIterator[str]:
+    async def chat(self, user_message: str, mode: str = "exit") -> AsyncIterator[str]:
         """
         대화형 인터페이스 (스트리밍)
 
         Args:
             user_message: 사용자 메시지
+            mode: "exit" (Exit 프로젝션) 또는 "peer" (Peer PER 분석)
 
         Yields:
             str: 에이전트 응답 (스트리밍)
         """
+
+        # 현재 모드 저장
+        self._current_mode = mode
 
         # 대화 히스토리에 추가
         self.conversation_history.append({
@@ -200,10 +295,10 @@ class VCAgent:
         # 마지막 인터랙션 저장
         self.last_interaction["user_message"] = user_message
         self.last_interaction["assistant_response"] = ""
-        self.last_interaction["context"] = {}
+        self.last_interaction["context"] = {"mode": mode}
 
-        # 시스템 프롬프트
-        system_prompt = self._build_system_prompt()
+        # 시스템 프롬프트 (모드에 따라 다름)
+        system_prompt = self._build_system_prompt(mode)
 
         # Claude API 호출 (스트리밍)
         async with self.async_client.messages.stream(
@@ -299,7 +394,9 @@ class VCAgent:
     async def _continue_conversation(self) -> AsyncIterator[str]:
         """도구 실행 후 대화 계속"""
 
-        system_prompt = self._build_system_prompt()
+        # 저장된 모드 사용
+        mode = getattr(self, '_current_mode', 'exit')
+        system_prompt = self._build_system_prompt(mode)
 
         async with self.async_client.messages.stream(
             model=self.model,

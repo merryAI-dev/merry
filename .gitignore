@@ -38,6 +38,9 @@ Thumbs.db
 .claude/shell-snapshots/
 .claude/session-env/
 
+# Streamlit secrets (OAuth credentials)
+.streamlit/secrets.toml
+
 # Session & Feedback data
 chat_history/
 feedback/

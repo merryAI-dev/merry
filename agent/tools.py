@@ -169,6 +169,60 @@ def register_tools() -> List[Dict[str, Any]]:
                 },
                 "required": ["projection_type", "parameters"]
             }
+        },
+        # ========================================
+        # Peer PER 분석 도구
+        # ========================================
+        {
+            "name": "read_pdf_as_text",
+            "description": "PDF 파일(기업 소개서, IR 자료, 사업계획서 등)을 텍스트로 변환하여 읽습니다. 비즈니스 모델, 산업 분류, 핵심 사업을 파악하기 위해 사용합니다.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "pdf_path": {
+                        "type": "string",
+                        "description": "읽을 PDF 파일 경로"
+                    },
+                    "max_pages": {
+                        "type": "integer",
+                        "description": "읽을 최대 페이지 수 (기본값: 30)"
+                    }
+                },
+                "required": ["pdf_path"]
+            }
+        },
+        {
+            "name": "get_stock_financials",
+            "description": "yfinance를 사용하여 상장 기업의 재무 지표를 조회합니다. PER, PSR, 매출, 영업이익률, 시가총액 등을 반환합니다. 한국 주식은 티커 뒤에 .KS(KOSPI) 또는 .KQ(KOSDAQ)를 붙입니다.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "ticker": {
+                        "type": "string",
+                        "description": "주식 티커 심볼 (예: AAPL, MSFT, 005930.KS, 035720.KQ)"
+                    }
+                },
+                "required": ["ticker"]
+            }
+        },
+        {
+            "name": "analyze_peer_per",
+            "description": "여러 Peer 기업의 PER을 일괄 조회하고 비교 분석합니다. 평균, 중간값, 범위를 계산하여 적정 PER 배수를 제안합니다.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "tickers": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "비교할 기업 티커 리스트 (예: ['AAPL', 'MSFT', 'GOOGL'])"
+                    },
+                    "include_forward_per": {
+                        "type": "boolean",
+                        "description": "Forward PER 포함 여부 (기본값: true)"
+                    }
+                },
+                "required": ["tickers"]
+            }
         }
     ]
 
@@ -651,15 +705,284 @@ def execute_analyze_and_generate_projection(
         }
 
 
+# ========================================
+# Peer PER 분석 도구 실행 함수
+# ========================================
+
+def execute_read_pdf_as_text(
+    pdf_path: str,
+    max_pages: int = 30
+) -> Dict[str, Any]:
+    """PDF 파일을 텍스트로 변환하여 읽기"""
+
+    try:
+        import fitz  # PyMuPDF
+
+        doc = fitz.open(pdf_path)
+        total_pages = len(doc)
+        pages_to_read = min(total_pages, max_pages)
+
+        text_content = []
+
+        for page_num in range(pages_to_read):
+            page = doc[page_num]
+            text = page.get_text()
+
+            if text.strip():
+                text_content.append(f"\n{'='*60}")
+                text_content.append(f"페이지 {page_num + 1}")
+                text_content.append(f"{'='*60}")
+                text_content.append(text)
+
+        doc.close()
+
+        full_text = "\n".join(text_content)
+
+        return {
+            "success": True,
+            "file_path": pdf_path,
+            "total_pages": total_pages,
+            "pages_read": pages_to_read,
+            "content": full_text,
+            "char_count": len(full_text)
+        }
+
+    except ImportError:
+        return {
+            "success": False,
+            "error": "PyMuPDF가 설치되지 않았습니다. pip install PyMuPDF를 실행하세요."
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"PDF 파일 읽기 실패: {str(e)}"
+        }
+
+
+def execute_get_stock_financials(ticker: str) -> Dict[str, Any]:
+    """yfinance로 상장 기업 재무 지표 조회"""
+
+    try:
+        import yfinance as yf
+
+        stock = yf.Ticker(ticker)
+        info = stock.info
+
+        # 기본 정보가 없으면 에러
+        if not info or info.get("regularMarketPrice") is None:
+            return {
+                "success": False,
+                "error": f"티커 '{ticker}'를 찾을 수 없습니다. 티커 형식을 확인하세요. (미국: AAPL, 한국 KOSPI: 005930.KS, KOSDAQ: 035720.KQ)"
+            }
+
+        # 재무 지표 추출
+        result = {
+            "success": True,
+            "ticker": ticker,
+            "company_name": info.get("longName") or info.get("shortName", "N/A"),
+            "sector": info.get("sector", "N/A"),
+            "industry": info.get("industry", "N/A"),
+            "country": info.get("country", "N/A"),
+            "currency": info.get("currency", "USD"),
+
+            # 시가총액
+            "market_cap": info.get("marketCap"),
+            "market_cap_formatted": _format_large_number(info.get("marketCap")),
+
+            # 밸류에이션 지표
+            "trailing_per": info.get("trailingPE"),
+            "forward_per": info.get("forwardPE"),
+            "psr": info.get("priceToSalesTrailing12Months"),
+            "pbr": info.get("priceToBook"),
+            "ev_ebitda": info.get("enterpriseToEbitda"),
+            "ev_revenue": info.get("enterpriseToRevenue"),
+
+            # 수익성 지표
+            "revenue": info.get("totalRevenue"),
+            "revenue_formatted": _format_large_number(info.get("totalRevenue")),
+            "net_income": info.get("netIncomeToCommon"),
+            "net_income_formatted": _format_large_number(info.get("netIncomeToCommon")),
+            "operating_margin": info.get("operatingMargins"),
+            "profit_margin": info.get("profitMargins"),
+            "gross_margin": info.get("grossMargins"),
+
+            # 성장률
+            "revenue_growth": info.get("revenueGrowth"),
+            "earnings_growth": info.get("earningsGrowth"),
+
+            # 기타
+            "current_price": info.get("regularMarketPrice"),
+            "52_week_high": info.get("fiftyTwoWeekHigh"),
+            "52_week_low": info.get("fiftyTwoWeekLow")
+        }
+
+        return result
+
+    except ImportError:
+        return {
+            "success": False,
+            "error": "yfinance가 설치되지 않았습니다. pip install yfinance를 실행하세요."
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"주식 정보 조회 실패: {str(e)}"
+        }
+
+
+def execute_analyze_peer_per(
+    tickers: List[str],
+    include_forward_per: bool = True
+) -> Dict[str, Any]:
+    """여러 Peer 기업 PER 일괄 조회 및 비교 분석"""
+
+    try:
+        import yfinance as yf
+        import statistics
+
+        peer_data = []
+        failed_tickers = []
+
+        for ticker in tickers:
+            try:
+                stock = yf.Ticker(ticker)
+                info = stock.info
+
+                if not info or info.get("regularMarketPrice") is None:
+                    failed_tickers.append(ticker)
+                    continue
+
+                data = {
+                    "ticker": ticker,
+                    "company_name": info.get("longName") or info.get("shortName", "N/A"),
+                    "sector": info.get("sector", "N/A"),
+                    "industry": info.get("industry", "N/A"),
+                    "market_cap": info.get("marketCap"),
+                    "market_cap_formatted": _format_large_number(info.get("marketCap")),
+                    "trailing_per": info.get("trailingPE"),
+                    "forward_per": info.get("forwardPE") if include_forward_per else None,
+                    "revenue": info.get("totalRevenue"),
+                    "revenue_formatted": _format_large_number(info.get("totalRevenue")),
+                    "operating_margin": info.get("operatingMargins"),
+                    "profit_margin": info.get("profitMargins"),
+                    "revenue_growth": info.get("revenueGrowth")
+                }
+
+                peer_data.append(data)
+
+            except Exception as e:
+                failed_tickers.append(ticker)
+
+        if not peer_data:
+            return {
+                "success": False,
+                "error": "유효한 티커가 없습니다.",
+                "failed_tickers": failed_tickers
+            }
+
+        # 통계 계산
+        trailing_pers = [d["trailing_per"] for d in peer_data if d["trailing_per"] is not None]
+        forward_pers = [d["forward_per"] for d in peer_data if d.get("forward_per") is not None]
+        operating_margins = [d["operating_margin"] for d in peer_data if d["operating_margin"] is not None]
+
+        stats = {}
+
+        if trailing_pers:
+            stats["trailing_per"] = {
+                "mean": round(statistics.mean(trailing_pers), 2),
+                "median": round(statistics.median(trailing_pers), 2),
+                "min": round(min(trailing_pers), 2),
+                "max": round(max(trailing_pers), 2),
+                "count": len(trailing_pers)
+            }
+
+        if forward_pers:
+            stats["forward_per"] = {
+                "mean": round(statistics.mean(forward_pers), 2),
+                "median": round(statistics.median(forward_pers), 2),
+                "min": round(min(forward_pers), 2),
+                "max": round(max(forward_pers), 2),
+                "count": len(forward_pers)
+            }
+
+        if operating_margins:
+            stats["operating_margin"] = {
+                "mean": round(statistics.mean(operating_margins) * 100, 2),
+                "median": round(statistics.median(operating_margins) * 100, 2),
+                "min": round(min(operating_margins) * 100, 2),
+                "max": round(max(operating_margins) * 100, 2),
+                "count": len(operating_margins)
+            }
+
+        return {
+            "success": True,
+            "peer_count": len(peer_data),
+            "peers": peer_data,
+            "statistics": stats,
+            "failed_tickers": failed_tickers,
+            "summary": _generate_per_summary(stats)
+        }
+
+    except ImportError:
+        return {
+            "success": False,
+            "error": "yfinance가 설치되지 않았습니다. pip install yfinance를 실행하세요."
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Peer PER 분석 실패: {str(e)}"
+        }
+
+
+def _format_large_number(value) -> str:
+    """큰 숫자를 읽기 쉬운 형식으로 변환"""
+    if value is None:
+        return "N/A"
+
+    if abs(value) >= 1_000_000_000_000:  # 1조 이상
+        return f"{value / 1_000_000_000_000:.2f}조"
+    elif abs(value) >= 1_000_000_000:  # 10억 이상
+        return f"{value / 1_000_000_000:.2f}B"
+    elif abs(value) >= 1_000_000:  # 100만 이상
+        return f"{value / 1_000_000:.2f}M"
+    else:
+        return f"{value:,.0f}"
+
+
+def _generate_per_summary(stats: Dict[str, Any]) -> str:
+    """PER 분석 요약 텍스트 생성"""
+    summary_parts = []
+
+    if "trailing_per" in stats:
+        tp = stats["trailing_per"]
+        summary_parts.append(f"Trailing PER: 평균 {tp['mean']}x, 중간값 {tp['median']}x (범위: {tp['min']}x ~ {tp['max']}x)")
+
+    if "forward_per" in stats:
+        fp = stats["forward_per"]
+        summary_parts.append(f"Forward PER: 평균 {fp['mean']}x, 중간값 {fp['median']}x (범위: {fp['min']}x ~ {fp['max']}x)")
+
+    if "operating_margin" in stats:
+        om = stats["operating_margin"]
+        summary_parts.append(f"영업이익률: 평균 {om['mean']}%, 중간값 {om['median']}% (범위: {om['min']}% ~ {om['max']}%)")
+
+    return "\n".join(summary_parts)
+
+
 # Tool 실행 함수 매핑
 TOOL_EXECUTORS = {
+    # Exit 프로젝션 도구
     "read_excel_as_text": execute_read_excel_as_text,
     "analyze_excel": execute_analyze_excel,
     "analyze_and_generate_projection": execute_analyze_and_generate_projection,
     "calculate_valuation": execute_calculate_valuation,
     "calculate_dilution": execute_calculate_dilution,
     "calculate_irr": execute_calculate_irr,
-    "generate_exit_projection": execute_generate_exit_projection
+    "generate_exit_projection": execute_generate_exit_projection,
+    # Peer PER 분석 도구
+    "read_pdf_as_text": execute_read_pdf_as_text,
+    "get_stock_financials": execute_get_stock_financials,
+    "analyze_peer_per": execute_analyze_peer_per
 }
 
 

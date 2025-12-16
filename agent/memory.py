@@ -39,17 +39,20 @@ class ChatMemory:
             "user_info": {}  # 사용자 정보 (별명, 기업명 등)
         }
 
-    def set_user_info(self, nickname: str = None, company: str = None):
+    def set_user_info(self, nickname: str = None, company: str = None, google_email: str = None):
         """
         사용자 정보 설정 및 세션 ID 업데이트
 
         Args:
             nickname: 사내기업가 별명
             company: 분석 대상 기업명
+            google_email: Google OAuth 인증 이메일
         """
         self.session_metadata["user_info"] = {
             "nickname": nickname,
-            "company": company
+            "company": company,
+            "google_email": google_email,
+            "authenticated_at": datetime.now().isoformat()
         }
 
         # 세션 ID를 의미있는 이름으로 업데이트
