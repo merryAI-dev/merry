@@ -66,19 +66,25 @@ def check_authentication() -> bool:
 
     # 새로운 st.user API 사용 (Streamlit 1.42+)
     if hasattr(st, 'user') and hasattr(st.user, 'is_logged_in'):
-        # 로그인되지 않은 경우: 로그인 버튼 표시
+        # 로그인되지 않은 경우
         if not st.user.is_logged_in:
-            st.markdown("## 🔐 MYSC VC 투자 분석 에이전트")
-            st.markdown("이 앱은 MYSC 임직원 전용입니다.")
-            st.markdown("---")
-
-            # 로그인 버튼 - try/except로 에러 캡처
-            if st.button("🔑 Google 계정으로 로그인", type="primary", use_container_width=True):
+            # 로그인 버튼 클릭 상태 확인
+            if st.session_state.get("trigger_login", False):
+                st.session_state.trigger_login = False
                 try:
                     st.login()
                 except Exception as e:
                     st.error(f"로그인 에러: {e}")
                     st.code(traceback.format_exc())
+
+            st.markdown("## 🔐 MYSC VC 투자 분석 에이전트")
+            st.markdown("이 앱은 MYSC 임직원 전용입니다.")
+            st.markdown("---")
+
+            # 버튼 클릭 시 세션 상태 설정 후 rerun
+            if st.button("🔑 Google 계정으로 로그인", type="primary", use_container_width=True):
+                st.session_state.trigger_login = True
+                st.rerun()
 
             st.caption("@mysc.co.kr 또는 승인된 이메일만 접근 가능합니다.")
             st.stop()
