@@ -14,8 +14,6 @@ try:
 except ImportError:
     SUPABASE_AVAILABLE = False
 
-import streamlit as st
-
 
 def get_supabase_client() -> Optional["Client"]:
     """
@@ -25,12 +23,21 @@ def get_supabase_client() -> Optional["Client"]:
     if not SUPABASE_AVAILABLE:
         return None
 
+    url = None
+    key = None
+
     # Streamlit secrets에서 먼저 시도
     try:
-        url = st.secrets.get("supabase", {}).get("url") or os.getenv("SUPABASE_URL")
-        key = st.secrets.get("supabase", {}).get("key") or os.getenv("SUPABASE_KEY")
+        import streamlit as st
+        url = st.secrets.get("supabase", {}).get("url")
+        key = st.secrets.get("supabase", {}).get("key")
     except Exception:
+        pass
+
+    # 환경변수 fallback
+    if not url:
         url = os.getenv("SUPABASE_URL")
+    if not key:
         key = os.getenv("SUPABASE_KEY")
 
     if not url or not key:
