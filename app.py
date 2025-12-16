@@ -8,7 +8,7 @@ import streamlit as st
 from PIL import Image
 
 from shared.config import initialize_session_state
-# from shared.auth import check_authentication  # 인증 비활성화
+from shared.auth import check_authentication
 
 # 페이지 설정
 st.set_page_config(
@@ -19,7 +19,7 @@ st.set_page_config(
 
 # 초기화
 initialize_session_state()
-# check_authentication()  # 인증 비활성화
+check_authentication()
 
 # 이미지 로드
 HEADER_IMAGE_PATH = "image-removebg-preview-5.png"
