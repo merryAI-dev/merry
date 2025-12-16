@@ -26,9 +26,20 @@ st.set_page_config(
 ALLOWED_DOMAIN = "mysc.co.kr"
 
 def verify_email_domain(email: str) -> bool:
-    """@mysc.co.kr 도메인 검증"""
+    """@mysc.co.kr 도메인 또는 Secrets의 allowed_emails 검증"""
     if not email:
         return False
+
+    # Secrets에 allowed_emails 리스트가 있으면 확인
+    try:
+        if 'allowed_emails' in st.secrets:
+            allowed_list = st.secrets['allowed_emails']
+            if email.lower() in [e.lower() for e in allowed_list]:
+                return True
+    except Exception:
+        pass
+
+    # @mysc.co.kr 도메인이면 통과
     domain = email.split("@")[-1].lower()
     return domain == ALLOWED_DOMAIN
 
