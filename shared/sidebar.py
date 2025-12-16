@@ -61,7 +61,7 @@ def render_sidebar():
                     current_label = "현재 세션"
 
                 session_options = [current_label] + [
-                    f"{s['session_id']} ({s['message_count']}개 메시지)"
+                    f"{s['session_id']} ({s.get('message_count', 0)}개 메시지)"
                     for s in recent_sessions
                     if s['session_id'] != memory.session_id
                 ]
