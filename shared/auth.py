@@ -35,13 +35,15 @@ def check_authentication() -> bool:
     except (AttributeError, KeyError):
         pass
 
-    # 방법 2: secrets에 테스트용 이메일 설정
-    if not user_email:
-        try:
-            if 'test_email' in st.secrets:
-                user_email = st.secrets['test_email']
-        except Exception:
-            pass
+    # 방법 2: 로컬 개발 환경에서만 test_email 사용 (배포 환경에서는 비활성화)
+    # 보안 주의: test_email은 로컬 테스트용으로만 사용해야 함
+    # Streamlit Cloud에서는 반드시 SSO를 통해 인증받아야 함
+    # if not user_email:
+    #     try:
+    #         if 'test_email' in st.secrets:
+    #             user_email = st.secrets['test_email']
+    #     except Exception:
+    #         pass
 
     # 인증되지 않은 경우
     if not user_email:
