@@ -13,7 +13,7 @@ import pandas as pd
 
 # 공통 모듈 임포트
 from shared.config import initialize_session_state, get_avatar_image, initialize_agent
-from shared.auth import check_authentication
+# from shared.auth import check_authentication  # 인증 비활성화
 from shared.sidebar import render_sidebar
 
 # 페이지 설정
@@ -25,7 +25,7 @@ st.set_page_config(
 
 # 초기화
 initialize_session_state()
-check_authentication()
+# check_authentication()  # 인증 비활성화
 initialize_agent()
 
 # 아바타 이미지 로드
