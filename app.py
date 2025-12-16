@@ -33,15 +33,24 @@ def verify_email_domain(email: str) -> bool:
     return domain == ALLOWED_DOMAIN
 
 # Streamlit Cloud 인증 확인
-# st.experimental_user는 Streamlit Cloud에서 SSO 설정 시 사용 가능
 user_email = None
 
-# 방법 1: Streamlit Cloud SSO (experimental_user)
-if hasattr(st, 'experimental_user') and st.experimental_user.email:
-    user_email = st.experimental_user.email
+# 방법 1: Streamlit Cloud SSO (experimental_user) - try/except로 안전하게 접근
+try:
+    if hasattr(st, 'experimental_user'):
+        email = st.experimental_user.email
+        if email:
+            user_email = email
+except (AttributeError, KeyError):
+    pass
+
 # 방법 2: secrets에 테스트용 이메일 설정
-elif 'test_email' in st.secrets:
-    user_email = st.secrets['test_email']
+if not user_email:
+    try:
+        if 'test_email' in st.secrets:
+            user_email = st.secrets['test_email']
+    except Exception:
+        pass
 
 # 인증되지 않은 경우
 if not user_email:
@@ -49,16 +58,15 @@ if not user_email:
     st.markdown("## VC 투자 분석 에이전트")
     st.warning("이 앱은 MYSC 임직원 전용입니다.")
     st.markdown("""
-    ### Streamlit Cloud 인증 설정 필요
+### Streamlit Cloud 인증 설정 필요
 
-    이 앱은 **Streamlit Cloud SSO**를 통해 Google 인증을 사용합니다.
+이 앱은 **Streamlit Cloud SSO**를 통해 Google 인증을 사용합니다.
 
-    **설정 방법:**
-    1. Streamlit Cloud → App Settings → Authentication
-    2. "Require viewers to log in with Google" 활성화
-    3. "Restrict to viewers with emails from specific domains" 에서 `mysc.co.kr` 추가
-
-    또는 테스트를 위해 secrets에 `test_email = "your@mysc.co.kr"` 추가
+**설정 방법:**
+1. Streamlit Cloud → App Settings → Sharing
+2. "Who can view this app" → **Only specific people**
+3. Viewer emails에 `@mysc.co.kr` 도메인 사용자 추가
+4. 또는 Secrets에 `test_email = "your@mysc.co.kr"` 추가하여 테스트
     """)
     st.stop()
 
