@@ -33,14 +33,17 @@ class VCAgent:
     def __init__(
         self,
         api_key: str = None,
-        model: str = "claude-opus-4-5-20251101"
+        model: str = "claude-opus-4-5-20251101",
+        user_id: str = None
     ):
         """
         Args:
             api_key: Anthropic API 키 (없으면 환경변수)
             model: Claude 모델 (기본: Opus 4.5)
+            user_id: 사용자 고유 ID (같은 ID끼리 세션/피드백 공유)
         """
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
+        self.user_id = user_id or "anonymous"
 
         if not self.api_key:
             raise ValueError(
@@ -66,11 +69,11 @@ class VCAgent:
             "last_analysis": None
         }
 
-        # 메모리 시스템
-        self.memory = ChatMemory()
+        # 메모리 시스템 (user_id 기반)
+        self.memory = ChatMemory(user_id=self.user_id)
 
-        # 피드백 시스템
-        self.feedback = FeedbackSystem()
+        # 피드백 시스템 (user_id 기반)
+        self.feedback = FeedbackSystem(user_id=self.user_id)
 
         # 마지막 응답 저장 (피드백용)
         self.last_interaction = {

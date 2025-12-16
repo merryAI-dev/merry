@@ -86,19 +86,24 @@ def get_avatar_image() -> Image.Image:
 
 
 def initialize_agent():
-    """VCAgent 초기화 - 사용자 API 키 사용"""
+    """VCAgent 초기화 - 사용자 API 키 및 user_id 사용"""
     if st.session_state.agent is None:
         try:
             from agent.vc_agent import VCAgent
-            from shared.auth import get_user_api_key
+            from shared.auth import get_user_api_key, get_user_id
 
-            # 사용자가 입력한 API 키 사용
+            # 사용자가 입력한 API 키 및 user_id 사용
             user_api_key = get_user_api_key()
+            user_id = get_user_id()
+
             if user_api_key:
-                st.session_state.agent = VCAgent(api_key=user_api_key)
+                st.session_state.agent = VCAgent(
+                    api_key=user_api_key,
+                    user_id=user_id
+                )
             else:
                 # 환경변수 fallback (로컬 개발용)
-                st.session_state.agent = VCAgent()
+                st.session_state.agent = VCAgent(user_id=user_id)
         except ValueError as e:
             st.error(f"{str(e)}")
             st.info("API 키가 필요합니다.")

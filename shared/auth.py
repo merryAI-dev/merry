@@ -2,10 +2,23 @@
 인증 로직 모듈
 - Claude API Key 기반 인증
 - API 키가 유효하면 사용 가능
+- 동일 API 키 사용자끼리 세션/피드백 공유
 """
 
 import streamlit as st
+import hashlib
 from anthropic import Anthropic
+
+
+def get_user_id_from_api_key(api_key: str) -> str:
+    """
+    API 키에서 고유 사용자 ID 생성 (해시)
+    동일한 API 키는 동일한 user_id를 가짐
+    """
+    if not api_key:
+        return "anonymous"
+    # API 키의 SHA256 해시 앞 12자리를 user_id로 사용
+    return hashlib.sha256(api_key.encode()).hexdigest()[:12]
 
 
 def validate_api_key(api_key: str) -> bool:
@@ -67,6 +80,7 @@ def check_authentication() -> bool:
                 if validate_api_key(api_key):
                     st.session_state.api_key_validated = True
                     st.session_state.user_api_key = api_key
+                    st.session_state.user_id = get_user_id_from_api_key(api_key)
                     st.success("인증 성공!")
                     st.rerun()
                 else:
@@ -83,6 +97,12 @@ def get_user_api_key() -> str:
     return st.session_state.get("user_api_key", "")
 
 
+def get_user_id() -> str:
+    """현재 사용자의 고유 ID 반환 (API 키 해시)"""
+    return st.session_state.get("user_id", "anonymous")
+
+
 def get_user_email() -> str:
     """현재 로그인한 사용자 이메일 반환 (호환성)"""
-    return "API Key User"
+    user_id = get_user_id()
+    return f"user_{user_id}"

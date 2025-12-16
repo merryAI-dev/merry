@@ -10,16 +10,20 @@ from typing import List, Dict, Any
 
 
 class ChatMemory:
-    """채팅 히스토리 저장 및 관리"""
+    """채팅 히스토리 저장 및 관리 - user_id 기반 공유"""
 
-    def __init__(self, storage_dir: str = "chat_history", custom_session_id: str = None):
+    def __init__(self, storage_dir: str = "chat_history", custom_session_id: str = None, user_id: str = None):
         """
         Args:
             storage_dir: 채팅 히스토리 저장 디렉토리
             custom_session_id: 사용자 정의 세션 ID (없으면 타임스탬프 사용)
+            user_id: 사용자 고유 ID (API 키 해시, 같은 ID끼리 세션 공유)
         """
-        self.storage_dir = Path(storage_dir)
-        self.storage_dir.mkdir(exist_ok=True)
+        self.user_id = user_id or "anonymous"
+
+        # user_id별 하위 디렉토리 생성
+        self.storage_dir = Path(storage_dir) / self.user_id
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
 
         # 현재 세션 ID (커스텀 또는 타임스탬프)
         if custom_session_id:
@@ -32,6 +36,7 @@ class ChatMemory:
         # 세션 메타데이터
         self.session_metadata = {
             "session_id": self.session_id,
+            "user_id": self.user_id,
             "start_time": datetime.now().isoformat(),
             "messages": [],
             "analyzed_files": [],
