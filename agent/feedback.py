@@ -27,9 +27,12 @@ class FeedbackSystem:
     - rating: 1-5점 평점
     """
 
-    def __init__(self, storage_dir: str = "feedback", session_id: str = None, user_nickname: str = None, company_name: str = None):
-        self.storage_dir = Path(storage_dir)
-        self.storage_dir.mkdir(exist_ok=True)
+    def __init__(self, storage_dir: str = "feedback", session_id: str = None, user_nickname: str = None, company_name: str = None, user_id: str = None):
+        self.user_id = user_id or "anonymous"
+
+        # user_id별 하위 디렉토리 생성
+        self.storage_dir = Path(storage_dir) / self.user_id
+        self.storage_dir.mkdir(parents=True, exist_ok=True)
 
         # 피드백 데이터 파일
         self.feedback_file = self.storage_dir / "feedback_data.jsonl"
