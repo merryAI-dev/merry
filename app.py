@@ -57,7 +57,7 @@ with col1:
     """)
 
     if st.button("Exit 프로젝션 시작", type="primary", use_container_width=True, key="start_exit"):
-        st.switch_page("pages/1_📊_Exit_프로젝션.py")
+        st.switch_page("pages/1_Exit_Projection.py")
 
 with col2:
     st.markdown("### 🔍 Peer PER 분석")
@@ -77,7 +77,7 @@ with col2:
     """)
 
     if st.button("Peer PER 분석 시작", type="primary", use_container_width=True, key="start_peer"):
-        st.switch_page("pages/2_🔍_Peer_PER_분석.py")
+        st.switch_page("pages/2_Peer_PER_Analysis.py")
 
 st.divider()
 
