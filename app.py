@@ -557,6 +557,16 @@ VC 투자 분석을 시작하기 전에 몇 가지 정보를 알려주세요:
 | 2. 확인 요청 | 분석 결과가 맞는지 확인 |
 | 3. Peer 검색 | 유사 상장 기업 제안 |
 | 4. PER 조회 | 각 기업 PER, 매출, 영업이익률 비교 |
+| 5. 프로젝션 지원 | Peer 데이터 기반 매출 프로젝션 |
+
+---
+
+### 프로젝션 지원 기능
+
+PER 분석 완료 후 **매출 프로젝션**을 도와드립니다:
+- **목표 기업가치 역산**: "2028년에 500억 이상" → 필요 매출/이익 계산
+- **순방향 프로젝션**: 현재 매출 기준 연도별 성장 예측
+- **Peer 벤치마크 적용**: 유사 기업 평균 영업이익률, 성장률 참고
 
 ---
 
@@ -662,20 +672,33 @@ if exit_user_input:
 
         st.session_state.messages.append({"role": "user", "content": exit_user_input})
 
-        # 에이전트 응답 생성 (스트리밍) - Exit 모드
-        async def stream_exit_response():
+        # 실시간 스트리밍 표시를 위한 placeholder 생성
+        with chat_area:
+            with st.chat_message("assistant", avatar=avatar_image):
+                response_placeholder = st.empty()
+                tool_container = st.container()
+
+        # 에이전트 응답 생성 (실시간 스트리밍) - Exit 모드
+        async def stream_exit_response_realtime():
             full_response = ""
             tool_messages = []
 
             async for chunk in st.session_state.agent.chat(exit_user_input, mode="exit"):
                 if "**도구:" in chunk:
                     tool_messages.append(chunk.strip())
+                    # 도구 메시지도 실시간 표시
+                    with tool_container:
+                        st.caption(chunk.strip())
                 else:
                     full_response += chunk
+                    # 실시간으로 응답 업데이트
+                    response_placeholder.markdown(full_response + "▌")
 
+            # 최종 응답 (커서 제거)
+            response_placeholder.markdown(full_response)
             return full_response, tool_messages
 
-        assistant_response, tool_messages = asyncio.run(stream_exit_response())
+        assistant_response, tool_messages = asyncio.run(stream_exit_response_realtime())
 
         for tool_msg in tool_messages:
             st.session_state.messages.append({"role": "tool", "content": tool_msg})
@@ -696,20 +719,33 @@ if peer_user_input:
 
     st.session_state.peer_messages.append({"role": "user", "content": peer_user_input})
 
-    # 에이전트 응답 생성 (스트리밍) - Peer 모드
-    async def stream_peer_response():
+    # 실시간 스트리밍 표시를 위한 placeholder 생성
+    with peer_chat_area:
+        with st.chat_message("assistant", avatar=avatar_image):
+            peer_response_placeholder = st.empty()
+            peer_tool_container = st.container()
+
+    # 에이전트 응답 생성 (실시간 스트리밍) - Peer 모드
+    async def stream_peer_response_realtime():
         full_response = ""
         tool_messages = []
 
         async for chunk in st.session_state.agent.chat(peer_user_input, mode="peer"):
             if "**도구:" in chunk:
                 tool_messages.append(chunk.strip())
+                # 도구 메시지도 실시간 표시
+                with peer_tool_container:
+                    st.caption(chunk.strip())
             else:
                 full_response += chunk
+                # 실시간으로 응답 업데이트
+                peer_response_placeholder.markdown(full_response + "▌")
 
+        # 최종 응답 (커서 제거)
+        peer_response_placeholder.markdown(full_response)
         return full_response, tool_messages
 
-    assistant_response, tool_messages = asyncio.run(stream_peer_response())
+    assistant_response, tool_messages = asyncio.run(stream_peer_response_realtime())
 
     for tool_msg in tool_messages:
         st.session_state.peer_messages.append({"role": "tool", "content": tool_msg})
