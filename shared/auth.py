@@ -5,12 +5,8 @@
 """
 
 import streamlit as st
-import traceback
 
 ALLOWED_DOMAIN = "mysc.co.kr"
-
-# 디버그 모드
-DEBUG_AUTH = True
 
 
 def verify_email_domain(email: str) -> bool:
@@ -41,47 +37,22 @@ def check_authentication() -> bool:
     Returns:
         True if authenticated, otherwise st.stop() is called
     """
-    # 디버그 정보 표시
-    if DEBUG_AUTH:
-        with st.expander("🔧 Debug Info", expanded=False):
-            st.write(f"Streamlit version: {st.__version__}")
-            st.write(f"hasattr(st, 'user'): {hasattr(st, 'user')}")
-            st.write(f"hasattr(st, 'login'): {hasattr(st, 'login')}")
-            st.write(f"hasattr(st, 'logout'): {hasattr(st, 'logout')}")
-
-            if hasattr(st, 'user'):
-                st.write(f"st.user type: {type(st.user)}")
-                st.write(f"st.user: {st.user}")
-                try:
-                    st.write(f"st.user.is_logged_in: {st.user.is_logged_in}")
-                except Exception as e:
-                    st.write(f"st.user.is_logged_in error: {e}")
-
-            # secrets 확인
-            try:
-                auth_config = st.secrets.get("auth", {})
-                st.write(f"auth config keys: {list(auth_config.keys()) if auth_config else 'None'}")
-            except Exception as e:
-                st.write(f"secrets error: {e}")
-
     # 새로운 st.user API 사용 (Streamlit 1.42+)
     if hasattr(st, 'user') and hasattr(st.user, 'is_logged_in'):
         # 로그인되지 않은 경우
         if not st.user.is_logged_in:
-            # 로그인 버튼 클릭 상태 확인 - st.login() 먼저 호출하고 바로 stop
-            if st.session_state.get("trigger_login", False):
-                st.session_state.trigger_login = False
-                st.login()  # 이 함수가 리다이렉트를 트리거함
-                st.stop()   # 다른 UI 렌더링 방지
-
+            # 로그인 UI 표시
             st.markdown("## 🔐 MYSC VC 투자 분석 에이전트")
             st.markdown("이 앱은 MYSC 임직원 전용입니다.")
             st.markdown("---")
 
-            # 버튼 클릭 시 세션 상태 설정 후 rerun
-            if st.button("🔑 Google 계정으로 로그인", type="primary", use_container_width=True):
-                st.session_state.trigger_login = True
-                st.rerun()
+            # Streamlit 공식 문서 권장 방식: on_click으로 st.login 직접 연결
+            st.button(
+                "🔑 Google 계정으로 로그인",
+                type="primary",
+                use_container_width=True,
+                on_click=st.login
+            )
 
             st.caption("@mysc.co.kr 또는 승인된 이메일만 접근 가능합니다.")
             st.stop()
