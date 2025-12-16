@@ -1,136 +1,88 @@
 """
 인증 로직 모듈
-- Streamlit 1.42+ st.login/st.logout 기반 Google OAuth
-- @mysc.co.kr 도메인 검증 + allowed_emails 허용
+- Claude API Key 기반 인증
+- API 키가 유효하면 사용 가능
 """
 
 import streamlit as st
+from anthropic import Anthropic
 
-ALLOWED_DOMAIN = "mysc.co.kr"
 
-
-def verify_email_domain(email: str) -> bool:
+def validate_api_key(api_key: str) -> bool:
     """
-    이메일 검증: @mysc.co.kr 도메인 또는 allowed_emails 목록
+    Claude API 키 유효성 검증
+    간단한 API 호출로 키가 유효한지 확인
     """
-    if not email:
+    if not api_key or len(api_key) < 10:
         return False
 
-    # 1. allowed_emails에 있으면 허용
     try:
-        allowed_emails = st.secrets.get("allowed_emails", [])
-        if email.lower() in [e.lower() for e in allowed_emails]:
-            return True
-    except Exception:
-        pass
-
-    # 2. @mysc.co.kr 도메인이면 허용
-    domain = email.split("@")[-1].lower()
-    return domain == ALLOWED_DOMAIN
+        client = Anthropic(api_key=api_key)
+        # 최소 비용으로 키 검증 (짧은 메시지)
+        response = client.messages.create(
+            model="claude-3-5-haiku-20241022",
+            max_tokens=10,
+            messages=[{"role": "user", "content": "Hi"}]
+        )
+        return True
+    except Exception as e:
+        return False
 
 
 def check_authentication() -> bool:
     """
-    인증 확인 - 각 페이지 시작 시 호출
-    Streamlit 1.42+ 새로운 인증 API (st.login/st.logout) 사용
+    API 키 기반 인증 확인
 
     Returns:
         True if authenticated, otherwise st.stop() is called
     """
-    # 새로운 st.user API 사용 (Streamlit 1.42+)
-    if hasattr(st, 'user') and hasattr(st.user, 'is_logged_in'):
-        # 로그인되지 않은 경우
-        if not st.user.is_logged_in:
-            # 로그인 UI 표시
-            st.markdown("## 🔐 MYSC VC 투자 분석 에이전트")
-            st.markdown("이 앱은 MYSC 임직원 전용입니다.")
-            st.markdown("---")
-
-            # Streamlit 공식 문서 권장 방식: on_click으로 st.login 직접 연결
-            st.button(
-                "🔑 Google 계정으로 로그인",
-                type="primary",
-                use_container_width=True,
-                on_click=st.login
-            )
-
-            st.caption("@mysc.co.kr 또는 승인된 이메일만 접근 가능합니다.")
-            st.stop()
-
-        # 로그인된 경우: 이메일 확인
-        user_email = None
-        try:
-            user_email = st.user.email
-        except (AttributeError, KeyError):
-            try:
-                user_email = st.user.get("email")
-            except Exception:
-                pass
-
-        if not user_email:
-            st.error("이메일 정보를 가져올 수 없습니다.")
-            if st.button("다시 로그인"):
-                st.logout()
-            st.stop()
-
-        # 도메인/허용목록 검증
-        if not verify_email_domain(user_email):
-            st.error("접근이 거부되었습니다.")
-            st.markdown(f"현재 로그인: **{user_email}**")
-            st.markdown("@mysc.co.kr 도메인 또는 승인된 이메일만 접근이 허용됩니다.")
-            if st.button("다른 계정으로 로그인"):
-                st.logout()
-            st.stop()
-
-        # 인증 성공
-        st.session_state.user_email = user_email
+    # 이미 인증된 경우
+    if st.session_state.get("api_key_validated"):
         return True
 
-    # Fallback: 이전 experimental_user API (Streamlit < 1.42)
-    user_email = None
-    try:
-        if hasattr(st, 'experimental_user'):
-            exp_user = st.experimental_user
-            if exp_user is not None:
-                if hasattr(exp_user, 'email'):
-                    user_email = exp_user.email
-                elif isinstance(exp_user, dict) and 'email' in exp_user:
-                    user_email = exp_user['email']
-    except (AttributeError, KeyError, TypeError):
-        pass
+    # 로그인 UI 표시
+    st.markdown("## MYSC VC 투자 분석 에이전트")
+    st.markdown("Claude API 키를 입력하여 사용하세요.")
+    st.markdown("---")
 
-    # 인증되지 않은 경우
-    if not user_email:
-        st.warning("이 앱은 MYSC 임직원 전용입니다.")
-        st.markdown("""
-### 인증 설정 필요
+    # API 키 입력
+    api_key = st.text_input(
+        "Claude API Key",
+        type="password",
+        placeholder="sk-ant-api03-...",
+        help="Anthropic Console에서 발급받은 API 키를 입력하세요"
+    )
 
-이 앱은 Google OAuth 인증이 필요합니다.
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        login_clicked = st.button("시작하기", type="primary", use_container_width=True)
 
-**Secrets.toml 설정이 필요합니다:**
-```toml
-[auth]
-redirect_uri = "https://your-app.streamlit.app/oauth2callback"
-cookie_secret = "랜덤_시크릿_문자열"
-client_id = "구글_클라이언트_ID"
-client_secret = "구글_클라이언트_시크릿"
-server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
-```
-        """)
-        st.stop()
+    if login_clicked:
+        if not api_key:
+            st.error("API 키를 입력하세요.")
+        elif not api_key.startswith("sk-"):
+            st.error("올바른 API 키 형식이 아닙니다. (sk-로 시작)")
+        else:
+            with st.spinner("API 키 확인 중..."):
+                if validate_api_key(api_key):
+                    st.session_state.api_key_validated = True
+                    st.session_state.user_api_key = api_key
+                    st.success("인증 성공!")
+                    st.rerun()
+                else:
+                    st.error("유효하지 않은 API 키입니다.")
 
-    # 도메인 검증
-    if not verify_email_domain(user_email):
-        st.error("접근이 거부되었습니다.")
-        st.markdown(f"현재 로그인: **{user_email}**")
-        st.markdown("@mysc.co.kr 도메인만 접근이 허용됩니다.")
-        st.stop()
+    st.markdown("---")
+    st.caption("[Anthropic Console](https://console.anthropic.com/)에서 API 키를 발급받을 수 있습니다.")
 
-    # 세션에 이메일 저장
-    st.session_state.user_email = user_email
-    return True
+    st.stop()
+
+
+def get_user_api_key() -> str:
+    """현재 사용자의 API 키 반환"""
+    return st.session_state.get("user_api_key", "")
 
 
 def get_user_email() -> str:
-    """현재 로그인한 사용자 이메일 반환"""
-    return st.session_state.get("user_email", "Unknown")
+    """현재 로그인한 사용자 이메일 반환 (호환성)"""
+    return "API Key User"
