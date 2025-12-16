@@ -114,6 +114,17 @@ def render_sidebar():
                     st.caption(f"총 피드백: {feedback_stats['total_feedback']}개")
                     st.caption(f"만족도: {feedback_stats['satisfaction_rate']*100:.0f}%")
 
+            # 토큰 사용량
+            if hasattr(st.session_state.agent, 'get_token_usage'):
+                usage = st.session_state.agent.get_token_usage()
+                if usage["total_tokens"] > 0:
+                    st.divider()
+                    st.markdown("**토큰 사용량:**")
+                    st.caption(f"입력: {usage['input_tokens']:,} 토큰")
+                    st.caption(f"출력: {usage['output_tokens']:,} 토큰")
+                    st.caption(f"API 호출: {usage['api_calls']}회")
+                    st.caption(f"예상 비용: ${usage['estimated_cost_usd']:.4f} (₩{usage['estimated_cost_krw']:,.0f})")
+
             # 히스토리 내보내기
             if st.button("히스토리 내보내기", use_container_width=True, type="primary", key="export_history"):
                 export_path = memory.export_session()

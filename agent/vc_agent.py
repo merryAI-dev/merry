@@ -79,6 +79,13 @@ class VCAgent:
             "context": {}
         }
 
+        # 토큰 사용량 추적
+        self.token_usage = {
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "session_calls": 0
+        }
+
     # ========================================
     # System Prompt
     # ========================================
@@ -345,6 +352,12 @@ Peer 기업 데이터를 바탕으로:
                 elif event.type == "content_block_stop":
                     message = await stream.get_final_message()
 
+                    # 토큰 사용량 추적
+                    if hasattr(message, 'usage'):
+                        self.token_usage["total_input_tokens"] += message.usage.input_tokens
+                        self.token_usage["total_output_tokens"] += message.usage.output_tokens
+                        self.token_usage["session_calls"] += 1
+
                     # 도구 호출 처리
                     tool_results = []
                     assistant_response_parts = []
@@ -441,6 +454,12 @@ Peer 기업 데이터를 바탕으로:
                 elif event.type == "content_block_stop":
                     message = await stream.get_final_message()
 
+                    # 토큰 사용량 추적
+                    if hasattr(message, 'usage'):
+                        self.token_usage["total_input_tokens"] += message.usage.input_tokens
+                        self.token_usage["total_output_tokens"] += message.usage.output_tokens
+                        self.token_usage["session_calls"] += 1
+
                     tool_results = []
                     for content_block in message.content:
                         if content_block.type == "tool_use":
@@ -490,6 +509,33 @@ Peer 기업 데이터를 바탕으로:
         loop = asyncio.get_event_loop()
         return loop.run_until_complete(run())
 
+    def get_token_usage(self) -> Dict[str, Any]:
+        """토큰 사용량 및 예상 비용 반환"""
+        # Claude Opus 4.5 가격 (2024년 기준)
+        INPUT_PRICE_PER_1M = 15.0   # $15 / 1M input tokens
+        OUTPUT_PRICE_PER_1M = 75.0  # $75 / 1M output tokens
+
+        input_cost = (self.token_usage["total_input_tokens"] / 1_000_000) * INPUT_PRICE_PER_1M
+        output_cost = (self.token_usage["total_output_tokens"] / 1_000_000) * OUTPUT_PRICE_PER_1M
+        total_cost = input_cost + output_cost
+
+        return {
+            "input_tokens": self.token_usage["total_input_tokens"],
+            "output_tokens": self.token_usage["total_output_tokens"],
+            "total_tokens": self.token_usage["total_input_tokens"] + self.token_usage["total_output_tokens"],
+            "api_calls": self.token_usage["session_calls"],
+            "estimated_cost_usd": round(total_cost, 4),
+            "estimated_cost_krw": round(total_cost * 1400, 0)  # 대략적 환율
+        }
+
+    def reset_token_usage(self):
+        """토큰 사용량 초기화"""
+        self.token_usage = {
+            "total_input_tokens": 0,
+            "total_output_tokens": 0,
+            "session_calls": 0
+        }
+
     def reset(self):
         """세션 초기화"""
         self.conversation_history = []
@@ -498,3 +544,4 @@ Peer 기업 데이터를 바탕으로:
             "cached_results": {},
             "last_analysis": None
         }
+        self.reset_token_usage()
