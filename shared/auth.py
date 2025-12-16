@@ -71,10 +71,48 @@ def check_authentication() -> bool:
             # 로그인 버튼 클릭 상태 확인
             if st.session_state.get("trigger_login", False):
                 st.session_state.trigger_login = False
+
+                # 디버깅: st.login 호출 전 상태 표시
+                st.info("🔄 st.login() 호출 중...")
+
+                # st.login 함수 시그니처 확인
+                import inspect
                 try:
-                    st.login()
+                    sig = inspect.signature(st.login)
+                    st.write(f"st.login signature: {sig}")
+                    st.write(f"st.login parameters: {list(sig.parameters.keys())}")
                 except Exception as e:
-                    st.error(f"로그인 에러: {e}")
+                    st.write(f"signature error: {e}")
+
+                # auth secrets 상세 확인
+                try:
+                    auth = st.secrets.get("auth", {})
+                    st.write("Auth config:")
+                    for key in auth.keys():
+                        if key == "client_secret" or key == "cookie_secret":
+                            st.write(f"  {key}: ***hidden***")
+                        else:
+                            st.write(f"  {key}: {auth[key]}")
+                except Exception as e:
+                    st.write(f"Auth config error: {e}")
+
+                # st.login 호출
+                try:
+                    result = st.login()
+                    st.write(f"st.login() returned: {result}")
+                except TypeError as e:
+                    st.error(f"TypeError: {e}")
+                    st.code(traceback.format_exc())
+                    # provider 인자가 필요할 수 있음
+                    st.info("Trying st.login('google')...")
+                    try:
+                        result = st.login("google")
+                        st.write(f"st.login('google') returned: {result}")
+                    except Exception as e2:
+                        st.error(f"st.login('google') error: {e2}")
+                        st.code(traceback.format_exc())
+                except Exception as e:
+                    st.error(f"로그인 에러: {type(e).__name__}: {e}")
                     st.code(traceback.format_exc())
 
             st.markdown("## 🔐 MYSC VC 투자 분석 에이전트")
