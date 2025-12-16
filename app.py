@@ -21,7 +21,7 @@ st.set_page_config(
 )
 
 # ========================================
-# Google OAuth 인증
+# Google OAuth 인증 (Streamlit Cloud)
 # ========================================
 ALLOWED_DOMAIN = "mysc.co.kr"
 
@@ -32,25 +32,42 @@ def verify_email_domain(email: str) -> bool:
     domain = email.split("@")[-1].lower()
     return domain == ALLOWED_DOMAIN
 
-# 인증 확인
-if not st.user.is_logged_in:
+# Streamlit Cloud 인증 확인
+# st.experimental_user는 Streamlit Cloud에서 SSO 설정 시 사용 가능
+user_email = None
+
+# 방법 1: Streamlit Cloud SSO (experimental_user)
+if hasattr(st, 'experimental_user') and st.experimental_user.email:
+    user_email = st.experimental_user.email
+# 방법 2: secrets에 테스트용 이메일 설정
+elif 'test_email' in st.secrets:
+    user_email = st.secrets['test_email']
+
+# 인증되지 않은 경우
+if not user_email:
     st.image("image-removebg-preview-5.png", width=300)
     st.markdown("## VC 투자 분석 에이전트")
     st.warning("이 앱은 MYSC 임직원 전용입니다.")
-    st.markdown("@mysc.co.kr 이메일로 로그인해 주세요.")
-    if st.button("Google로 로그인", type="primary", use_container_width=True):
-        st.login()
+    st.markdown("""
+    ### Streamlit Cloud 인증 설정 필요
+
+    이 앱은 **Streamlit Cloud SSO**를 통해 Google 인증을 사용합니다.
+
+    **설정 방법:**
+    1. Streamlit Cloud → App Settings → Authentication
+    2. "Require viewers to log in with Google" 활성화
+    3. "Restrict to viewers with emails from specific domains" 에서 `mysc.co.kr` 추가
+
+    또는 테스트를 위해 secrets에 `test_email = "your@mysc.co.kr"` 추가
+    """)
     st.stop()
 
 # 도메인 검증
-user_email = st.user.email
 if not verify_email_domain(user_email):
     st.image("image-removebg-preview-5.png", width=300)
     st.error(f"접근이 거부되었습니다.")
     st.markdown(f"현재 로그인: **{user_email}**")
     st.markdown("@mysc.co.kr 도메인만 접근이 허용됩니다.")
-    if st.button("다른 계정으로 로그인", type="primary"):
-        st.logout()
     st.stop()
 
 # 이미지 로드 (상대 경로 사용)
@@ -151,8 +168,8 @@ with cols[0]:
     with left_container:
         # 로그인 정보
         st.markdown(f"**{user_email}**")
-        if st.button("로그아웃", use_container_width=True, type="secondary", key="logout_btn"):
-            st.logout()
+        # Streamlit Cloud SSO는 자동 로그아웃 지원하지 않음
+        st.caption("Streamlit Cloud SSO 인증")
 
         st.divider()
 
@@ -513,16 +530,31 @@ VC 투자 분석을 시작하기 전에 몇 가지 정보를 알려주세요:
                     with st.chat_message("assistant", avatar=avatar_image):
                         st.markdown("""**Peer PER 분석 모드**입니다.
 
-1. **PDF 업로드**: 기업 소개서나 IR 자료를 업로드하세요
-2. **비즈니스 분석**: PDF에서 비즈니스 모델과 산업을 파악합니다
-3. **Peer 기업 검색**: 유사한 상장 기업을 찾아드립니다
-4. **PER 비교**: 각 기업의 PER, 매출, 영업이익률을 조회합니다
+투자 대상 기업의 **유사 상장 기업 PER**을 분석하여 적정 밸류에이션을 산정합니다.
 
-예시 질문:
-- "이 PDF를 분석해서 유사 기업을 찾아줘"
-- "Salesforce, ServiceNow, Workday의 PER을 비교해줘"
-- "SaaS 기업들의 평균 영업이익률은 얼마야?"
-- "2028년 매출 100억일 때 적정 기업가치는?"
+---
+
+### 시작하기
+
+1. 위 영역에 **기업 소개서 / IR 자료 (PDF)**를 업로드하세요
+2. 아래 입력창에 **"분석해줘"** 라고 입력하세요
+
+---
+
+### 분석 과정
+
+| 단계 | 내용 |
+|------|------|
+| 1. PDF 분석 | 비즈니스 모델, 산업, 타겟 고객 파악 |
+| 2. 확인 요청 | 분석 결과가 맞는지 확인 |
+| 3. Peer 검색 | 유사 상장 기업 제안 |
+| 4. PER 조회 | 각 기업 PER, 매출, 영업이익률 비교 |
+
+---
+
+PDF가 없어도 직접 기업을 지정할 수 있습니다:
+- "Salesforce, ServiceNow, Workday PER 비교해줘"
+- "국내 SaaS 기업 PER 알려줘"
 """)
 
                 # 메시지 표시
