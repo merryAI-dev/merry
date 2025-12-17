@@ -12,15 +12,15 @@ from pathlib import Path
 import pandas as pd
 
 # 공통 모듈 임포트
-from shared.config import initialize_session_state, get_avatar_image, initialize_agent
+from shared.config import initialize_session_state, get_avatar_image, initialize_agent, inject_custom_css
 from shared.auth import check_authentication
 from shared.sidebar import render_sidebar
-from shared.file_utils import get_secure_upload_path, cleanup_user_temp_files
+from shared.file_utils import get_secure_upload_path, cleanup_user_temp_files, validate_upload, ALLOWED_EXTENSIONS_PDF
 
 # 페이지 설정
 st.set_page_config(
     page_title="Peer PER 분석 | VC 투자 분석",
-    page_icon="🔍",
+    page_icon="VC",
     layout="wide",
 )
 
@@ -28,6 +28,7 @@ st.set_page_config(
 initialize_session_state()
 check_authentication()
 initialize_agent()
+inject_custom_css()
 
 # 아바타 이미지 로드
 avatar_image = get_avatar_image()
@@ -35,10 +36,33 @@ avatar_image = get_avatar_image()
 # 사이드바 렌더링
 render_sidebar()
 
+
+def _sync_peer_analysis_result_from_memory():
+    """최근 analyze_peer_per 결과를 세션 상태에 반영 (표/지표 렌더링용)"""
+    agent = st.session_state.get("agent")
+    if not agent or not hasattr(agent, "memory"):
+        return
+
+    messages = agent.memory.session_metadata.get("messages", [])
+    for msg in reversed(messages):
+        if msg.get("role") != "tool":
+            continue
+        meta = msg.get("metadata") or {}
+        if meta.get("tool_name") != "analyze_peer_per":
+            continue
+
+        result = meta.get("result")
+        if isinstance(result, dict):
+            st.session_state.peer_analysis_result = result if result.get("success") else None
+        break
+
+
+_sync_peer_analysis_result_from_memory()
+
 # ========================================
 # 메인 영역
 # ========================================
-st.markdown("# 🔍 Peer PER 분석")
+st.markdown("# Peer PER 분석")
 st.markdown("유사 상장 기업의 PER을 분석하여 적정 밸류에이션을 산정합니다")
 
 st.divider()
@@ -57,21 +81,31 @@ with pdf_cols[0]:
 
 with pdf_cols[1]:
     if pdf_file:
-        # 안전한 업로드 경로 생성 (사용자별 격리)
-        user_id = st.session_state.get('user_id', 'anonymous')
-        secure_pdf_path = get_secure_upload_path(
-            user_id=user_id,
-            original_filename=pdf_file.name
+        # 업로드 전 검증 (확장자 + 크기)
+        is_valid, error = validate_upload(
+            filename=pdf_file.name,
+            file_size=pdf_file.size,
+            allowed_extensions=ALLOWED_EXTENSIONS_PDF
         )
-        with open(secure_pdf_path, "wb") as f:
-            f.write(pdf_file.getbuffer())
 
-        # 오래된 파일 정리
-        cleanup_user_temp_files(user_id, max_files=10)
+        if not is_valid:
+            st.error(error)
+        else:
+            # 안전한 업로드 경로 생성 (사용자별 격리)
+            user_id = st.session_state.get('user_id', 'anonymous')
+            secure_pdf_path = get_secure_upload_path(
+                user_id=user_id,
+                original_filename=pdf_file.name
+            )
+            with open(secure_pdf_path, "wb") as f:
+                f.write(pdf_file.getbuffer())
 
-        st.session_state.peer_pdf_path = str(secure_pdf_path)
-        st.session_state.peer_pdf_name = pdf_file.name
-        st.success(f"업로드 완료: {pdf_file.name}")
+            # 오래된 파일 정리
+            cleanup_user_temp_files(user_id, max_files=10)
+
+            st.session_state.peer_pdf_path = str(secure_pdf_path)
+            st.session_state.peer_pdf_name = pdf_file.name
+            st.success(f"업로드 완료: {pdf_file.name}")
 
 st.divider()
 

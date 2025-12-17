@@ -389,7 +389,7 @@ Peer 기업 데이터를 바탕으로:
                             tool_name = content_block.name
                             tool_input = content_block.input
 
-                            yield f"\n\n**도구: {tool_name}**\n"
+                            yield f"\n\n**도구: {tool_name}** 실행 중...\n"
 
                             # 도구 실행
                             tool_result = execute_tool(tool_name, tool_input)
@@ -403,8 +403,6 @@ Peer 기업 데이터를 바탕으로:
 
                             # 메모리/컨텍스트 업데이트 (공통 헬퍼)
                             self._record_tool_usage(tool_name, tool_input, tool_result)
-
-                            yield f"완료\n\n"
 
                     # Assistant 응답 메모리에 저장
                     if assistant_response_parts:
@@ -473,7 +471,7 @@ Peer 기업 데이터를 바탕으로:
                             tool_name = content_block.name
                             tool_input = content_block.input
 
-                            yield f"\n\n**도구: {tool_name}**\n"
+                            yield f"\n\n**도구: {tool_name}** 실행 중...\n"
 
                             tool_result = execute_tool(tool_name, tool_input)
 
@@ -485,8 +483,6 @@ Peer 기업 데이터를 바탕으로:
 
                             # 메모리/컨텍스트 업데이트 (재귀 호출에서도 기록)
                             self._record_tool_usage(tool_name, tool_input, tool_result)
-
-                            yield f"완료\n\n"
 
                     if tool_results:
                         self.conversation_history.append({

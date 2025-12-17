@@ -46,18 +46,18 @@ def initialize_session_state():
             st.session_state[key] = value
 
 
+@st.cache_resource(show_spinner=False)
 def get_header_image() -> Image.Image:
     """헤더 이미지 로드"""
-    return Image.open(HEADER_IMAGE_PATH)
+    with Image.open(HEADER_IMAGE_PATH) as img:
+        return img.copy()
 
 
+@st.cache_resource(show_spinner=False)
 def get_avatar_image() -> Image.Image:
     """아바타 이미지 로드 및 변환 (빨간색 테마)"""
-    avatar_original = Image.open(AVATAR_IMAGE_PATH)
-
-    # RGBA로 변환 (투명도 있는 경우)
-    if avatar_original.mode != 'RGBA':
-        avatar_original = avatar_original.convert('RGBA')
+    with Image.open(AVATAR_IMAGE_PATH) as img:
+        avatar_original = img.convert("RGBA")
 
     # 픽셀 데이터 가져오기
     pixels = avatar_original.load()
@@ -83,6 +83,38 @@ def get_avatar_image() -> Image.Image:
     avatar_image = avatar_image.convert('RGB')
 
     return avatar_image
+
+
+def inject_custom_css():
+    """빨간색 버튼 및 커스텀 스타일 주입"""
+    st.markdown("""
+    <style>
+    /* Primary 버튼 빨간색 */
+    .stButton > button[kind="primary"] {
+        background-color: #dc2626 !important;
+        border-color: #dc2626 !important;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background-color: #b91c1c !important;
+        border-color: #b91c1c !important;
+    }
+    .stButton > button[kind="primary"]:active {
+        background-color: #991b1b !important;
+        border-color: #991b1b !important;
+    }
+
+    /* Secondary 버튼 */
+    .stButton > button[kind="secondary"] {
+        border-color: #dc2626 !important;
+        color: #dc2626 !important;
+    }
+    .stButton > button[kind="secondary"]:hover {
+        background-color: #fef2f2 !important;
+        border-color: #b91c1c !important;
+        color: #b91c1c !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 
 def initialize_agent():
