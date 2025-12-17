@@ -1000,14 +1000,14 @@ def execute_read_pdf_as_text(
 
 
 def _fetch_stock_info(ticker: str) -> dict:
-    """yfinance에서 주식 정보 조회 (Rate Limit 대응)"""
+    """yfinance에서 주식 정보 조회 (Rate Limit 대응 - 충분한 딜레이)"""
     import yfinance as yf
     import random
 
-    # Rate Limit 방지를 위한 랜덤 딜레이 (0.5~1.5초)
-    time.sleep(random.uniform(0.5, 1.5))
+    # Rate Limit 방지를 위한 충분한 딜레이 (3~5초)
+    time.sleep(random.uniform(3.0, 5.0))
 
-    max_retries = 3
+    max_retries = 5
     for attempt in range(max_retries):
         try:
             stock = yf.Ticker(ticker)
@@ -1016,16 +1016,18 @@ def _fetch_stock_info(ticker: str) -> dict:
             # Rate Limit 응답 체크 (빈 dict 또는 에러 메시지)
             if not info or (isinstance(info, dict) and info.get("error")):
                 if attempt < max_retries - 1:
-                    delay = (attempt + 1) * 2 + random.uniform(0, 1)
-                    logger.warning(f"Rate limit detected for {ticker}, retrying in {delay:.1f}s...")
+                    # 점진적으로 더 긴 대기: 10초, 30초, 60초, 120초
+                    delay = min(10 * (3 ** attempt), 300) + random.uniform(0, 5)
+                    logger.warning(f"Rate limit detected for {ticker}, retrying in {delay:.1f}s (attempt {attempt+1}/{max_retries})...")
                     time.sleep(delay)
                     continue
             return info
 
         except Exception as e:
             if attempt < max_retries - 1:
-                delay = (attempt + 1) * 3 + random.uniform(0, 2)
-                logger.warning(f"Error fetching {ticker}: {e}, retrying in {delay:.1f}s...")
+                # 에러 시에도 충분한 대기: 15초, 45초, 90초, 180초
+                delay = min(15 * (3 ** attempt), 300) + random.uniform(0, 10)
+                logger.warning(f"Error fetching {ticker}: {e}, retrying in {delay:.1f}s (attempt {attempt+1}/{max_retries})...")
                 time.sleep(delay)
             else:
                 raise
