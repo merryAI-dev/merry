@@ -5,9 +5,8 @@ VC 투자 분석 에이전트 - 홈페이지
 """
 
 import streamlit as st
-from PIL import Image
 
-from shared.config import initialize_session_state
+from shared.config import initialize_session_state, inject_custom_css, get_header_image
 from shared.auth import check_authentication
 from shared.logging_config import setup_logging
 
@@ -17,22 +16,19 @@ setup_logging()
 # 페이지 설정
 st.set_page_config(
     page_title="VC 투자 분석 에이전트",
-    page_icon="🔴",
+    page_icon="VC",
     layout="wide",
 )
 
 # 초기화
 initialize_session_state()
 check_authentication()
-
-# 이미지 로드
-HEADER_IMAGE_PATH = "image-removebg-preview-5.png"
-header_image = Image.open(HEADER_IMAGE_PATH)
+inject_custom_css()
 
 # ========================================
 # 헤더
 # ========================================
-st.image(header_image, width=300)
+st.image(get_header_image(), width=300)
 st.markdown("# VC 투자 분석 에이전트")
 st.markdown("Exit 프로젝션, PER 분석, IRR 계산을 메리와 대화하면서 수행하세요")
 
@@ -44,7 +40,7 @@ st.divider()
 col1, col2 = st.columns(2)
 
 with col1:
-    st.markdown("### 📊 Exit 프로젝션")
+    st.markdown("### Exit 프로젝션")
     st.markdown("""
 **투자검토 엑셀 파일 기반 Exit 분석**
 
@@ -64,7 +60,7 @@ with col1:
         st.switch_page("pages/1_Exit_Projection.py")
 
 with col2:
-    st.markdown("### 🔍 Peer PER 분석")
+    st.markdown("### Peer PER 분석")
     st.markdown("""
 **유사 상장 기업 PER 조회 및 밸류에이션**
 

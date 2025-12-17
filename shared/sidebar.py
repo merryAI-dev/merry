@@ -122,8 +122,48 @@ def render_sidebar():
             # 생성된 파일
             if memory.session_metadata.get("generated_files"):
                 st.markdown("**생성된 파일:**")
-                for file in memory.session_metadata["generated_files"]:
-                    st.caption(f"{file}")
+                files = memory.session_metadata["generated_files"]
+                latest_file = files[-1]
+                latest_path = Path(latest_file)
+                st.caption(f"• {latest_path.name}")
+
+                # temp 디렉토리 내부 파일만 다운로드 허용
+                project_root = Path(__file__).resolve().parent.parent
+                temp_root = (project_root / "temp").resolve()
+
+                try:
+                    resolved_path = latest_path.resolve()
+                    resolved_path.relative_to(temp_root)
+                    is_in_temp = resolved_path.is_file()
+                except Exception:
+                    is_in_temp = False
+
+                if is_in_temp:
+                    ext = resolved_path.suffix.lower()
+                    mime_by_ext = {
+                        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        ".xls": "application/vnd.ms-excel",
+                        ".pdf": "application/pdf",
+                    }
+                    mime = mime_by_ext.get(ext, "application/octet-stream")
+
+                    try:
+                        st.download_button(
+                            "최근 생성 파일 다운로드",
+                            data=resolved_path.read_bytes(),
+                            file_name=resolved_path.name,
+                            mime=mime,
+                            use_container_width=True,
+                            type="primary",
+                            key=f"download_latest_generated_{memory.session_id}"
+                        )
+                    except OSError:
+                        st.caption("다운로드 파일을 준비할 수 없습니다.")
+
+                if len(files) > 1:
+                    with st.expander("이전 생성 파일", expanded=False):
+                        for file in reversed(files[:-1]):
+                            st.caption(f"• {Path(file).name}")
 
             # 세션 정보
             st.caption(f"메시지: {len(memory.session_metadata.get('messages', []))}개")
@@ -185,6 +225,7 @@ def _load_session(selected_session: str):
         st.session_state.agent.memory.session_metadata["analyzed_files"] = session_data.get("analyzed_files", [])
         st.session_state.agent.memory.session_metadata["generated_files"] = session_data.get("generated_files", [])
         st.session_state.agent.memory.session_metadata["user_info"] = session_data.get("user_info", {})
+        st.session_state.agent.memory.session_metadata["messages"] = session_data.get("messages", [])
         st.session_state.agent.memory.session_id = session_data.get("session_id", selected_session_id)
 
         # 대화 히스토리 복원

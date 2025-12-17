@@ -852,8 +852,22 @@ def execute_analyze_and_generate_projection(
             }
         }
 
-    # 3단계: Exit 프로젝션 생성
+    # 3단계: Exit 프로젝션 생성 (사용자별 temp 디렉토리에 저장)
     from datetime import datetime
+
+    # excel_path에서 user_id 추출 (temp/<user_id>/파일명 형식)
+    excel_path_obj = Path(excel_path)
+    user_id = "cli_user"  # 기본값
+    try:
+        # temp/<user_id>/파일명 형식인지 확인
+        if "temp" in excel_path_obj.parts:
+            temp_idx = excel_path_obj.parts.index("temp")
+            if len(excel_path_obj.parts) > temp_idx + 1:
+                user_id = excel_path_obj.parts[temp_idx + 1]
+    except (ValueError, IndexError):
+        pass
+
+    # 출력 파일명 생성
     if not output_filename:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_filename = f"exit_projection_{timestamp}.xlsx"
@@ -862,6 +876,11 @@ def execute_analyze_and_generate_projection(
         output_filename = _sanitize_filename(output_filename)
         if not output_filename.endswith('.xlsx'):
             output_filename += '.xlsx'
+
+    # temp/<user_id>/ 디렉토리에 저장
+    output_dir = PROJECT_ROOT / "temp" / user_id
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_path = output_dir / output_filename
 
     if not company_name:
         company_name = _sanitize_filename(Path(excel_path).stem)
@@ -883,7 +902,7 @@ def execute_analyze_and_generate_projection(
         "--target_year", str(target_year),
         "--company_name", company_name,
         "--per_multiples", ",".join(map(lambda x: str(int(x) if x == int(x) else x), per_multiples)),
-        "--output", output_filename
+        "--output", str(output_path)
     ]
 
     try:
@@ -897,7 +916,7 @@ def execute_analyze_and_generate_projection(
 
         return {
             "success": True,
-            "output_file": output_filename,
+            "output_file": str(output_path),
             "analysis_data": {
                 "target_year": target_year,
                 "net_income": net_income,
@@ -905,7 +924,7 @@ def execute_analyze_and_generate_projection(
                 "per_multiples": per_multiples,
                 "company_name": company_name
             },
-            "message": f"✅ Exit 프로젝션 생성 완료: {output_filename}"
+            "message": f"Exit 프로젝션 생성 완료: {output_path.name}"
         }
 
     except subprocess.CalledProcessError as e:
@@ -980,12 +999,38 @@ def execute_read_pdf_as_text(
             doc.close()
 
 
-@retry_with_backoff(max_retries=3, base_delay=1.0, exceptions=(ConnectionError, TimeoutError))
 def _fetch_stock_info(ticker: str) -> dict:
-    """yfinance에서 주식 정보 조회 (재시도 지원)"""
+    """yfinance에서 주식 정보 조회 (Rate Limit 대응)"""
     import yfinance as yf
-    stock = yf.Ticker(ticker)
-    return stock.info
+    import random
+
+    # Rate Limit 방지를 위한 랜덤 딜레이 (0.5~1.5초)
+    time.sleep(random.uniform(0.5, 1.5))
+
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            stock = yf.Ticker(ticker)
+            info = stock.info
+
+            # Rate Limit 응답 체크 (빈 dict 또는 에러 메시지)
+            if not info or (isinstance(info, dict) and info.get("error")):
+                if attempt < max_retries - 1:
+                    delay = (attempt + 1) * 2 + random.uniform(0, 1)
+                    logger.warning(f"Rate limit detected for {ticker}, retrying in {delay:.1f}s...")
+                    time.sleep(delay)
+                    continue
+            return info
+
+        except Exception as e:
+            if attempt < max_retries - 1:
+                delay = (attempt + 1) * 3 + random.uniform(0, 2)
+                logger.warning(f"Error fetching {ticker}: {e}, retrying in {delay:.1f}s...")
+                time.sleep(delay)
+            else:
+                raise
+
+    return {}
 
 
 def execute_get_stock_financials(ticker: str) -> Dict[str, Any]:

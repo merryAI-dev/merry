@@ -6,11 +6,45 @@ Chat History & Memory Management
 """
 
 import json
+import re
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 from shared.logging_config import get_logger
+
+
+def _sanitize_session_id(session_id: str, max_length: int = 100) -> str:
+    """
+    세션 ID를 파일명-safe하게 정화
+
+    Args:
+        session_id: 원본 세션 ID
+        max_length: 최대 길이 (기본: 100자)
+
+    Returns:
+        정화된 세션 ID
+    """
+    if not session_id:
+        return "unnamed"
+
+    # 경로 구분자 및 위험 문자 제거
+    sanitized = session_id.replace("/", "_").replace("\\", "_").replace("..", "_")
+
+    # 허용: 알파벳, 숫자, 한글, 언더스코어, 하이픈
+    sanitized = re.sub(r'[^\w가-힣\-]', '_', sanitized, flags=re.UNICODE)
+
+    # 연속된 언더스코어 정리
+    sanitized = re.sub(r'_+', '_', sanitized)
+
+    # 앞뒤 특수문자 제거
+    sanitized = sanitized.strip('_')
+
+    # 길이 제한
+    if len(sanitized) > max_length:
+        sanitized = sanitized[:max_length]
+
+    return sanitized or "unnamed"
 
 logger = get_logger("memory")
 
@@ -78,10 +112,11 @@ class ChatMemory:
             "authenticated_at": datetime.now().isoformat()
         }
 
-        # 세션 ID를 의미있는 이름으로 업데이트
+        # 세션 ID를 의미있는 이름으로 업데이트 (파일명-safe 정화)
         if nickname and company:
             date_str = datetime.now().strftime("%Y%m%d_%H%M")
-            new_session_id = f"{nickname}_{company}_{date_str}"
+            raw_session_id = f"{nickname}_{company}_{date_str}"
+            new_session_id = _sanitize_session_id(raw_session_id)
 
             # 로컬: 기존 파일 삭제
             if self.current_session_file.exists():

@@ -137,8 +137,12 @@ class FeedbackSystem:
         try:
             with open(self.rl_dataset_file, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(rl_entry, ensure_ascii=False) + '\n')
-        except Exception:
-            pass
+        except PermissionError as e:
+            logger.error(f"Permission denied saving RL dataset to {self.rl_dataset_file}: {e}")
+        except OSError as e:
+            logger.error(f"OS error saving RL dataset to {self.rl_dataset_file}: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error saving RL dataset: {e}", exc_info=True)
 
     def _calculate_reward(self, feedback_type: str, feedback_value: Any = None) -> float:
         """피드백 타입에 따른 보상 점수 계산"""

@@ -13,14 +13,14 @@ import pandas as pd
 import altair as alt
 
 # 공통 모듈 임포트
-from shared.config import initialize_session_state, get_avatar_image, initialize_agent
+from shared.config import initialize_session_state, get_avatar_image, initialize_agent, inject_custom_css
 from shared.auth import check_authentication, get_user_email
 from shared.sidebar import render_sidebar
 
 # 페이지 설정
 st.set_page_config(
     page_title="Exit 프로젝션 | VC 투자 분석",
-    page_icon="📊",
+    page_icon="VC",
     layout="wide",
 )
 
@@ -28,6 +28,7 @@ st.set_page_config(
 initialize_session_state()
 check_authentication()
 initialize_agent()
+inject_custom_css()
 
 # 아바타 이미지 로드
 avatar_image = get_avatar_image()
@@ -132,7 +133,7 @@ def _render_feedback_buttons(idx: int, msg: dict):
 # ========================================
 # 메인 영역
 # ========================================
-st.markdown("# 📊 Exit 프로젝션")
+st.markdown("# Exit 프로젝션")
 st.markdown("투자검토 엑셀 파일을 분석하고 PER 기반 Exit 프로젝션을 생성합니다")
 
 st.divider()
@@ -143,15 +144,15 @@ if st.session_state.get("uploaded_file_path"):
     quick_cols = st.columns(3)
 
     with quick_cols[0]:
-        if st.button("📄 파일 분석", use_container_width=True, type="primary"):
+        if st.button("파일 분석", use_container_width=True, type="primary"):
             st.session_state.quick_command = f"{file_name} 파일을 분석해줘"
 
     with quick_cols[1]:
-        if st.button("📈 Exit 프로젝션 생성", use_container_width=True, type="primary"):
+        if st.button("Exit 프로젝션 생성", use_container_width=True, type="primary"):
             st.session_state.quick_command = f"{file_name}을 2030년 PER 10,20,30배로 분석하고 Exit 프로젝션 생성해줘"
 
     with quick_cols[2]:
-        if st.button("🔄 고급 분석", use_container_width=True):
+        if st.button("고급 분석", use_container_width=True):
             st.session_state.quick_command = f"{file_name}을 고급 분석해줘 (부분매각, NPV 포함)"
 
     st.divider()
@@ -168,31 +169,35 @@ with chat_container:
             with st.chat_message("assistant", avatar=avatar_image):
                 st.markdown("""안녕하세요, 메리입니다.
 
-VC 투자 분석을 시작하기 전에 몇 가지 정보를 알려주세요:
-- **사내기업가 별명**: 누구신가요?
+세션을 구분해두면 나중에 대화를 찾기 쉽습니다. (선택)
+- **담당자**: 누구신가요?
 - **분석 대상 기업**: 어떤 기업을 분석하시나요?
 
 예시: "홍길동, ABC스타트업" 또는 "김철수 / XYZ테크"
 
-이 정보는 세션 ID로 사용되어 나중에 대화를 쉽게 찾을 수 있습니다.""")
+지금 바로 분석을 시작해도 됩니다. (엑셀 업로드 후 "파일 분석해줘")""")
 
             st.session_state.exit_show_welcome = False
 
         # 메시지 표시
-        for idx, msg in enumerate(st.session_state.exit_messages):
-            if msg["role"] == "user":
+        messages = st.session_state.exit_messages
+        for idx, msg in enumerate(messages):
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+
+            if role == "user":
                 with st.chat_message("user"):
-                    st.markdown(msg["content"])
-            elif msg["role"] == "assistant":
+                    st.markdown(content)
+            elif role == "assistant":
                 with st.chat_message("assistant", avatar=avatar_image):
-                    st.markdown(msg["content"])
+                    st.markdown(content)
 
                     # 피드백 버튼
                     _render_feedback_buttons(idx, msg)
 
-            elif msg["role"] == "tool":
+            elif role == "tool":
                 with st.chat_message("assistant", avatar=avatar_image):
-                    st.caption(msg["content"])
+                    st.caption(content)
 
     # 입력창
     user_input = st.chat_input("메시지를 입력하세요...", key="exit_chat_input")
@@ -209,72 +214,118 @@ if "quick_command" in st.session_state:
 if user_input:
     user_email = get_user_email()
 
-    # 사용자 정보 수집 (최초 1회)
+    # 사용자 정보 수집 (선택 / 최초 1회)
     if not st.session_state.exit_user_info_collected:
         parsed = re.split(r'[,/]', user_input, maxsplit=1)
 
         if len(parsed) >= 2:
             nickname = parsed[0].strip()
             company_raw = parsed[1].strip()
-            company = re.split(r'\s+(분석|검토|해줘|부탁|요청)', company_raw)[0].strip()
 
-            st.session_state.agent.memory.set_user_info(nickname, company, google_email=user_email)
-            st.session_state.exit_user_info_collected = True
+            # 너무 긴 입력은 사용자 정보로 오인하지 않음
+            if nickname and company_raw and len(nickname) <= 30 and len(company_raw) <= 80:
+                company = re.split(r'\s+(분석|검토|해줘|부탁|요청)', company_raw)[0].strip()
 
-            confirmation = f"반갑습니다, **{nickname}**님! **{company}** 투자 분석을 시작하겠습니다.\n\n세션 ID: `{st.session_state.agent.memory.session_id}`"
+                if company:
+                    st.session_state.agent.memory.set_user_info(nickname, company, google_email=user_email)
+                    st.session_state.exit_user_info_collected = True
 
-            st.session_state.exit_messages.append({"role": "user", "content": user_input})
-            st.session_state.exit_messages.append({"role": "assistant", "content": confirmation})
-            st.rerun()
-        else:
-            st.session_state.exit_messages.append({"role": "user", "content": user_input})
-            st.session_state.exit_messages.append({
-                "role": "assistant",
-                "content": "정보를 정확히 파악하지 못했습니다. 다음 형식으로 다시 알려주세요:\n\n예시: \"홍길동, ABC스타트업\" 또는 \"김철수 / XYZ테크\""
-            })
-            st.rerun()
-    else:
-        # 파일 경로 자동 치환
-        if st.session_state.get("uploaded_file_path"):
-            file_name = st.session_state.get("uploaded_file_name", "")
-            if file_name and file_name in user_input:
-                user_input = user_input.replace(file_name, st.session_state.uploaded_file_path)
+                    confirmation = (
+                        f"반갑습니다, **{nickname}**님! **{company}** 투자 분석을 시작하겠습니다.\n\n"
+                        f"세션 ID: `{st.session_state.agent.memory.session_id}`"
+                    )
 
-        st.session_state.exit_messages.append({"role": "user", "content": user_input})
+                    st.session_state.exit_messages.append({"role": "user", "content": user_input})
+                    st.session_state.exit_messages.append({"role": "assistant", "content": confirmation})
+                    st.rerun()
 
-        # 실시간 스트리밍 표시를 위한 placeholder 생성
-        with chat_area:
-            with st.chat_message("assistant", avatar=avatar_image):
-                response_placeholder = st.empty()
-                tool_container = st.container()
+    # 파일 경로 자동 치환/추가
+    uploaded_path = st.session_state.get("uploaded_file_path")
+    uploaded_name = st.session_state.get("uploaded_file_name", "")
+    if uploaded_path:
+        if uploaded_name and uploaded_name in user_input:
+            user_input = user_input.replace(uploaded_name, uploaded_path)
+        elif uploaded_path not in user_input:
+            user_input_stripped = user_input.strip()
+            if "분석" in user_input and any(k in user_input.lower() for k in ["파일", "엑셀", "xlsx", "xls", "투자검토"]):
+                user_input = f"{uploaded_path} 파일을 {user_input_stripped}"
+            elif user_input_stripped in ["분석해줘", "분석", "분석해", "분석 해줘", "파일 분석", "파일 분석해줘"]:
+                user_input = f"{uploaded_path} 파일을 분석해줘"
 
-        # 에이전트 응답 생성 (실시간 스트리밍) - Exit 모드
-        async def stream_exit_response_realtime():
-            full_response = ""
-            tool_messages = []
+    st.session_state.exit_messages.append({"role": "user", "content": user_input})
 
-            async for chunk in st.session_state.agent.chat(user_input, mode="exit"):
-                if "**도구:" in chunk:
-                    tool_messages.append(chunk.strip())
-                    # 도구 메시지도 실시간 표시
-                    with tool_container:
-                        st.caption(chunk.strip())
-                else:
-                    full_response += chunk
-                    # 실시간으로 응답 업데이트
-                    response_placeholder.markdown(full_response + "▌")
+    # 실시간 스트리밍 표시를 위한 placeholder 생성
+    with chat_area:
+        with st.chat_message("assistant", avatar=avatar_image):
+            response_placeholder = st.empty()
+            tool_container = st.container()
 
-            # 최종 응답 (커서 제거)
-            response_placeholder.markdown(full_response)
-            return full_response, tool_messages
+    # 에이전트 응답 생성 (실시간 스트리밍) - Exit 모드
+    async def stream_exit_response_realtime():
+        full_response = ""
+        tool_messages = []
 
-        assistant_response, tool_messages = asyncio.run(stream_exit_response_realtime())
+        async for chunk in st.session_state.agent.chat(user_input, mode="exit"):
+            if "**도구:" in chunk:
+                tool_messages.append(chunk.strip())
+                # 도구 메시지도 실시간 표시
+                with tool_container:
+                    st.caption(chunk.strip())
+            else:
+                full_response += chunk
+                # 실시간으로 응답 업데이트
+                response_placeholder.markdown(full_response + "▌")
 
-        for tool_msg in tool_messages:
-            st.session_state.exit_messages.append({"role": "tool", "content": tool_msg})
+        # 최종 응답 (커서 제거)
+        response_placeholder.markdown(full_response)
+        return full_response, tool_messages
 
-        st.session_state.exit_messages.append({"role": "assistant", "content": assistant_response})
-        st.rerun()
+    assistant_response, tool_messages = asyncio.run(stream_exit_response_realtime())
+
+    for tool_msg in tool_messages:
+        st.session_state.exit_messages.append({"role": "tool", "content": tool_msg})
+
+    st.session_state.exit_messages.append({"role": "assistant", "content": assistant_response})
+    st.rerun()
+
+# ========================================
+# 생성 파일 다운로드
+# ========================================
+memory = getattr(st.session_state.get("agent"), "memory", None)
+generated_files = []
+if memory:
+    generated_files = memory.session_metadata.get("generated_files", []) or []
+
+if generated_files:
+    latest_path = Path(generated_files[-1])
+
+    project_root = Path(__file__).resolve().parent.parent
+    temp_root = (project_root / "temp").resolve()
+
+    try:
+        resolved_path = latest_path.resolve()
+        resolved_path.relative_to(temp_root)
+        is_downloadable = resolved_path.is_file()
+    except Exception:
+        is_downloadable = False
+
+    if is_downloadable:
+        st.divider()
+        st.markdown("### 최근 생성 파일")
+        st.caption(f"• {resolved_path.name}")
+
+        try:
+            st.download_button(
+                "다운로드",
+                data=resolved_path.read_bytes(),
+                file_name=resolved_path.name,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=False,
+                type="primary",
+                key=f"exit_download_latest_{memory.session_id}"
+            )
+        except OSError:
+            st.caption("다운로드 파일을 준비할 수 없습니다.")
 
 # ========================================
 # Exit 프로젝션 시각화
@@ -298,3 +349,14 @@ if st.session_state.projection_data:
     )
 
     st.altair_chart(chart, use_container_width=True)
+
+# 푸터
+st.divider()
+st.markdown(
+    """
+    <div style="text-align: center; color: #64748b; font-size: 0.875rem;">
+        Powered by Claude Opus 4.5 | VC Investment Agent v0.3.0
+    </div>
+    """,
+    unsafe_allow_html=True
+)
