@@ -8,13 +8,21 @@
 import streamlit as st
 from pathlib import Path
 
+from shared.file_utils import (
+    get_secure_upload_path,
+    cleanup_user_temp_files,
+    validate_upload,
+    ALLOWED_EXTENSIONS_EXCEL
+)
+
 
 def render_sidebar():
     """모든 페이지에서 사용하는 공통 사이드바"""
     with st.sidebar:
         # 로그인 정보
-        st.markdown(f"**{st.session_state.get('user_email', 'Unknown')}**")
-        st.caption("Streamlit Cloud SSO 인증")
+        user_id = st.session_state.get('user_id', 'anonymous')
+        st.markdown(f"**User: {user_id[:8]}...**")
+        st.caption("Claude API Key 인증")
 
         st.divider()
 
@@ -30,16 +38,31 @@ def render_sidebar():
         )
 
         if uploaded_file:
-            # 임시 파일 저장
-            temp_path = Path("temp") / uploaded_file.name
-            temp_path.parent.mkdir(exist_ok=True)
+            # 업로드 전 검증 (확장자 + 크기)
+            is_valid, error = validate_upload(
+                filename=uploaded_file.name,
+                file_size=uploaded_file.size,
+                allowed_extensions=ALLOWED_EXTENSIONS_EXCEL
+            )
 
-            with open(temp_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
+            if not is_valid:
+                st.error(error)
+            else:
+                # 안전한 업로드 경로 생성 (사용자별 격리)
+                secure_path = get_secure_upload_path(
+                    user_id=user_id,
+                    original_filename=uploaded_file.name
+                )
 
-            st.success(f"{uploaded_file.name}")
-            st.session_state.uploaded_file_path = str(temp_path)
-            st.session_state.uploaded_file_name = uploaded_file.name
+                with open(secure_path, "wb") as f:
+                    f.write(uploaded_file.getbuffer())
+
+                # 오래된 파일 정리 (최신 10개 + TTL 7일)
+                cleanup_user_temp_files(user_id, max_files=10)
+
+                st.success(f"{uploaded_file.name}")
+                st.session_state.uploaded_file_path = str(secure_path)
+                st.session_state.uploaded_file_name = uploaded_file.name
 
         st.divider()
 

@@ -10,12 +10,17 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
+from shared.logging_config import get_logger
+
+logger = get_logger("memory")
+
 # Supabase 스토리지 (옵션)
 try:
     from .supabase_storage import SupabaseStorage
     SUPABASE_AVAILABLE = True
 except ImportError:
     SUPABASE_AVAILABLE = False
+    logger.info("Supabase storage not available, using local fallback")
 
 
 class ChatMemory:
@@ -144,8 +149,12 @@ class ChatMemory:
         try:
             with open(self.current_session_file, 'w', encoding='utf-8') as f:
                 json.dump(self.session_metadata, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass  # 로컬 저장 실패해도 Supabase에는 저장됨
+        except PermissionError as e:
+            logger.error(f"Permission denied saving session to {self.current_session_file}: {e}")
+        except OSError as e:
+            logger.error(f"OS error saving session to {self.current_session_file}: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error saving session: {e}", exc_info=True)
 
     def get_recent_sessions(self, limit: int = 5) -> List[Dict[str, Any]]:
         """최근 세션 목록 가져오기"""
