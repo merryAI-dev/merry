@@ -32,6 +32,13 @@ def initialize_session_state():
         "peer_pdf_path": None,
         "peer_analysis_result": None,
 
+        # 기업현황 진단시트
+        "diagnosis_messages": [],
+        "diagnosis_excel_path": None,
+        "diagnosis_excel_name": None,
+        "diagnosis_show_welcome": True,
+        "diagnosis_analysis_result": None,
+
         # 파일 관리
         "uploaded_file_path": None,
 

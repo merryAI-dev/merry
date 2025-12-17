@@ -71,6 +71,9 @@ def render_sidebar(mode: str = "exit"):
         elif mode == "peer":
             st.markdown("### 파일 업로드")
             st.caption("Peer PER 모드에서는 메인 화면에서 PDF를 업로드합니다.")
+        elif mode == "diagnosis":
+            st.markdown("### 파일 업로드")
+            st.caption("진단시트 모드에서는 메인 화면에서 엑셀을 업로드합니다.")
 
         st.divider()
 
@@ -265,9 +268,14 @@ def _reset_session():
 
     st.session_state.exit_messages = []
     st.session_state.peer_messages = []
+    st.session_state.diagnosis_messages = []
     st.session_state.projection_data = None
     st.session_state.peer_analysis_result = None
+    st.session_state.diagnosis_excel_path = None
+    st.session_state.diagnosis_excel_name = None
+    st.session_state.diagnosis_analysis_result = None
     st.session_state.exit_user_info_collected = False
     st.session_state.exit_show_welcome = True
+    st.session_state.diagnosis_show_welcome = True
 
     st.rerun()
