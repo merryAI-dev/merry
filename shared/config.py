@@ -26,10 +26,13 @@ def initialize_session_state():
         "exit_user_info_collected": False,
         "exit_show_welcome": True,
         "projection_data": None,
+        "exit_projection_assumptions": None,
+        "uploaded_file_name": None,
 
         # Peer PER 분석
         "peer_messages": [],
         "peer_pdf_path": None,
+        "peer_pdf_name": None,
         "peer_analysis_result": None,
 
         # 기업현황 진단시트

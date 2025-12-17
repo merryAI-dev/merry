@@ -242,6 +242,42 @@ class ChatMemory:
         with open(session_file, 'r', encoding='utf-8') as f:
             return json.load(f)
 
+    def start_new_session(self, custom_session_id: str = None, user_info: Dict[str, Any] = None):
+        """새 세션 시작 (기존 세션 파일은 유지)
+
+        Args:
+            custom_session_id: 사용자 정의 세션 ID (선택)
+            user_info: 유지할 사용자 정보 (선택)
+        """
+        # 세션 ID 생성
+        if custom_session_id:
+            new_session_id = _sanitize_session_id(custom_session_id)
+        else:
+            if user_info and user_info.get("nickname") and user_info.get("company"):
+                date_str = datetime.now().strftime("%Y%m%d_%H%M")
+                raw_session_id = f"{user_info['nickname']}_{user_info['company']}_{date_str}"
+                new_session_id = _sanitize_session_id(raw_session_id)
+            else:
+                new_session_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        self.session_id = new_session_id
+        self.current_session_file = self.storage_dir / f"session_{new_session_id}.json"
+
+        self.session_metadata = {
+            "session_id": new_session_id,
+            "user_id": self.user_id,
+            "start_time": datetime.now().isoformat(),
+            "messages": [],
+            "analyzed_files": [],
+            "generated_files": [],
+            "user_info": user_info or {}
+        }
+
+        if self.db:
+            self.db.create_session(new_session_id, self.session_metadata.get("user_info"))
+
+        self._save_session()
+
     def get_context_summary(self) -> str:
         """현재 세션의 컨텍스트 요약 생성"""
         summary = []

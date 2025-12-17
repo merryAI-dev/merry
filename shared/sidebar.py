@@ -20,7 +20,7 @@ def render_sidebar(mode: str = "exit"):
     """모든 페이지에서 사용하는 공통 사이드바
 
     Args:
-        mode: "exit" 또는 "peer"
+        mode: "exit" | "peer" | "diagnosis"
     """
     with st.sidebar:
         # 로그인 정보
@@ -222,31 +222,46 @@ def _load_session(selected_session: str):
     session_data = memory.load_session(selected_session_id)
 
     if session_data:
-        # 메시지 복원
-        st.session_state.exit_messages = []
-        messages = session_data.get("messages", [])
+        messages = session_data.get("messages", []) or []
+
+        # UI 메시지 복원 (user/assistant만)
+        ui_messages = []
         for msg in messages:
-            st.session_state.exit_messages.append({
-                "role": msg.get("role", "user"),
-                "content": msg.get("content", "")
-            })
+            if msg.get("role") not in ["user", "assistant"]:
+                continue
+            ui_messages.append(
+                {
+                    "role": msg.get("role", "user"),
+                    "content": msg.get("content", ""),
+                }
+            )
+
+        st.session_state.exit_messages = list(ui_messages)
+        st.session_state.peer_messages = list(ui_messages)
+        st.session_state.diagnosis_messages = list(ui_messages)
+
+        # 파생 결과는 세션에 맞게 다시 sync 되도록 초기화
+        st.session_state.projection_data = None
+        st.session_state.peer_analysis_result = None
+        st.session_state.diagnosis_analysis_result = None
 
         # 에이전트 컨텍스트 복원
         st.session_state.agent.context["analyzed_files"] = session_data.get("analyzed_files", [])
-        st.session_state.agent.memory.session_metadata["analyzed_files"] = session_data.get("analyzed_files", [])
-        st.session_state.agent.memory.session_metadata["generated_files"] = session_data.get("generated_files", [])
-        st.session_state.agent.memory.session_metadata["user_info"] = session_data.get("user_info", {})
-        st.session_state.agent.memory.session_metadata["messages"] = session_data.get("messages", [])
-        st.session_state.agent.memory.session_id = session_data.get("session_id", selected_session_id)
+        memory.session_id = session_data.get("session_id", selected_session_id)
+        memory.session_metadata = dict(session_data)
+        memory.session_metadata["session_id"] = memory.session_id
+        memory.session_metadata["user_id"] = memory.user_id
+        memory.current_session_file = memory.storage_dir / f"session_{memory.session_id}.json"
 
         # 대화 히스토리 복원
         st.session_state.agent.conversation_history = []
-        for msg in messages:
-            if msg.get("role") in ["user", "assistant"]:
-                st.session_state.agent.conversation_history.append({
+        for msg in ui_messages:
+            st.session_state.agent.conversation_history.append(
+                {
                     "role": msg.get("role"),
-                    "content": msg.get("content", "")
-                })
+                    "content": msg.get("content", ""),
+                }
+            )
 
         # 사용자 정보 수집 상태 복원
         user_info = session_data.get("user_info", {})
@@ -254,6 +269,41 @@ def _load_session(selected_session: str):
             st.session_state.exit_user_info_collected = True
         else:
             st.session_state.exit_user_info_collected = False
+        st.session_state.exit_show_welcome = not st.session_state.exit_user_info_collected
+
+        # 가능하면 마지막 분석 파일도 복원 (temp 내부 파일만)
+        analyzed_files = session_data.get("analyzed_files", []) or []
+        project_root = Path(__file__).resolve().parent.parent
+        temp_root = (project_root / "temp").resolve()
+        last_pdf = None
+        last_excel = None
+        for p in reversed(analyzed_files):
+            path = Path(p)
+            try:
+                resolved = path.resolve()
+                resolved.relative_to(temp_root)
+                if not resolved.is_file():
+                    continue
+            except Exception:
+                continue
+
+            ext = resolved.suffix.lower()
+            if ext == ".pdf" and last_pdf is None:
+                last_pdf = resolved
+            if ext in [".xlsx", ".xls"] and last_excel is None:
+                last_excel = resolved
+            if last_pdf and last_excel:
+                break
+
+        if last_pdf:
+            st.session_state.peer_pdf_path = str(last_pdf)
+            st.session_state.peer_pdf_name = last_pdf.name
+
+        if last_excel:
+            st.session_state.uploaded_file_path = str(last_excel)
+            st.session_state.uploaded_file_name = last_excel.name
+            st.session_state.diagnosis_excel_path = str(last_excel)
+            st.session_state.diagnosis_excel_name = last_excel.name
 
         st.success(f"세션 {selected_session_id} 불러오기 완료")
         st.rerun()
@@ -265,17 +315,20 @@ def _reset_session():
     """세션 초기화"""
     if st.session_state.agent:
         st.session_state.agent.reset()
+        if hasattr(st.session_state.agent, "memory"):
+            current_user_info = st.session_state.agent.memory.session_metadata.get("user_info", {})
+            st.session_state.agent.memory.start_new_session(user_info=current_user_info)
 
     st.session_state.exit_messages = []
     st.session_state.peer_messages = []
     st.session_state.diagnosis_messages = []
     st.session_state.projection_data = None
     st.session_state.peer_analysis_result = None
-    st.session_state.diagnosis_excel_path = None
-    st.session_state.diagnosis_excel_name = None
     st.session_state.diagnosis_analysis_result = None
-    st.session_state.exit_user_info_collected = False
-    st.session_state.exit_show_welcome = True
+    memory = getattr(st.session_state.agent, "memory", None)
+    user_info = memory.session_metadata.get("user_info", {}) if memory else {}
+    st.session_state.exit_user_info_collected = bool(user_info.get("nickname") and user_info.get("company"))
+    st.session_state.exit_show_welcome = not st.session_state.exit_user_info_collected
     st.session_state.diagnosis_show_welcome = True
 
     st.rerun()
