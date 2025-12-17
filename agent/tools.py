@@ -1155,19 +1155,28 @@ def execute_analyze_peer_per(
 
         peer_data = []
         failed_tickers = []
+        total = len(tickers)
 
-        for ticker in tickers:
+        logger.info(f"[Peer PER 분석] 총 {total}개 기업 조회 시작 (예상 소요: {total * 8}~{total * 12}초)")
+
+        for idx, ticker in enumerate(tickers, 1):
+            logger.info(f"[{idx}/{total}] {ticker} 조회 중...")
+
             try:
                 # 재시도 지원 헬퍼 함수 사용
                 info = _fetch_stock_info(ticker)
 
                 if not info or info.get("regularMarketPrice") is None:
+                    logger.warning(f"[{idx}/{total}] {ticker} 조회 실패 - 데이터 없음")
                     failed_tickers.append(ticker)
                     continue
 
+                company_name = info.get("longName") or info.get("shortName", "N/A")
+                logger.info(f"[{idx}/{total}] {ticker} 완료 - {company_name}")
+
                 data = {
                     "ticker": ticker,
-                    "company_name": info.get("longName") or info.get("shortName", "N/A"),
+                    "company_name": company_name,
                     "sector": info.get("sector", "N/A"),
                     "industry": info.get("industry", "N/A"),
                     "market_cap": info.get("marketCap"),
@@ -1184,8 +1193,10 @@ def execute_analyze_peer_per(
                 peer_data.append(data)
 
             except Exception as e:
-                logger.warning(f"Failed to fetch {ticker}: {e}")
+                logger.warning(f"[{idx}/{total}] {ticker} 조회 실패 - {e}")
                 failed_tickers.append(ticker)
+
+        logger.info(f"[Peer PER 분석] 완료 - 성공: {len(peer_data)}개, 실패: {len(failed_tickers)}개")
 
         if not peer_data:
             return {

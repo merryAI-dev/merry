@@ -422,6 +422,9 @@ Peer 기업 데이터를 바탕으로:
                             # 메모리/컨텍스트 업데이트 (공통 헬퍼)
                             self._record_tool_usage(tool_name, tool_input, tool_result)
 
+                            tool_ok = not (isinstance(tool_result, dict) and tool_result.get("success") is False)
+                            yield f"**도구: {tool_name}** {'완료' if tool_ok else '실패'}\n\n"
+
                     # Assistant 응답 메모리에 저장
                     if assistant_response_parts:
                         full_response = "\n".join(assistant_response_parts)
@@ -501,6 +504,9 @@ Peer 기업 데이터를 바탕으로:
 
                             # 메모리/컨텍스트 업데이트 (재귀 호출에서도 기록)
                             self._record_tool_usage(tool_name, tool_input, tool_result)
+
+                            tool_ok = not (isinstance(tool_result, dict) and tool_result.get("success") is False)
+                            yield f"**도구: {tool_name}** {'완료' if tool_ok else '실패'}\n\n"
 
                     if tool_results:
                         self.conversation_history.append({

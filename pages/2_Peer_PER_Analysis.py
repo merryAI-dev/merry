@@ -34,7 +34,7 @@ inject_custom_css()
 avatar_image = get_avatar_image()
 
 # 사이드바 렌더링
-render_sidebar()
+render_sidebar(mode="peer")
 
 
 def _sync_peer_analysis_result_from_memory():
@@ -160,15 +160,21 @@ PDF가 없어도 직접 기업을 지정할 수 있습니다:
 
         # 메시지 표시
         for idx, msg in enumerate(st.session_state.peer_messages):
-            if msg["role"] == "user":
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+
+            if role == "user":
                 with st.chat_message("user"):
-                    st.markdown(msg["content"])
-            elif msg["role"] == "assistant":
+                    st.markdown(content)
+            elif role == "assistant":
                 with st.chat_message("assistant", avatar=avatar_image):
-                    st.markdown(msg["content"])
-            elif msg["role"] == "tool":
-                with st.chat_message("assistant", avatar=avatar_image):
-                    st.caption(msg["content"])
+                    st.markdown(content)
+
+                    tool_logs = msg.get("tool_logs") or []
+                    if tool_logs:
+                        with st.expander("실행 로그", expanded=False):
+                            for line in tool_logs:
+                                st.caption(line)
 
     # 입력창
     user_input = st.chat_input("Peer 분석 관련 질문...", key="peer_chat_input")
@@ -241,28 +247,39 @@ if user_input:
     async def stream_peer_response_realtime():
         full_response = ""
         tool_messages = []
+        tool_status = None
+        progress_bar = None
+        progress_text = None
+        peer_progress = {"current": 0, "total": 0}
 
         async for chunk in st.session_state.agent.chat(user_input, mode="peer"):
             if "**도구:" in chunk:
                 tool_messages.append(chunk.strip())
-                # 도구 메시지도 실시간 표시
                 with tool_container:
-                    st.caption(chunk.strip())
+                    if tool_status is None:
+                        tool_status = st.status("도구 실행 중...", expanded=True, state="running")
+
+                    # analyze_peer_per 도구 시작 시 progress bar 표시
+                    if "analyze_peer_per" in chunk and "실행 중" in chunk:
+                        tool_status.write("Peer 기업 PER 조회 시작...")
+                        progress_bar = tool_status.progress(0, text="티커 조회 준비 중...")
+                    elif progress_bar is not None:
+                        tool_status.write(chunk.strip())
+                    else:
+                        tool_status.write(chunk.strip())
             else:
                 full_response += chunk
-                # 실시간으로 응답 업데이트
                 response_placeholder.markdown(full_response + "▌")
 
-        # 최종 응답 (커서 제거)
         response_placeholder.markdown(full_response)
+        if tool_status is not None:
+            final_state = "error" if any("실패" in m for m in tool_messages) else "complete"
+            tool_status.update(label="도구 실행 완료", state=final_state, expanded=False)
         return full_response, tool_messages
 
     assistant_response, tool_messages = asyncio.run(stream_peer_response_realtime())
 
-    for tool_msg in tool_messages:
-        st.session_state.peer_messages.append({"role": "tool", "content": tool_msg})
-
-    st.session_state.peer_messages.append({"role": "assistant", "content": assistant_response})
+    st.session_state.peer_messages.append({"role": "assistant", "content": assistant_response, "tool_logs": tool_messages})
 
     st.rerun()
 

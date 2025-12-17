@@ -16,8 +16,12 @@ from shared.file_utils import (
 )
 
 
-def render_sidebar():
-    """모든 페이지에서 사용하는 공통 사이드바"""
+def render_sidebar(mode: str = "exit"):
+    """모든 페이지에서 사용하는 공통 사이드바
+
+    Args:
+        mode: "exit" 또는 "peer"
+    """
     with st.sidebar:
         # 로그인 정보
         user_id = st.session_state.get('user_id', 'anonymous')
@@ -26,43 +30,47 @@ def render_sidebar():
 
         st.divider()
 
-        # 파일 업로드
-        st.markdown("### 파일 업로드")
+        # 파일 업로드 (페이지별)
+        if mode == "exit":
+            st.markdown("### 파일 업로드")
 
-        uploaded_file = st.file_uploader(
-            "투자검토 엑셀",
-            type=["xlsx", "xls"],
-            help="분석할 투자검토 엑셀 파일",
-            label_visibility="collapsed",
-            key="sidebar_excel_uploader"
-        )
-
-        if uploaded_file:
-            # 업로드 전 검증 (확장자 + 크기)
-            is_valid, error = validate_upload(
-                filename=uploaded_file.name,
-                file_size=uploaded_file.size,
-                allowed_extensions=ALLOWED_EXTENSIONS_EXCEL
+            uploaded_file = st.file_uploader(
+                "투자검토 엑셀",
+                type=["xlsx", "xls"],
+                help="분석할 투자검토 엑셀 파일",
+                label_visibility="collapsed",
+                key="sidebar_excel_uploader"
             )
 
-            if not is_valid:
-                st.error(error)
-            else:
-                # 안전한 업로드 경로 생성 (사용자별 격리)
-                secure_path = get_secure_upload_path(
-                    user_id=user_id,
-                    original_filename=uploaded_file.name
+            if uploaded_file:
+                # 업로드 전 검증 (확장자 + 크기)
+                is_valid, error = validate_upload(
+                    filename=uploaded_file.name,
+                    file_size=uploaded_file.size,
+                    allowed_extensions=ALLOWED_EXTENSIONS_EXCEL
                 )
 
-                with open(secure_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
+                if not is_valid:
+                    st.error(error)
+                else:
+                    # 안전한 업로드 경로 생성 (사용자별 격리)
+                    secure_path = get_secure_upload_path(
+                        user_id=user_id,
+                        original_filename=uploaded_file.name
+                    )
 
-                # 오래된 파일 정리 (최신 10개 + TTL 7일)
-                cleanup_user_temp_files(user_id, max_files=10)
+                    with open(secure_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
 
-                st.success(f"{uploaded_file.name}")
-                st.session_state.uploaded_file_path = str(secure_path)
-                st.session_state.uploaded_file_name = uploaded_file.name
+                    # 오래된 파일 정리 (최신 10개 + TTL 7일)
+                    cleanup_user_temp_files(user_id, max_files=10)
+
+                    st.success(f"{uploaded_file.name}")
+                    st.session_state.uploaded_file_path = str(secure_path)
+                    st.session_state.uploaded_file_name = uploaded_file.name
+        elif mode == "peer":
+            st.markdown("### 파일 업로드")
+            st.caption("Peer PER 모드에서는 메인 화면에서 PDF를 업로드합니다.")
 
         st.divider()
 
