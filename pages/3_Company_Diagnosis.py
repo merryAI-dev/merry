@@ -168,7 +168,9 @@ with chat_container:
     chat_area = st.container(height=520)
 
     with chat_area:
-        if st.session_state.diagnosis_show_welcome and not st.session_state.diagnosis_messages:
+        if st.session_state.get("diagnosis_show_welcome", True) and not st.session_state.get(
+            "diagnosis_messages", []
+        ):
             with st.chat_message("assistant", avatar=avatar_image):
                 st.markdown(
                     """기업현황 진단시트를 기반으로 컨설턴트용 분석보고서를 작성합니다.
@@ -183,9 +185,9 @@ with chat_container:
 - \"이대로 엑셀에 반영해줘\"
 """
                 )
-            st.session_state.diagnosis_show_welcome = False
+            st.session_state["diagnosis_show_welcome"] = False
 
-        for msg in st.session_state.diagnosis_messages:
+        for msg in st.session_state.get("diagnosis_messages", []):
             role = msg.get("role", "")
             content = msg.get("content", "")
 
@@ -225,7 +227,7 @@ if user_input:
             elif any(k in stripped for k in ["보고서", "초안", "엑셀", "반영", "저장"]):
                 user_input = f"{diagnosis_path} 파일을 " + stripped
 
-    st.session_state.diagnosis_messages.append({"role": "user", "content": user_input})
+    st.session_state.setdefault("diagnosis_messages", []).append({"role": "user", "content": user_input})
 
     with chat_area:
         with st.chat_message("assistant", avatar=avatar_image):
@@ -255,7 +257,7 @@ if user_input:
         return full_response, tool_messages
 
     assistant_response, tool_messages = asyncio.run(stream_diagnosis_response_realtime())
-    st.session_state.diagnosis_messages.append(
+    st.session_state.setdefault("diagnosis_messages", []).append(
         {"role": "assistant", "content": assistant_response, "tool_logs": tool_messages}
     )
     st.rerun()
