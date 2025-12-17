@@ -34,7 +34,7 @@ inject_custom_css()
 avatar_image = get_avatar_image()
 
 # 사이드바 렌더링
-render_sidebar()
+render_sidebar(mode="exit")
 
 
 # ========================================
@@ -130,6 +130,40 @@ def _render_feedback_buttons(idx: int, msg: dict):
         st.caption(f"상세 피드백: {st.session_state.feedback_text[feedback_key][:50]}...")
 
 
+def _sync_exit_projection_data_from_memory():
+    """최근 analyze_and_generate_projection 결과를 세션 상태에 반영 (시각화용)"""
+    agent = st.session_state.get("agent")
+    if not agent or not hasattr(agent, "memory"):
+        return
+
+    messages = agent.memory.session_metadata.get("messages", [])
+    for msg in reversed(messages):
+        if msg.get("role") != "tool":
+            continue
+        meta = msg.get("metadata") or {}
+        if meta.get("tool_name") != "analyze_and_generate_projection":
+            continue
+
+        result = meta.get("result")
+        if not isinstance(result, dict) or not result.get("success"):
+            break
+
+        summary = result.get("projection_summary")
+        if isinstance(summary, list) and summary:
+            try:
+                df = pd.DataFrame(summary)
+                needed = {"PER", "IRR", "Multiple"}
+                if needed.issubset(set(df.columns)):
+                    st.session_state.projection_data = df
+                    st.session_state.exit_projection_assumptions = result.get("assumptions")
+            except Exception:
+                pass
+        break
+
+
+_sync_exit_projection_data_from_memory()
+
+
 # ========================================
 # 메인 영역
 # ========================================
@@ -181,6 +215,9 @@ with chat_container:
 
         # 메시지 표시
         messages = st.session_state.exit_messages
+        assistant_indices = [i for i, m in enumerate(messages) if m.get("role") == "assistant"]
+        last_assistant_idx = assistant_indices[-1] if assistant_indices else None
+
         for idx, msg in enumerate(messages):
             role = msg.get("role", "")
             content = msg.get("content", "")
@@ -192,12 +229,16 @@ with chat_container:
                 with st.chat_message("assistant", avatar=avatar_image):
                     st.markdown(content)
 
-                    # 피드백 버튼
-                    _render_feedback_buttons(idx, msg)
+                    tool_logs = msg.get("tool_logs") or []
+                    if tool_logs:
+                        with st.expander("실행 로그", expanded=False):
+                            for line in tool_logs:
+                                st.caption(line)
 
-            elif role == "tool":
-                with st.chat_message("assistant", avatar=avatar_image):
-                    st.caption(content)
+                    # 피드백 버튼 (마지막 응답만)
+                    if idx == last_assistant_idx:
+                        with st.expander("피드백 남기기", expanded=False):
+                            _render_feedback_buttons(idx, msg)
 
     # 입력창
     user_input = st.chat_input("메시지를 입력하세요...", key="exit_chat_input")
@@ -264,28 +305,28 @@ if user_input:
     async def stream_exit_response_realtime():
         full_response = ""
         tool_messages = []
+        tool_status = None
 
         async for chunk in st.session_state.agent.chat(user_input, mode="exit"):
             if "**도구:" in chunk:
                 tool_messages.append(chunk.strip())
-                # 도구 메시지도 실시간 표시
                 with tool_container:
-                    st.caption(chunk.strip())
+                    if tool_status is None:
+                        tool_status = st.status("도구 실행 로그", expanded=False, state="running")
+                    tool_status.write(chunk.strip())
             else:
                 full_response += chunk
-                # 실시간으로 응답 업데이트
                 response_placeholder.markdown(full_response + "▌")
 
-        # 최종 응답 (커서 제거)
         response_placeholder.markdown(full_response)
+        if tool_status is not None:
+            final_state = "error" if any("실패" in m for m in tool_messages) else "complete"
+            tool_status.update(state=final_state, expanded=False)
         return full_response, tool_messages
 
     assistant_response, tool_messages = asyncio.run(stream_exit_response_realtime())
 
-    for tool_msg in tool_messages:
-        st.session_state.exit_messages.append({"role": "tool", "content": tool_msg})
-
-    st.session_state.exit_messages.append({"role": "assistant", "content": assistant_response})
+    st.session_state.exit_messages.append({"role": "assistant", "content": assistant_response, "tool_logs": tool_messages})
     st.rerun()
 
 # ========================================
@@ -334,7 +375,30 @@ if st.session_state.projection_data:
     st.divider()
     st.markdown("## Exit 프로젝션 시각화")
 
-    df = st.session_state.projection_data
+    df = st.session_state.projection_data.copy()
+    df = df.dropna(subset=["IRR", "Multiple"])
+
+    assumptions = st.session_state.get("exit_projection_assumptions") or {}
+    if assumptions:
+        holding = assumptions.get("holding_period_years")
+        if holding is not None:
+            st.caption(f"가정: 투자기간 {holding}년 (투자연도 {assumptions.get('investment_year')} → 목표연도 {assumptions.get('target_year')})")
+
+    if not df.empty:
+        best_row = df.loc[df["IRR"].idxmax()]
+        metric_cols = st.columns(3)
+        with metric_cols[0]:
+            st.metric("최고 IRR", f"{best_row['IRR']:.1f}%")
+        with metric_cols[1]:
+            st.metric("PER(최고 IRR)", f"{best_row['PER']:g}x")
+        with metric_cols[2]:
+            st.metric("Multiple", f"{best_row['Multiple']:.2f}x")
+
+        display_df = df.copy()
+        display_df["PER"] = display_df["PER"].map(lambda x: f"{x:g}x")
+        display_df["IRR"] = display_df["IRR"].map(lambda x: f"{x:.1f}%")
+        display_df["Multiple"] = display_df["Multiple"].map(lambda x: f"{x:.2f}x")
+        st.dataframe(display_df, use_container_width=True, hide_index=True)
 
     chart = (
         alt.Chart(df)
