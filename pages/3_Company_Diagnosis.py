@@ -124,7 +124,8 @@ if st.session_state.get("diagnosis_excel_path"):
     with quick_cols[2]:
         if st.button("엑셀 반영", use_container_width=True, key="diag_quick_write"):
             st.session_state.diagnosis_quick_command = (
-                f"{file_name} 파일을 분석한 뒤, 컨설턴트용 분석보고서를 완성하고 엑셀에 반영해서 저장해줘."
+                f"{file_name} 파일을 분석하고 컨설턴트용 분석보고서 초안을 작성해줘. "
+                "내가 '반영해줘'라고 확인하면 엑셀에 반영해서 새 파일로 저장해줘."
             )
 
     st.divider()
@@ -219,9 +220,9 @@ if user_input:
             user_input = user_input.replace(diagnosis_name, diagnosis_path)
         elif diagnosis_path not in user_input:
             stripped = user_input.strip()
-            if stripped in ["분석해줘", "분석", "진단해줘", "보고서 초안", "보고서 초안 만들어줘"]:
+            if stripped in ["분석해줘", "분석", "진단해줘"]:
                 user_input = f"{diagnosis_path} 파일을 분석해줘"
-            elif any(k in stripped for k in ["보고서", "엑셀", "반영", "저장"]):
+            elif any(k in stripped for k in ["보고서", "초안", "엑셀", "반영", "저장"]):
                 user_input = f"{diagnosis_path} 파일을 " + stripped
 
     st.session_state.diagnosis_messages.append({"role": "user", "content": user_input})
@@ -309,4 +310,3 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
