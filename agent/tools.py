@@ -1039,13 +1039,14 @@ def execute_read_pdf_as_text(
 
 
 def _fetch_stock_info(ticker: str) -> dict:
-    """yfinance에서 주식 정보 조회 (Rate Limit 대응 - 1분 딜레이)"""
+    """yfinance에서 주식 정보 조회 (Rate Limit 대응)"""
     import yfinance as yf
     import random
 
-    # Rate Limit 방지를 위한 충분한 딜레이 (55~65초, 약 1분)
-    logger.info(f"Waiting ~1 minute before fetching {ticker}...")
-    time.sleep(random.uniform(55.0, 65.0))
+    # Rate Limit 방지를 위한 딜레이 (5~10초)
+    delay = random.uniform(5.0, 10.0)
+    logger.info(f"Waiting {delay:.1f}s before fetching {ticker}...")
+    time.sleep(delay)
 
     max_retries = 3
     for attempt in range(max_retries):
@@ -1056,19 +1057,19 @@ def _fetch_stock_info(ticker: str) -> dict:
             # Rate Limit 응답 체크 (빈 dict 또는 에러 메시지)
             if not info or (isinstance(info, dict) and info.get("error")):
                 if attempt < max_retries - 1:
-                    # 재시도 시 2분 대기
-                    delay = 120 + random.uniform(0, 10)
-                    logger.warning(f"Rate limit detected for {ticker}, retrying in {delay:.1f}s (attempt {attempt+1}/{max_retries})...")
-                    time.sleep(delay)
+                    # 재시도 시 30초 대기
+                    retry_delay = 30 + random.uniform(0, 10)
+                    logger.warning(f"Rate limit detected for {ticker}, retrying in {retry_delay:.1f}s (attempt {attempt+1}/{max_retries})...")
+                    time.sleep(retry_delay)
                     continue
             return info
 
         except Exception as e:
             if attempt < max_retries - 1:
-                # 에러 시 2분 대기
-                delay = 120 + random.uniform(0, 10)
-                logger.warning(f"Error fetching {ticker}: {e}, retrying in {delay:.1f}s (attempt {attempt+1}/{max_retries})...")
-                time.sleep(delay)
+                # 에러 시 30초 대기
+                retry_delay = 30 + random.uniform(0, 10)
+                logger.warning(f"Error fetching {ticker}: {e}, retrying in {retry_delay:.1f}s (attempt {attempt+1}/{max_retries})...")
+                time.sleep(retry_delay)
             else:
                 raise
 
