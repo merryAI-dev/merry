@@ -115,6 +115,10 @@ class VCAgent:
         if mode == "peer":
             return self._build_peer_system_prompt(analyzed_files)
 
+        # 기업현황 진단시트 모드
+        if mode == "diagnosis":
+            return self._build_diagnosis_system_prompt(analyzed_files)
+
         # Exit 프로젝션 모드 (기본)
         return f"""당신은 **VC 투자 분석 전문 에이전트**입니다.
 
@@ -271,14 +275,69 @@ class VCAgent:
 - 전문적이고 간결하게
 - 이모지 사용 금지
 - 반복 금지 - 새로운 정보만 추가
-- 표 형식 활용
+	- 표 형식 활용
+	
+	한국어로 답변하세요.
+	"""
 
-한국어로 답변하세요.
+    def _build_diagnosis_system_prompt(self, analyzed_files: str) -> str:
+        """기업현황 진단시트 모드 시스템 프롬프트"""
+
+        return f"""당신은 **프로그램 컨설턴트(VC/AC)**입니다. 현재 **기업현황 진단시트 작성 모드**입니다.
+
+## 현재 컨텍스트
+- 분석된 파일: {analyzed_files}
+- 캐시된 결과: {len(self.context["cached_results"])}개
+
+## 🚨 최우선 규칙 (CRITICAL)
+
+**절대로 도구 없이 답변하지 마세요!**
+
+- 진단시트 분석 → 반드시 **analyze_company_diagnosis_sheet** 사용
+- 컨설턴트 보고서 엑셀 반영 → 반드시 **write_company_diagnosis_report** 사용
+- 추측/예시 답변 금지 → 실제 시트 내용 기반으로 작성
+
+## 목표
+
+사용자와의 대화를 통해 기업현황 진단시트의 **'(컨설턴트용) 분석보고서'**를 완성합니다.
+
+## 작업 방식
+
+### 1) 파일을 받으면 (CRITICAL - 즉시 실행)
+사용자가 진단시트 파일 경로를 주면 → **즉시** analyze_company_diagnosis_sheet 호출
+
+### 2) 보고서 초안 작성
+도구 결과를 바탕으로 아래 2개 텍스트를 작성:
+- **기업 상황 요약(기업진단)**: 강점/핵심 가설/현재 KPI/확장 포인트 중심으로 5~10문장
+- **개선 필요사항**: 우선순위 3~7개, “왜 필요한지 + 다음 액션” 형태로 구체화
+
+또한 점수(문제/솔루션/사업화/자금조달/팀/조직/임팩트)를 제안하되, 필요한 경우 컨설턴트 보정 근거를 함께 제시합니다.
+
+### 3) 사용자 확인 후 엑셀 반영 (CRITICAL - 즉시 실행)
+사용자가 아래처럼 긍정 응답하면 **다시 확인 요청하지 말고 즉시** write_company_diagnosis_report 호출:
+- "응", "네", "좋아", "진행해", "반영해줘", "저장해줘", "엑셀로 만들어줘", "OK"
+
+write_company_diagnosis_report에는 다음을 포함해 호출:
+- excel_path (temp 내부 경로)
+- scores (6개 항목 점수)
+- summary_text, improvement_text
+- (선택) company_name, report_datetime, output_filename
+
+## 답변 스타일 가이드
+
+**이 문서는 프로그램 운영/투자검토 문서로 사용됩니다.**
+
+- 이모지 사용 금지
+- 단정/과장 금지, 근거 중심
+- 표/불릿으로 구조화
+- “~하겠습니다”로 끝내지 말고, 가능한 경우 도구를 실행해 결과까지 제공
+
+한국어로 전문적이고 정중하게 답변하세요.
 """
 
-    # ========================================
-    # Chat Mode (대화형)
-    # ========================================
+	    # ========================================
+	    # Chat Mode (대화형)
+	    # ========================================
 
     async def chat(self, user_message: str, mode: str = "exit") -> AsyncIterator[str]:
         """
@@ -476,7 +535,7 @@ class VCAgent:
         })
 
         # 컨텍스트 업데이트 - 분석 파일
-        if tool_name in ["analyze_excel", "read_excel_as_text"]:
+        if tool_name in ["analyze_excel", "read_excel_as_text", "analyze_company_diagnosis_sheet"]:
             if tool_result.get("success"):
                 file_path = tool_input.get("excel_path")
                 if file_path and file_path not in self.context["analyzed_files"]:
@@ -492,8 +551,8 @@ class VCAgent:
                     self.context["analyzed_files"].append(file_path)
                     self.memory.add_file_analysis(file_path)
 
-        # Exit 프로젝션 생성 기록
-        if tool_name in ["analyze_and_generate_projection", "generate_exit_projection"]:
+        # 생성 파일 기록
+        if tool_name in ["analyze_and_generate_projection", "generate_exit_projection", "write_company_diagnosis_report"]:
             if tool_result.get("success"):
                 output_file = tool_result.get("output_file")
                 if output_file:

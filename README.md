@@ -84,6 +84,7 @@ python cli.py analyze <파일경로>
 - [CLAUDE.md](CLAUDE.md) - Claude Code 사용 가이드
 - [AGENT_SDK_DESIGN.md](AGENT_SDK_DESIGN.md) - Agent 아키텍처 설계
 - [DEPLOYMENT.md](DEPLOYMENT.md) - 배포 전략
+- [SECURITY_FAQ.md](SECURITY_FAQ.md) - 보안 FAQ
 
 ## 설치
 

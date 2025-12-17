@@ -207,6 +207,66 @@ def register_tools() -> List[Dict[str, Any]]:
             }
         },
         {
+            "name": "analyze_company_diagnosis_sheet",
+            "description": "MYSC 기업현황 진단시트(xlsx)를 분석하여 회사 기본정보, 체크리스트 응답(예/아니오), KPI/마일스톤, 항목별 점수(자가진단 기반)를 구조화된 형태로 반환합니다. 컨설턴트용 분석보고서 작성 전에 반드시 이 도구로 진단시트를 파악하세요.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "excel_path": {
+                        "type": "string",
+                        "description": "분석할 기업현황 진단시트 엑셀 파일 경로"
+                    }
+                },
+                "required": ["excel_path"]
+            }
+        },
+        {
+            "name": "write_company_diagnosis_report",
+            "description": "기업현황 진단시트의 '(컨설턴트용) 분석보고서' 시트에 컨설턴트 요약/개선사항/점수를 반영한 새 엑셀 파일을 생성합니다. 원본 파일은 수정하지 않고 temp 디렉토리에 결과 파일을 저장합니다.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "excel_path": {
+                        "type": "string",
+                        "description": "원본 기업현황 진단시트 엑셀 파일 경로 (temp 내부)"
+                    },
+                    "company_name": {
+                        "type": "string",
+                        "description": "기업명 (선택사항, 비어있으면 원본에서 추출)"
+                    },
+                    "report_datetime": {
+                        "type": "string",
+                        "description": "작성일시 문자열 (선택사항, 비어있으면 현재 시각)"
+                    },
+                    "scores": {
+                        "type": "object",
+                        "description": "항목별 점수 (문제/솔루션/사업화/자금조달/팀/조직/임팩트)",
+                        "properties": {
+                            "문제": {"type": "number"},
+                            "솔루션": {"type": "number"},
+                            "사업화": {"type": "number"},
+                            "자금조달": {"type": "number"},
+                            "팀/조직": {"type": "number"},
+                            "임팩트": {"type": "number"}
+                        }
+                    },
+                    "summary_text": {
+                        "type": "string",
+                        "description": "기업 상황 요약/기업진단 내용 (분석보고서 본문)"
+                    },
+                    "improvement_text": {
+                        "type": "string",
+                        "description": "개선 필요사항 (분석보고서 본문)"
+                    },
+                    "output_filename": {
+                        "type": "string",
+                        "description": "출력 파일명 (선택사항, 기본값: diagnosis_report_YYYYMMDD_HHMMSS.xlsx)"
+                    }
+                },
+                "required": ["excel_path", "scores", "summary_text", "improvement_text"]
+            }
+        },
+        {
             "name": "calculate_valuation",
             "description": "다양한 방법론으로 기업가치를 계산합니다 (PER, EV/Revenue, EV/EBITDA 등)",
             "input_schema": {
@@ -974,6 +1034,336 @@ def execute_analyze_and_generate_projection(
 
 
 # ========================================
+# 기업현황 진단시트 도구 실행 함수
+# ========================================
+
+DIAG_SHEET_INFO = "(기업용) 1. 기업정보"
+DIAG_SHEET_CHECKLIST = "(기업용) 2. 체크리스트"
+DIAG_SHEET_KPI = "(기업용) 3. KPI기대사항"
+DIAG_SHEET_EXIT_CHECKLIST = "(기업&컨설턴트용) EXIT 체크리스트"
+DIAG_SHEET_REPORT = "(컨설턴트용) 분석보고서"
+
+
+def _normalize_diagnosis_category(value: Any) -> str:
+    """체크리스트 모듈/분석보고서 헤더를 표준 카테고리로 정규화"""
+    if value is None:
+        return ""
+    s = str(value).strip().replace("\n", " ")
+    # "(비즈니스)" 같은 보조 설명 제거
+    s = s.split("(")[0].strip()
+    # 복수 공백 정리
+    s = re.sub(r"\s+", " ", s)
+    return s
+
+
+def _extract_diagnosis_company_info(wb) -> Dict[str, Any]:
+    """기업정보 시트에서 기본 정보 추출 (가능한 경우)"""
+    info: Dict[str, Any] = {}
+
+    # 1) 기업정보 시트 우선
+    if DIAG_SHEET_INFO in wb.sheetnames:
+        ws = wb[DIAG_SHEET_INFO]
+        info["company_name"] = ws["B6"].value
+        info["representative_name"] = ws["C6"].value
+        info["email"] = ws["D6"].value
+        info["phone"] = ws["E6"].value
+        info["incorporation_date"] = ws["F6"].value
+        info["business_registration_number"] = ws["G6"].value
+        info["business_type"] = ws["H6"].value
+        info["hq_address"] = ws["B9"].value
+        info["branch_address"] = ws["G9"].value
+
+    # 2) EXIT 체크리스트 보조
+    if not info.get("company_name") and DIAG_SHEET_EXIT_CHECKLIST in wb.sheetnames:
+        ws = wb[DIAG_SHEET_EXIT_CHECKLIST]
+        # B2: 기업명, C2: 값 형태가 일반적
+        maybe = ws["C2"].value
+        if maybe:
+            info["company_name"] = maybe
+
+    # 3) 분석보고서 보조
+    if not info.get("company_name") and DIAG_SHEET_REPORT in wb.sheetnames:
+        ws = wb[DIAG_SHEET_REPORT]
+        maybe = ws["D6"].value
+        if maybe:
+            info["company_name"] = maybe
+
+    # 정리 (문자열 trim)
+    for k, v in list(info.items()):
+        if isinstance(v, str):
+            info[k] = v.strip()
+
+    return info
+
+
+def execute_analyze_company_diagnosis_sheet(excel_path: str) -> Dict[str, Any]:
+    """기업현황 진단시트 분석"""
+    # 입력 검증: 파일 경로 (temp 디렉토리 내부만 허용)
+    is_valid, error = _validate_file_path(excel_path, allowed_extensions=[".xlsx", ".xls"], require_temp_dir=True)
+    if not is_valid:
+        return {"success": False, "error": error}
+
+    try:
+        from openpyxl import load_workbook
+
+        wb = load_workbook(excel_path, data_only=False)
+
+        company_info = _extract_diagnosis_company_info(wb)
+
+        # 체크리스트 파싱
+        checklist_items: List[Dict[str, Any]] = []
+        checklist_summary: Dict[str, Any] = {}
+        gaps: List[Dict[str, Any]] = []
+
+        if DIAG_SHEET_CHECKLIST in wb.sheetnames:
+            ws = wb[DIAG_SHEET_CHECKLIST]
+            current_module_raw = None
+
+            for row in range(5, ws.max_row + 1):
+                module_raw = ws.cell(row, 2).value  # B: 모듈
+                q_no = ws.cell(row, 3).value        # C: No
+                item = ws.cell(row, 4).value        # D: 항목
+                sub_item = ws.cell(row, 5).value    # E: 세부항목
+                question = ws.cell(row, 6).value    # F: 질문
+                status = ws.cell(row, 7).value      # G: 현황
+                detail = ws.cell(row, 8).value      # H: 근거/요청
+
+                if module_raw is not None:
+                    current_module_raw = str(module_raw).strip()
+
+                status_str = str(status).strip() if isinstance(status, str) else ""
+                if status_str not in ("예", "아니오"):
+                    continue
+
+                module = _normalize_diagnosis_category(current_module_raw)
+                entry = {
+                    "row": row,
+                    "module": module,
+                    "module_raw": current_module_raw,
+                    "no": q_no,
+                    "item": item,
+                    "sub_item": sub_item,
+                    "question": question,
+                    "status": status_str,
+                    "detail": detail
+                }
+                checklist_items.append(entry)
+
+                if module not in checklist_summary:
+                    checklist_summary[module] = {"total": 0, "yes": 0, "no": 0}
+
+                checklist_summary[module]["total"] += 1
+                if status_str == "예":
+                    checklist_summary[module]["yes"] += 1
+                else:
+                    checklist_summary[module]["no"] += 1
+                    gaps.append({
+                        "module": module,
+                        "question": question,
+                        "detail": detail,
+                        "row": row
+                    })
+
+        # KPI 파싱 (요약 형태)
+        kpi: Dict[str, Any] = {"business": [], "milestone": []}
+        if DIAG_SHEET_KPI in wb.sheetnames:
+            ws = wb[DIAG_SHEET_KPI]
+            current_section = None
+            for row in range(5, min(ws.max_row, 260) + 1):
+                section = ws.cell(row, 2).value  # B
+                if section is not None:
+                    current_section = str(section).strip()
+
+                if current_section == "Business":
+                    kpi_row = {
+                        "kpi": ws.cell(row, 6).value,      # F
+                        "current": ws.cell(row, 7).value,  # G
+                        "target": ws.cell(row, 8).value,   # H
+                    }
+                    # 첫 줄에는 소개/수익구조/고객도 포함
+                    if row == 5:
+                        kpi_row.update({
+                            "service_intro": ws.cell(row, 3).value,
+                            "revenue_model": ws.cell(row, 4).value,
+                            "core_customer": ws.cell(row, 5).value,
+                        })
+                    if any(v is not None and str(v).strip() != "" for v in kpi_row.values()):
+                        kpi["business"].append(kpi_row)
+
+                elif current_section == "Milestone":
+                    m_row = {
+                        "domestic_plan": ws.cell(row, 3).value,
+                        "global_plan": ws.cell(row, 4).value,
+                        "long_term_goal": ws.cell(row, 5).value,
+                        "program_expectation": ws.cell(row, 6).value,
+                        "growth_goal": ws.cell(row, 7).value,
+                        "concerns": ws.cell(row, 8).value,
+                    }
+                    if any(v is not None and str(v).strip() != "" for v in m_row.values()):
+                        kpi["milestone"].append(m_row)
+
+        # 분석보고서 시트 기준으로 가중치 로드 (없으면 기본값)
+        default_weights = {
+            "문제": 20,
+            "솔루션": 20,
+            "사업화": 20,
+            "자금조달": 15,
+            "팀/조직": 20,
+            "임팩트": 5
+        }
+
+        weights = dict(default_weights)
+        if DIAG_SHEET_REPORT in wb.sheetnames:
+            ws = wb[DIAG_SHEET_REPORT]
+            try:
+                header_row = 9
+                weight_row = 10
+                # C~H
+                for col in range(3, 9):
+                    header = _normalize_diagnosis_category(ws.cell(header_row, col).value)
+                    weight_val = ws.cell(weight_row, col).value
+                    if header and isinstance(weight_val, (int, float)):
+                        weights[header] = float(weight_val)
+            except Exception:
+                pass
+
+        # 점수 계산 (자가진단 기반)
+        scores: Dict[str, Any] = {}
+        for category, weight in weights.items():
+            stats = checklist_summary.get(category, {"total": 0, "yes": 0, "no": 0})
+            total = stats.get("total", 0) or 0
+            yes = stats.get("yes", 0) or 0
+            no = stats.get("no", 0) or 0
+            yes_rate = round((yes / total * 100), 1) if total else None
+            score = round((yes / total * float(weight)), 1) if total else None
+            scores[category] = {
+                "weight": float(weight),
+                "score": score,
+                "yes": yes,
+                "no": no,
+                "total": total,
+                "yes_rate_pct": yes_rate
+            }
+
+        return {
+            "success": True,
+            "excel_path": excel_path,
+            "sheets": wb.sheetnames,
+            "company_info": company_info,
+            "checklist": {
+                "items": checklist_items,
+                "summary": checklist_summary,
+                "gaps": gaps
+            },
+            "kpi": kpi,
+            "scores": scores
+        }
+
+    except Exception as e:
+        logger.error(f"Diagnosis sheet analysis failed: {e}", exc_info=True)
+        return {"success": False, "error": f"진단시트 분석 실패: {str(e)}"}
+
+
+def execute_write_company_diagnosis_report(
+    excel_path: str,
+    scores: Dict[str, float],
+    summary_text: str,
+    improvement_text: str,
+    company_name: str = None,
+    report_datetime: str = None,
+    output_filename: str = None
+) -> Dict[str, Any]:
+    """컨설턴트용 분석보고서 시트에 보고서 반영 후 새 파일 생성"""
+    is_valid, error = _validate_file_path(excel_path, allowed_extensions=[".xlsx", ".xls"], require_temp_dir=True)
+    if not is_valid:
+        return {"success": False, "error": error}
+
+    try:
+        from datetime import datetime
+        from openpyxl import load_workbook
+        from openpyxl.styles import Alignment
+
+        wb = load_workbook(excel_path, data_only=False)
+        if DIAG_SHEET_REPORT not in wb.sheetnames:
+            return {"success": False, "error": f"'{DIAG_SHEET_REPORT}' 시트를 찾을 수 없습니다"}
+
+        # company_name fallback
+        extracted_info = _extract_diagnosis_company_info(wb)
+        final_company_name = (company_name or extracted_info.get("company_name") or "").strip()
+
+        ws = wb[DIAG_SHEET_REPORT]
+
+        if final_company_name:
+            ws["D6"].value = final_company_name
+
+        if not report_datetime:
+            report_datetime = datetime.now().strftime("%Y-%m-%d %H:%M")
+        ws["D7"].value = report_datetime
+
+        # 점수 반영: 헤더(9행)를 기준으로 매핑
+        header_to_col: Dict[str, int] = {}
+        for col in range(3, 9):  # C~H
+            header = _normalize_diagnosis_category(ws.cell(9, col).value)
+            if header:
+                header_to_col[header] = col
+
+        for category, val in (scores or {}).items():
+            cat = _normalize_diagnosis_category(category)
+            if not cat:
+                continue
+            col = header_to_col.get(cat)
+            if not col:
+                continue
+            try:
+                ws.cell(11, col).value = float(val)
+            except (TypeError, ValueError):
+                continue
+
+        # 본문 반영
+        ws["C16"].value = summary_text
+        ws["C20"].value = improvement_text
+
+        wrap = Alignment(wrap_text=True, vertical="top")
+        ws["C16"].alignment = wrap
+        ws["C20"].alignment = wrap
+
+        # 출력 경로: temp/<user_id>/
+        excel_path_obj = Path(excel_path)
+        user_id = "cli_user"
+        try:
+            if "temp" in excel_path_obj.parts:
+                temp_idx = excel_path_obj.parts.index("temp")
+                if len(excel_path_obj.parts) > temp_idx + 1:
+                    user_id = excel_path_obj.parts[temp_idx + 1]
+        except (ValueError, IndexError):
+            pass
+
+        if not output_filename:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            output_filename = f"diagnosis_report_{timestamp}.xlsx"
+        else:
+            output_filename = _sanitize_filename(output_filename)
+            if not output_filename.endswith(".xlsx"):
+                output_filename += ".xlsx"
+
+        output_dir = PROJECT_ROOT / "temp" / user_id
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / output_filename
+
+        wb.save(output_path)
+
+        return {
+            "success": True,
+            "output_file": str(output_path),
+            "message": f"진단 분석보고서 반영 완료: {output_path.name}"
+        }
+
+    except Exception as e:
+        logger.error(f"Diagnosis report write failed: {e}", exc_info=True)
+        return {"success": False, "error": f"진단 분석보고서 반영 실패: {str(e)}"}
+
+
+# ========================================
 # Peer PER 분석 도구 실행 함수
 # ========================================
 
@@ -1300,6 +1690,9 @@ TOOL_EXECUTORS = {
     "read_excel_as_text": execute_read_excel_as_text,
     "analyze_excel": execute_analyze_excel,
     "analyze_and_generate_projection": execute_analyze_and_generate_projection,
+    # 기업현황 진단시트 도구
+    "analyze_company_diagnosis_sheet": execute_analyze_company_diagnosis_sheet,
+    "write_company_diagnosis_report": execute_write_company_diagnosis_report,
     "calculate_valuation": execute_calculate_valuation,
     "calculate_dilution": execute_calculate_dilution,
     "calculate_irr": execute_calculate_irr,
