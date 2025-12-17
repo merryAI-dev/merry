@@ -41,6 +41,8 @@ def initialize_session_state():
         "diagnosis_excel_name": None,
         "diagnosis_show_welcome": True,
         "diagnosis_analysis_result": None,
+        "diagnosis_draft_path": None,
+        "diagnosis_draft_progress": None,
 
         # 파일 관리
         "uploaded_file_path": None,

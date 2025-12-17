@@ -46,6 +46,28 @@ def _sync_diagnosis_analysis_from_memory():
         break
 
 
+def _sync_diagnosis_draft_from_memory():
+    """최근 draft 생성/업데이트 결과를 세션 상태에 반영"""
+    agent = st.session_state.get("agent")
+    if not agent or not hasattr(agent, "memory"):
+        return
+
+    messages = agent.memory.session_metadata.get("messages", [])
+    for msg in reversed(messages):
+        if msg.get("role") != "tool":
+            continue
+        meta = msg.get("metadata") or {}
+        tool_name = meta.get("tool_name")
+        if tool_name not in ["create_company_diagnosis_draft", "update_company_diagnosis_draft"]:
+            continue
+
+        result = meta.get("result")
+        if isinstance(result, dict) and result.get("success"):
+            st.session_state.diagnosis_draft_path = result.get("draft_path")
+            st.session_state.diagnosis_draft_progress = result.get("progress")
+        break
+
+
 # 페이지 설정
 st.set_page_config(
     page_title="기업현황 진단시트 | VC 투자 분석",
@@ -63,6 +85,7 @@ avatar_image = get_avatar_image()
 render_sidebar(mode="diagnosis")
 
 _sync_diagnosis_analysis_from_memory()
+_sync_diagnosis_draft_from_memory()
 
 # ========================================
 # 메인 영역
@@ -105,6 +128,13 @@ with upload_cols[1]:
 
 st.divider()
 
+# 템플릿 없이 시작
+if not st.session_state.get("diagnosis_excel_path"):
+    st.info("진단시트 템플릿이 없어도 대화로 내용을 수집해 엑셀을 생성할 수 있습니다.")
+    if st.button("템플릿 없이 작성 시작", type="primary", key="diag_start_no_template"):
+        st.session_state.diagnosis_quick_command = "기업현황 진단시트를 템플릿 없이 대화로 작성 시작해줘"
+    st.divider()
+
 # 빠른 명령어
 if st.session_state.get("diagnosis_excel_path"):
     file_name = st.session_state.get("diagnosis_excel_name", "파일")
@@ -128,6 +158,16 @@ if st.session_state.get("diagnosis_excel_path"):
                 "내가 '반영해줘'라고 확인하면 엑셀에 반영해서 새 파일로 저장해줘."
             )
 
+    st.divider()
+
+# 작성 진행률 (템플릿 없이 작성)
+draft_progress = st.session_state.get("diagnosis_draft_progress")
+if draft_progress and isinstance(draft_progress, dict):
+    st.markdown("### 작성 진행률")
+    st.progress(min(max(float(draft_progress.get("completion_pct", 0.0)) / 100.0, 0.0), 1.0))
+    next_step = draft_progress.get("next") or {}
+    if isinstance(next_step, dict) and next_step.get("prompt"):
+        st.caption(f"다음: {next_step.get('prompt')}")
     st.divider()
 
 # 분석 요약 패널
@@ -271,35 +311,47 @@ if memory:
     generated_files = memory.session_metadata.get("generated_files", []) or []
 
 latest_report_path = None
+latest_sheet_path = None
 for p in reversed(generated_files):
     name = Path(p).name
-    if name.startswith("diagnosis_report_") and name.lower().endswith(".xlsx"):
+    if latest_report_path is None and name.startswith("diagnosis_report_") and name.lower().endswith(".xlsx"):
         latest_report_path = Path(p)
+    if latest_sheet_path is None and name.startswith("diagnosis_sheet_") and name.lower().endswith(".xlsx"):
+        latest_sheet_path = Path(p)
+    if latest_report_path and latest_sheet_path:
         break
 
-if latest_report_path:
+def _is_downloadable_temp_file(path: Path) -> tuple[bool, Path | None]:
     project_root = Path(__file__).resolve().parent.parent
     temp_root = (project_root / "temp").resolve()
-
     try:
-        resolved = latest_report_path.resolve()
+        resolved = path.resolve()
         resolved.relative_to(temp_root)
-        is_downloadable = resolved.is_file()
+        return resolved.is_file(), resolved
     except Exception:
-        is_downloadable = False
+        return False, None
 
-    if is_downloadable:
-        st.divider()
-        st.markdown("### 최근 생성된 분석보고서")
-        st.caption(f"• {resolved.name}")
+downloadables = []
+for label, p in [("진단시트", latest_sheet_path), ("분석보고서", latest_report_path)]:
+    if not p:
+        continue
+    ok, resolved = _is_downloadable_temp_file(p)
+    if ok and resolved is not None:
+        downloadables.append((label, resolved))
+
+if downloadables:
+    st.divider()
+    st.markdown("### 최근 생성된 파일")
+    for label, resolved in downloadables:
+        st.caption(f"• {label}: {resolved.name}")
         st.download_button(
-            "다운로드",
+            f"{label} 다운로드",
             data=resolved.read_bytes(),
             file_name=resolved.name,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
             use_container_width=False,
-            key=f"diagnosis_download_latest_{memory.session_id}",
+            key=f"diagnosis_download_{label}_{memory.session_id}",
         )
 
 # 푸터

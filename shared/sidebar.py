@@ -244,6 +244,8 @@ def _load_session(selected_session: str):
         st.session_state.projection_data = None
         st.session_state.peer_analysis_result = None
         st.session_state.diagnosis_analysis_result = None
+        st.session_state.diagnosis_draft_path = None
+        st.session_state.diagnosis_draft_progress = None
 
         # 에이전트 컨텍스트 복원
         st.session_state.agent.context["analyzed_files"] = session_data.get("analyzed_files", [])
@@ -323,8 +325,17 @@ def _reset_session():
     st.session_state.peer_messages = []
     st.session_state.diagnosis_messages = []
     st.session_state.projection_data = None
+    st.session_state.exit_projection_assumptions = None
     st.session_state.peer_analysis_result = None
     st.session_state.diagnosis_analysis_result = None
+    st.session_state.diagnosis_draft_path = None
+    st.session_state.diagnosis_draft_progress = None
+    st.session_state.uploaded_file_path = None
+    st.session_state.uploaded_file_name = None
+    st.session_state.peer_pdf_path = None
+    st.session_state.peer_pdf_name = None
+    st.session_state.diagnosis_excel_path = None
+    st.session_state.diagnosis_excel_name = None
     memory = getattr(st.session_state.agent, "memory", None)
     user_info = memory.session_metadata.get("user_info", {}) if memory else {}
     st.session_state.exit_user_info_collected = bool(user_info.get("nickname") and user_info.get("company"))
