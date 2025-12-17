@@ -3,13 +3,135 @@
 import os
 import sys
 import json
+import re
 import subprocess
+import shlex
+import time
+from functools import wraps
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Callable
+
+from shared.logging_config import get_logger
+
+logger = get_logger("tools")
 
 # 프로젝트 루트를 Python 경로에 추가
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+
+# ========================================
+# 재시도 데코레이터 (외부 API 호출용)
+# ========================================
+
+def retry_with_backoff(
+    max_retries: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 30.0,
+    exceptions: tuple = (Exception,)
+) -> Callable:
+    """
+    지수 백오프 재시도 데코레이터
+
+    Args:
+        max_retries: 최대 재시도 횟수
+        base_delay: 기본 대기 시간 (초)
+        max_delay: 최대 대기 시간 (초)
+        exceptions: 재시도할 예외 튜플
+    """
+    def decorator(func: Callable) -> Callable:
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    last_exception = e
+                    if attempt == max_retries - 1:
+                        logger.error(f"{func.__name__} failed after {max_retries} attempts: {e}")
+                        raise
+                    delay = min(base_delay * (2 ** attempt), max_delay)
+                    logger.warning(f"{func.__name__} retry {attempt + 1}/{max_retries} after {delay:.1f}s: {e}")
+                    time.sleep(delay)
+            raise last_exception
+        return wrapper
+    return decorator
+
+
+# ========================================
+# 입력 검증 헬퍼 함수
+# ========================================
+
+def _sanitize_filename(filename: str) -> str:
+    """파일명에서 위험한 문자 제거"""
+    if not filename:
+        return "unnamed"
+    # 허용: 알파벳, 숫자, 한글, 언더스코어, 하이픈, 점, 공백
+    sanitized = re.sub(r'[^\w\s가-힣.\-]', '_', filename, flags=re.UNICODE)
+    # 연속된 언더스코어 정리
+    sanitized = re.sub(r'_+', '_', sanitized)
+    return sanitized.strip('_') or "unnamed"
+
+
+def _validate_file_path(file_path: str, allowed_extensions: List[str] = None, require_temp_dir: bool = True) -> tuple:
+    """
+    파일 경로 검증 (보안 강화)
+
+    Args:
+        file_path: 검증할 파일 경로
+        allowed_extensions: 허용된 확장자 리스트
+        require_temp_dir: temp 디렉토리 내부 경로만 허용 (기본: True)
+
+    Returns: (is_valid: bool, error_message: str or None)
+    """
+    if not file_path:
+        return False, "파일 경로가 비어있습니다"
+
+    # Path traversal 공격 방어
+    try:
+        path = Path(file_path).resolve()
+        # 상대 경로로 상위 디렉토리 접근 시도 감지
+        if ".." in file_path:
+            logger.warning(f"Path traversal attempt detected: {file_path}")
+            return False, "잘못된 파일 경로입니다"
+    except Exception:
+        return False, "파일 경로를 해석할 수 없습니다"
+
+    # temp 디렉토리 내부 경로만 허용 (업로드된 파일만 접근 가능)
+    if require_temp_dir:
+        # 허용된 디렉토리: temp/<user_id>/ 패턴
+        temp_dir = (PROJECT_ROOT / "temp").resolve()
+        try:
+            # path가 temp_dir의 하위 경로인지 확인
+            path.relative_to(temp_dir)
+        except ValueError:
+            logger.warning(f"Access to file outside temp directory blocked: {file_path}")
+            return False, "허용되지 않은 경로입니다. 업로드된 파일만 접근할 수 있습니다."
+
+    # 확장자 검증
+    if allowed_extensions:
+        ext = path.suffix.lower()
+        if ext not in [e.lower() if e.startswith('.') else f'.{e.lower()}' for e in allowed_extensions]:
+            return False, f"허용되지 않은 파일 형식입니다. 허용: {', '.join(allowed_extensions)}"
+
+    return True, None
+
+
+def _validate_numeric_param(value: Any, param_name: str, min_val: float = None, max_val: float = None) -> tuple:
+    """
+    숫자 파라미터 검증
+    Returns: (is_valid: bool, validated_value: float or None, error_message: str or None)
+    """
+    try:
+        num_value = float(value)
+        if min_val is not None and num_value < min_val:
+            return False, None, f"{param_name}은(는) {min_val} 이상이어야 합니다"
+        if max_val is not None and num_value > max_val:
+            return False, None, f"{param_name}은(는) {max_val} 이하여야 합니다"
+        return True, num_value, None
+    except (TypeError, ValueError):
+        return False, None, f"{param_name}은(는) 유효한 숫자여야 합니다"
 
 
 def register_tools() -> List[Dict[str, Any]]:
@@ -235,9 +357,18 @@ def execute_read_excel_as_text(
     max_rows: int = 50
 ) -> Dict[str, Any]:
     """엑셀 파일을 텍스트로 변환하여 읽기"""
+    # 입력 검증: 파일 경로 (temp 디렉토리 내부만 허용)
+    is_valid, error = _validate_file_path(excel_path, allowed_extensions=['.xlsx', '.xls'], require_temp_dir=True)
+    if not is_valid:
+        return {"success": False, "error": error}
 
+    wb = None
     try:
         from openpyxl import load_workbook
+
+        # 파일 존재 확인
+        if not os.path.exists(excel_path):
+            return {"success": False, "error": f"파일을 찾을 수 없습니다: {excel_path}"}
 
         wb = load_workbook(excel_path, data_only=True)
 
@@ -268,8 +399,6 @@ def execute_read_excel_as_text(
 
             sheets_data[sheet_name] = "\n".join(sheet_text)
 
-        wb.close()
-
         # 텍스트 결과 생성
         result_text = ""
         for sheet_name, content in sheets_data.items():
@@ -278,6 +407,7 @@ def execute_read_excel_as_text(
             result_text += f"{'='*60}\n"
             result_text += content + "\n"
 
+        logger.info(f"Excel read successfully: {excel_path} ({len(sheets_data)} sheets)")
         return {
             "success": True,
             "file_path": excel_path,
@@ -286,18 +416,32 @@ def execute_read_excel_as_text(
             "total_sheets": len(sheets_data)
         }
 
+    except FileNotFoundError:
+        return {"success": False, "error": f"파일을 찾을 수 없습니다: {excel_path}"}
+    except PermissionError:
+        return {"success": False, "error": f"파일 접근 권한이 없습니다: {excel_path}"}
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"엑셀 파일 읽기 실패: {str(e)}"
-        }
+        logger.error(f"Failed to read excel {excel_path}: {e}", exc_info=True)
+        return {"success": False, "error": f"엑셀 파일 읽기 실패: {str(e)}"}
+    finally:
+        if wb is not None:
+            wb.close()
 
 
 def execute_analyze_excel(excel_path: str) -> Dict[str, Any]:
     """엑셀 파일 분석 실행 - openpyxl로 직접 읽기"""
+    # 입력 검증: 파일 경로 (temp 디렉토리 내부만 허용)
+    is_valid, error = _validate_file_path(excel_path, allowed_extensions=['.xlsx', '.xls'], require_temp_dir=True)
+    if not is_valid:
+        return {"success": False, "error": error}
 
+    from openpyxl import load_workbook
+
+    wb = None
     try:
-        from openpyxl import load_workbook
+        # 파일 존재 확인
+        if not os.path.exists(excel_path):
+            return {"success": False, "error": f"파일을 찾을 수 없습니다: {excel_path}"}
 
         # 엑셀 파일 열기
         wb = load_workbook(excel_path, data_only=True)
@@ -331,7 +475,7 @@ def execute_analyze_excel(excel_path: str) -> Dict[str, Any]:
                             if 2020 <= year_val <= 2040:
                                 year_row_idx = row_idx
                                 year_cols[year_val] = col_idx
-                        except:
+                        except ValueError:
                             pass
 
             # 당기순이익 행 찾기
@@ -419,14 +563,22 @@ def execute_analyze_excel(excel_path: str) -> Dict[str, Any]:
                             result["investment_terms"]["shares"] = int(cell.value)
                             break
 
-        wb.close()
+        logger.info(f"Excel analyzed successfully: {excel_path}")
         return result
 
+    except FileNotFoundError:
+        return {"success": False, "error": f"파일을 찾을 수 없습니다: {excel_path}"}
+    except PermissionError:
+        return {"success": False, "error": f"파일 접근 권한이 없습니다: {excel_path}"}
     except Exception as e:
+        logger.error(f"Failed to analyze excel {excel_path}: {e}", exc_info=True)
         return {
             "success": False,
             "error": f"엑셀 파일 분석 실패: {str(e)}"
         }
+    finally:
+        if wb is not None:
+            wb.close()
 
 
 def execute_calculate_valuation(
@@ -550,7 +702,7 @@ def execute_generate_exit_projection(
 ) -> Dict[str, Any]:
     """Exit 프로젝션 엑셀 생성 실행"""
 
-    # 스크립트 선택
+    # 스크립트 선택 (화이트리스트 방식)
     script_map = {
         "basic": "generate_exit_projection.py",
         "advanced": "generate_advanced_exit_projection.py",
@@ -561,15 +713,43 @@ def execute_generate_exit_projection(
     if not script_name:
         return {
             "success": False,
-            "error": f"Unknown projection type: {projection_type}"
+            "error": f"Unknown projection type: {projection_type}. 허용: basic, advanced, complete"
         }
 
     script_path = PROJECT_ROOT / "scripts" / script_name
 
-    # 파라미터를 CLI 인자로 변환
+    # 허용된 파라미터 키 화이트리스트
+    allowed_params = {
+        "investment_amount", "price_per_share", "shares", "total_shares",
+        "net_income_company", "net_income_reviewer", "target_year",
+        "company_name", "per_multiples", "output",
+        "net_income_2029", "net_income_2030", "partial_exit_ratio", "discount_rate",
+        "total_shares_before_safe", "safe_amount", "safe_valuation_cap",
+        "call_option_price_multiplier"
+    }
+
+    # 파라미터를 CLI 인자로 변환 (화이트리스트 검증)
     cmd = [sys.executable, str(script_path)]
 
     for key, value in parameters.items():
+        # 허용되지 않은 파라미터 키 거부
+        if key not in allowed_params:
+            logger.warning(f"Rejected unknown parameter: {key}")
+            continue
+
+        # 파라미터 키 검증 (알파벳, 숫자, 언더스코어만 허용)
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', key):
+            logger.warning(f"Invalid parameter key format: {key}")
+            continue
+
+        # 값 sanitize
+        if key == "company_name":
+            value = _sanitize_filename(str(value))
+        elif key == "output":
+            value = _sanitize_filename(str(value))
+            if not value.endswith('.xlsx'):
+                value += '.xlsx'
+
         cmd.append(f"--{key}")
         cmd.append(str(value))
 
@@ -613,6 +793,28 @@ def execute_analyze_and_generate_projection(
 ) -> Dict[str, Any]:
     """엑셀 파일 분석 후 즉시 Exit 프로젝션 생성"""
 
+    # 입력 검증: 파일 경로
+    is_valid, error = _validate_file_path(excel_path, allowed_extensions=['.xlsx', '.xls'])
+    if not is_valid:
+        return {"success": False, "error": error}
+
+    # 입력 검증: target_year
+    is_valid, year_val, error = _validate_numeric_param(target_year, "target_year", min_val=2020, max_val=2050)
+    if not is_valid:
+        return {"success": False, "error": error}
+    target_year = int(year_val)
+
+    # 입력 검증: per_multiples
+    if not per_multiples or not isinstance(per_multiples, list):
+        return {"success": False, "error": "PER 멀티플 리스트가 필요합니다"}
+    validated_multiples = []
+    for m in per_multiples:
+        is_valid, val, error = _validate_numeric_param(m, "PER multiple", min_val=0.1, max_val=1000)
+        if not is_valid:
+            return {"success": False, "error": error}
+        validated_multiples.append(val)
+    per_multiples = validated_multiples
+
     # 1단계: 엑셀 파일 분석
     analysis = execute_analyze_excel(excel_path)
 
@@ -655,24 +857,32 @@ def execute_analyze_and_generate_projection(
     if not output_filename:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         output_filename = f"exit_projection_{timestamp}.xlsx"
+    else:
+        # 출력 파일명 sanitize
+        output_filename = _sanitize_filename(output_filename)
+        if not output_filename.endswith('.xlsx'):
+            output_filename += '.xlsx'
 
     if not company_name:
-        company_name = Path(excel_path).stem
+        company_name = _sanitize_filename(Path(excel_path).stem)
+    else:
+        # 회사명 sanitize
+        company_name = _sanitize_filename(company_name)
 
     # generate_exit_projection.py 스크립트 호출
     script_path = PROJECT_ROOT / "scripts" / "generate_exit_projection.py"
 
     cmd = [
         sys.executable, str(script_path),
-        "--investment_amount", str(investment_amount),
-        "--price_per_share", str(price_per_share),
-        "--shares", str(shares),
-        "--total_shares", str(total_shares),
-        "--net_income_company", str(net_income),
-        "--net_income_reviewer", str(net_income),  # 같은 값 사용
+        "--investment_amount", str(int(investment_amount)),
+        "--price_per_share", str(int(price_per_share)),
+        "--shares", str(int(shares)),
+        "--total_shares", str(int(total_shares)),
+        "--net_income_company", str(int(net_income)),
+        "--net_income_reviewer", str(int(net_income)),  # 같은 값 사용
         "--target_year", str(target_year),
         "--company_name", company_name,
-        "--per_multiples", ",".join(map(str, per_multiples)),
+        "--per_multiples", ",".join(map(lambda x: str(int(x) if x == int(x) else x), per_multiples)),
         "--output", output_filename
     ]
 
@@ -714,9 +924,18 @@ def execute_read_pdf_as_text(
     max_pages: int = 30
 ) -> Dict[str, Any]:
     """PDF 파일을 텍스트로 변환하여 읽기"""
+    # 입력 검증: 파일 경로 (temp 디렉토리 내부만 허용)
+    is_valid, error = _validate_file_path(pdf_path, allowed_extensions=['.pdf'], require_temp_dir=True)
+    if not is_valid:
+        return {"success": False, "error": error}
 
+    import fitz  # PyMuPDF
+
+    doc = None
     try:
-        import fitz  # PyMuPDF
+        # 파일 존재 확인
+        if not os.path.exists(pdf_path):
+            return {"success": False, "error": f"파일을 찾을 수 없습니다: {pdf_path}"}
 
         doc = fitz.open(pdf_path)
         total_pages = len(doc)
@@ -734,10 +953,9 @@ def execute_read_pdf_as_text(
                 text_content.append(f"{'='*60}")
                 text_content.append(text)
 
-        doc.close()
-
         full_text = "\n".join(text_content)
 
+        logger.info(f"PDF read successfully: {pdf_path} ({pages_to_read}/{total_pages} pages)")
         return {
             "success": True,
             "file_path": pdf_path,
@@ -747,26 +965,34 @@ def execute_read_pdf_as_text(
             "char_count": len(full_text)
         }
 
-    except ImportError:
-        return {
-            "success": False,
-            "error": "PyMuPDF가 설치되지 않았습니다. pip install PyMuPDF를 실행하세요."
-        }
+    except FileNotFoundError:
+        return {"success": False, "error": f"파일을 찾을 수 없습니다: {pdf_path}"}
+    except PermissionError:
+        return {"success": False, "error": f"파일 접근 권한이 없습니다: {pdf_path}"}
     except Exception as e:
+        logger.error(f"Failed to read PDF {pdf_path}: {e}", exc_info=True)
         return {
             "success": False,
             "error": f"PDF 파일 읽기 실패: {str(e)}"
         }
+    finally:
+        if doc is not None:
+            doc.close()
+
+
+@retry_with_backoff(max_retries=3, base_delay=1.0, exceptions=(ConnectionError, TimeoutError))
+def _fetch_stock_info(ticker: str) -> dict:
+    """yfinance에서 주식 정보 조회 (재시도 지원)"""
+    import yfinance as yf
+    stock = yf.Ticker(ticker)
+    return stock.info
 
 
 def execute_get_stock_financials(ticker: str) -> Dict[str, Any]:
     """yfinance로 상장 기업 재무 지표 조회"""
 
     try:
-        import yfinance as yf
-
-        stock = yf.Ticker(ticker)
-        info = stock.info
+        info = _fetch_stock_info(ticker)
 
         # 기본 정보가 없으면 에러
         if not info or info.get("regularMarketPrice") is None:
@@ -837,7 +1063,6 @@ def execute_analyze_peer_per(
     """여러 Peer 기업 PER 일괄 조회 및 비교 분석"""
 
     try:
-        import yfinance as yf
         import statistics
 
         peer_data = []
@@ -845,8 +1070,8 @@ def execute_analyze_peer_per(
 
         for ticker in tickers:
             try:
-                stock = yf.Ticker(ticker)
-                info = stock.info
+                # 재시도 지원 헬퍼 함수 사용
+                info = _fetch_stock_info(ticker)
 
                 if not info or info.get("regularMarketPrice") is None:
                     failed_tickers.append(ticker)
@@ -871,6 +1096,7 @@ def execute_analyze_peer_per(
                 peer_data.append(data)
 
             except Exception as e:
+                logger.warning(f"Failed to fetch {ticker}: {e}")
                 failed_tickers.append(ticker)
 
         if not peer_data:

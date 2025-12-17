@@ -9,6 +9,10 @@ from PIL import Image
 
 from shared.config import initialize_session_state
 from shared.auth import check_authentication
+from shared.logging_config import setup_logging
+
+# 로깅 초기화 (앱 시작 시 1회)
+setup_logging()
 
 # 페이지 설정
 st.set_page_config(

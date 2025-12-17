@@ -15,6 +15,7 @@ import pandas as pd
 from shared.config import initialize_session_state, get_avatar_image, initialize_agent
 from shared.auth import check_authentication
 from shared.sidebar import render_sidebar
+from shared.file_utils import get_secure_upload_path, cleanup_user_temp_files
 
 # 페이지 설정
 st.set_page_config(
@@ -56,12 +57,19 @@ with pdf_cols[0]:
 
 with pdf_cols[1]:
     if pdf_file:
-        # 임시 파일 저장
-        pdf_temp_path = Path("temp") / pdf_file.name
-        pdf_temp_path.parent.mkdir(exist_ok=True)
-        with open(pdf_temp_path, "wb") as f:
+        # 안전한 업로드 경로 생성 (사용자별 격리)
+        user_id = st.session_state.get('user_id', 'anonymous')
+        secure_pdf_path = get_secure_upload_path(
+            user_id=user_id,
+            original_filename=pdf_file.name
+        )
+        with open(secure_pdf_path, "wb") as f:
             f.write(pdf_file.getbuffer())
-        st.session_state.peer_pdf_path = str(pdf_temp_path)
+
+        # 오래된 파일 정리
+        cleanup_user_temp_files(user_id, max_files=10)
+
+        st.session_state.peer_pdf_path = str(secure_pdf_path)
         st.session_state.peer_pdf_name = pdf_file.name
         st.success(f"업로드 완료: {pdf_file.name}")
 

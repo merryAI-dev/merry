@@ -8,11 +8,29 @@ import json
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
+from shared.logging_config import get_logger
+
+logger = get_logger("supabase")
+
 try:
     from supabase import create_client, Client
     SUPABASE_AVAILABLE = True
 except ImportError:
     SUPABASE_AVAILABLE = False
+    logger.warning("Supabase library not installed")
+
+
+def _safe_json_loads(value: Any, default: Any = None) -> Any:
+    """안전한 JSON 파싱"""
+    if value is None:
+        return default
+    if isinstance(value, (dict, list)):
+        return value
+    try:
+        return json.loads(value)
+    except (json.JSONDecodeError, TypeError):
+        logger.warning(f"Failed to parse JSON: {value[:100] if isinstance(value, str) else value}")
+        return default
 
 
 def get_supabase_client() -> Optional["Client"]:
@@ -80,9 +98,10 @@ class SupabaseStorage:
                 "created_at": datetime.now().isoformat()
             }
             self.client.table("chat_sessions").insert(data).execute()
+            logger.info(f"Session created: {session_id}")
             return True
         except Exception as e:
-            print(f"Supabase create_session error: {e}")
+            logger.error(f"Failed to create session {session_id}: {e}", exc_info=True)
             return False
 
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -97,14 +116,14 @@ class SupabaseStorage:
 
             if response.data:
                 session = response.data[0]
-                # JSON 필드 파싱
-                session["user_info"] = json.loads(session.get("user_info", "{}"))
-                session["analyzed_files"] = json.loads(session.get("analyzed_files", "[]"))
-                session["generated_files"] = json.loads(session.get("generated_files", "[]"))
+                # JSON 필드 파싱 (안전하게)
+                session["user_info"] = _safe_json_loads(session.get("user_info"), {})
+                session["analyzed_files"] = _safe_json_loads(session.get("analyzed_files"), [])
+                session["generated_files"] = _safe_json_loads(session.get("generated_files"), [])
                 return session
             return None
         except Exception as e:
-            print(f"Supabase get_session error: {e}")
+            logger.error(f"Failed to get session {session_id}: {e}", exc_info=True)
             return None
 
     def get_recent_sessions(self, limit: int = 10) -> List[Dict[str, Any]]:
@@ -119,9 +138,9 @@ class SupabaseStorage:
 
             sessions = []
             for session in response.data:
-                session["user_info"] = json.loads(session.get("user_info", "{}"))
-                session["analyzed_files"] = json.loads(session.get("analyzed_files", "[]"))
-                session["generated_files"] = json.loads(session.get("generated_files", "[]"))
+                session["user_info"] = _safe_json_loads(session.get("user_info"), {})
+                session["analyzed_files"] = _safe_json_loads(session.get("analyzed_files"), [])
+                session["generated_files"] = _safe_json_loads(session.get("generated_files"), [])
 
                 # 메시지 수 조회
                 try:
@@ -135,7 +154,7 @@ class SupabaseStorage:
                 sessions.append(session)
             return sessions
         except Exception as e:
-            print(f"Supabase get_recent_sessions error: {e}")
+            logger.error(f"Failed to get recent sessions: {e}", exc_info=True)
             return []
 
     def update_session(self, session_id: str, updates: Dict[str, Any]) -> bool:
@@ -157,7 +176,7 @@ class SupabaseStorage:
             ).eq("user_id", self.user_id).execute()
             return True
         except Exception as e:
-            print(f"Supabase update_session error: {e}")
+            logger.error(f"Failed to update session {session_id}: {e}", exc_info=True)
             return False
 
     # ========================================
@@ -187,7 +206,7 @@ class SupabaseStorage:
             self.client.table("chat_messages").insert(data).execute()
             return True
         except Exception as e:
-            print(f"Supabase add_message error: {e}")
+            logger.error(f"Failed to add message to session {session_id}: {e}", exc_info=True)
             return False
 
     def get_messages(self, session_id: str) -> List[Dict[str, Any]]:
@@ -202,11 +221,11 @@ class SupabaseStorage:
 
             messages = []
             for msg in response.data:
-                msg["metadata"] = json.loads(msg.get("metadata", "{}"))
+                msg["metadata"] = _safe_json_loads(msg.get("metadata"), {})
                 messages.append(msg)
             return messages
         except Exception as e:
-            print(f"Supabase get_messages error: {e}")
+            logger.error(f"Failed to get messages for session {session_id}: {e}", exc_info=True)
             return []
 
     # ========================================
@@ -242,9 +261,10 @@ class SupabaseStorage:
                 "created_at": datetime.now().isoformat()
             }
             self.client.table("feedback").insert(data).execute()
+            logger.info(f"Feedback added: {feedback_type} for session {session_id}")
             return True
         except Exception as e:
-            print(f"Supabase add_feedback error: {e}")
+            logger.error(f"Failed to add feedback: {e}", exc_info=True)
             return False
 
     def get_feedback_stats(self) -> Dict[str, Any]:
@@ -269,7 +289,7 @@ class SupabaseStorage:
                 "satisfaction_rate": positive / total if total > 0 else 0.0
             }
         except Exception as e:
-            print(f"Supabase get_feedback_stats error: {e}")
+            logger.error(f"Failed to get feedback stats: {e}", exc_info=True)
             return {"total": 0, "positive": 0, "negative": 0, "satisfaction_rate": 0.0}
 
     def get_recent_feedback(self, limit: int = 10) -> List[Dict[str, Any]]:
@@ -285,12 +305,12 @@ class SupabaseStorage:
             feedbacks = []
             for fb in response.data:
                 if fb.get("feedback_value"):
-                    fb["feedback_value"] = json.loads(fb["feedback_value"])
-                fb["context"] = json.loads(fb.get("context", "{}"))
+                    fb["feedback_value"] = _safe_json_loads(fb["feedback_value"])
+                fb["context"] = _safe_json_loads(fb.get("context"), {})
                 feedbacks.append(fb)
             return feedbacks
         except Exception as e:
-            print(f"Supabase get_recent_feedback error: {e}")
+            logger.error(f"Failed to get recent feedback: {e}", exc_info=True)
             return []
 
     def _calculate_reward(self, feedback_type: str, feedback_value: Any = None) -> float:

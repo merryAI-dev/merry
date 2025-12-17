@@ -10,12 +10,17 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
+from shared.logging_config import get_logger
+
+logger = get_logger("feedback")
+
 # Supabase 스토리지 (옵션)
 try:
     from .supabase_storage import SupabaseStorage
     SUPABASE_AVAILABLE = True
 except ImportError:
     SUPABASE_AVAILABLE = False
+    logger.info("Supabase storage not available for feedback")
 
 
 class FeedbackSystem:
@@ -97,8 +102,12 @@ class FeedbackSystem:
         try:
             with open(self.feedback_file, 'a', encoding='utf-8') as f:
                 f.write(json.dumps(feedback_entry, ensure_ascii=False) + '\n')
-        except Exception:
-            pass
+        except PermissionError as e:
+            logger.error(f"Permission denied saving feedback to {self.feedback_file}: {e}")
+        except OSError as e:
+            logger.error(f"OS error saving feedback to {self.feedback_file}: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error saving feedback: {e}", exc_info=True)
 
         # 강화학습용 데이터셋 생성
         self._generate_rl_data(feedback_entry)

@@ -16,8 +16,14 @@ from anthropic import Anthropic, AsyncAnthropic
 from .tools import register_tools, execute_tool
 from .memory import ChatMemory
 from .feedback import FeedbackSystem
+from shared.logging_config import get_logger
 
 load_dotenv()
+
+logger = get_logger("vc_agent")
+
+# 안전장치: 최대 도구 호출 횟수
+MAX_TOOL_STEPS = 15
 
 
 class VCAgent:
@@ -88,6 +94,9 @@ class VCAgent:
             "total_output_tokens": 0,
             "session_calls": 0
         }
+
+        # 도구 호출 카운터 (무한 루프 방지)
+        self._tool_step_count = 0
 
     # ========================================
     # System Prompt
@@ -321,6 +330,9 @@ Peer 기업 데이터를 바탕으로:
             str: 에이전트 응답 (스트리밍)
         """
 
+        # 도구 호출 카운터 초기화 (새 메시지마다)
+        self._tool_step_count = 0
+
         # 현재 모드 저장
         self._current_mode = mode
 
@@ -382,13 +394,6 @@ Peer 기업 데이터를 바탕으로:
                             # 도구 실행
                             tool_result = execute_tool(tool_name, tool_input)
 
-                            # 메모리에 도구 사용 기록
-                            self.memory.add_message("tool", f"도구 사용: {tool_name}", {
-                                "tool_name": tool_name,
-                                "input": tool_input,
-                                "result": tool_result
-                            })
-
                             # 결과 저장
                             tool_results.append({
                                 "type": "tool_result",
@@ -396,21 +401,8 @@ Peer 기업 데이터를 바탕으로:
                                 "content": json.dumps(tool_result, ensure_ascii=False)
                             })
 
-                            # 컨텍스트 업데이트
-                            if tool_name in ["analyze_excel", "read_excel_as_text"]:
-                                if tool_result.get("success"):
-                                    file_path = tool_input.get("excel_path")
-                                    if file_path and file_path not in self.context["analyzed_files"]:
-                                        self.context["analyzed_files"].append(file_path)
-                                        self.memory.add_file_analysis(file_path)
-                                    self.context["last_analysis"] = tool_result
-
-                            # Exit 프로젝션 생성 기록
-                            if tool_name == "analyze_and_generate_projection":
-                                if tool_result.get("success"):
-                                    output_file = tool_result.get("output_file")
-                                    if output_file:
-                                        self.memory.add_generated_file(output_file)
+                            # 메모리/컨텍스트 업데이트 (공통 헬퍼)
+                            self._record_tool_usage(tool_name, tool_input, tool_result)
 
                             yield f"완료\n\n"
 
@@ -440,6 +432,13 @@ Peer 기업 데이터를 바탕으로:
 
     async def _continue_conversation(self) -> AsyncIterator[str]:
         """도구 실행 후 대화 계속"""
+
+        # 도구 호출 횟수 제한 확인 (무한 루프 방지)
+        self._tool_step_count += 1
+        if self._tool_step_count > MAX_TOOL_STEPS:
+            logger.warning(f"Tool step limit reached: {MAX_TOOL_STEPS}")
+            yield "\n\n[시스템] 도구 호출 횟수 제한에 도달했습니다. 새로운 메시지로 계속하세요."
+            return
 
         # 저장된 모드 사용
         mode = getattr(self, '_current_mode', 'exit')
@@ -484,6 +483,9 @@ Peer 기업 데이터를 바탕으로:
                                 "content": json.dumps(tool_result, ensure_ascii=False)
                             })
 
+                            # 메모리/컨텍스트 업데이트 (재귀 호출에서도 기록)
+                            self._record_tool_usage(tool_name, tool_input, tool_result)
+
                             yield f"완료\n\n"
 
                     if tool_results:
@@ -500,22 +502,75 @@ Peer 기업 데이터를 바탕으로:
                         async for text in self._continue_conversation():
                             yield text
 
+    def _record_tool_usage(self, tool_name: str, tool_input: dict, tool_result: dict):
+        """도구 사용 결과를 메모리/컨텍스트에 기록 (공통 헬퍼)"""
+        # 메모리에 도구 사용 기록
+        self.memory.add_message("tool", f"도구 사용: {tool_name}", {
+            "tool_name": tool_name,
+            "input": tool_input,
+            "result": tool_result
+        })
+
+        # 컨텍스트 업데이트 - 분석 파일
+        if tool_name in ["analyze_excel", "read_excel_as_text"]:
+            if tool_result.get("success"):
+                file_path = tool_input.get("excel_path")
+                if file_path and file_path not in self.context["analyzed_files"]:
+                    self.context["analyzed_files"].append(file_path)
+                    self.memory.add_file_analysis(file_path)
+                self.context["last_analysis"] = tool_result
+
+        # 컨텍스트 업데이트 - PDF 분석
+        if tool_name == "read_pdf_as_text":
+            if tool_result.get("success"):
+                file_path = tool_input.get("pdf_path")
+                if file_path and file_path not in self.context["analyzed_files"]:
+                    self.context["analyzed_files"].append(file_path)
+                    self.memory.add_file_analysis(file_path)
+
+        # Exit 프로젝션 생성 기록
+        if tool_name in ["analyze_and_generate_projection", "generate_exit_projection"]:
+            if tool_result.get("success"):
+                output_file = tool_result.get("output_file")
+                if output_file:
+                    self.memory.add_generated_file(output_file)
+
     # ========================================
     # Utility Methods
     # ========================================
 
-    def chat_sync(self, user_message: str) -> str:
-        """동기 버전 chat (간단한 사용)"""
+    def chat_sync(self, user_message: str, mode: str = "exit") -> str:
+        """동기 버전 chat (간단한 사용)
+
+        Args:
+            user_message: 사용자 메시지
+            mode: "exit" (Exit 프로젝션) 또는 "peer" (Peer PER 분석)
+
+        Returns:
+            에이전트 응답 문자열
+        """
         import asyncio
 
         async def run():
             response = ""
-            async for chunk in self.chat(user_message):
+            async for chunk in self.chat(user_message, mode=mode):
                 response += chunk
             return response
 
-        loop = asyncio.get_event_loop()
-        return loop.run_until_complete(run())
+        # Python 3.10+ compatible: asyncio.run() 사용
+        # 단, 이미 실행 중인 이벤트 루프가 있으면 nest_asyncio 필요
+        try:
+            # 이미 실행 중인 루프가 있는지 확인
+            loop = asyncio.get_running_loop()
+            # 실행 중인 루프가 있으면 (예: Jupyter, Streamlit)
+            # nest_asyncio 또는 새 스레드에서 실행
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, run())
+                return future.result()
+        except RuntimeError:
+            # 실행 중인 루프가 없으면 asyncio.run() 사용
+            return asyncio.run(run())
 
     def get_token_usage(self) -> Dict[str, Any]:
         """토큰 사용량 및 예상 비용 반환"""

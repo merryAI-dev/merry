@@ -45,6 +45,9 @@ Thumbs.db
 chat_history/
 feedback/
 
+# Logs (daily rotation)
+logs/
+
 # Temporary files
 temp/
 
