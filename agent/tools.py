@@ -852,8 +852,35 @@ def execute_analyze_and_generate_projection(
             }
         }
 
-    # 3단계: Exit 프로젝션 생성 (사용자별 temp 디렉토리에 저장)
+    # 3단계: Exit 프로젝션 요약 계산 (UI/리포트용)
     from datetime import datetime
+
+    investment_year = datetime.now().year
+    holding_period_years = target_year - investment_year
+
+    projection_summary: List[Dict[str, Any]] = []
+    for per in per_multiples:
+        enterprise_value = float(net_income) * float(per)
+        proceeds = None
+        multiple = None
+        irr_pct = None
+
+        try:
+            per_share_value = enterprise_value / float(total_shares)
+            proceeds = per_share_value * float(shares)
+            multiple = proceeds / float(investment_amount)
+            if holding_period_years > 0 and multiple > 0:
+                irr_pct = (multiple ** (1 / holding_period_years) - 1) * 100
+        except Exception:
+            pass
+
+        projection_summary.append({
+            "PER": float(per),
+            "IRR": irr_pct,
+            "Multiple": multiple
+        })
+
+    # 4단계: Exit 프로젝션 생성 (사용자별 temp 디렉토리에 저장)
 
     # excel_path에서 user_id 추출 (temp/<user_id>/파일명 형식)
     excel_path_obj = Path(excel_path)
@@ -917,6 +944,18 @@ def execute_analyze_and_generate_projection(
         return {
             "success": True,
             "output_file": str(output_path),
+            "assumptions": {
+                "company_name": company_name,
+                "target_year": target_year,
+                "investment_year": investment_year,
+                "holding_period_years": holding_period_years,
+                "investment_amount": investment_amount,
+                "shares": shares,
+                "total_shares": total_shares,
+                "net_income": net_income,
+                "per_multiples": per_multiples
+            },
+            "projection_summary": projection_summary,
             "analysis_data": {
                 "target_year": target_year,
                 "net_income": net_income,
@@ -1000,14 +1039,15 @@ def execute_read_pdf_as_text(
 
 
 def _fetch_stock_info(ticker: str) -> dict:
-    """yfinance에서 주식 정보 조회 (Rate Limit 대응 - 충분한 딜레이)"""
+    """yfinance에서 주식 정보 조회 (Rate Limit 대응 - 1분 딜레이)"""
     import yfinance as yf
     import random
 
-    # Rate Limit 방지를 위한 충분한 딜레이 (3~5초)
-    time.sleep(random.uniform(3.0, 5.0))
+    # Rate Limit 방지를 위한 충분한 딜레이 (55~65초, 약 1분)
+    logger.info(f"Waiting ~1 minute before fetching {ticker}...")
+    time.sleep(random.uniform(55.0, 65.0))
 
-    max_retries = 5
+    max_retries = 3
     for attempt in range(max_retries):
         try:
             stock = yf.Ticker(ticker)
@@ -1016,8 +1056,8 @@ def _fetch_stock_info(ticker: str) -> dict:
             # Rate Limit 응답 체크 (빈 dict 또는 에러 메시지)
             if not info or (isinstance(info, dict) and info.get("error")):
                 if attempt < max_retries - 1:
-                    # 점진적으로 더 긴 대기: 10초, 30초, 60초, 120초
-                    delay = min(10 * (3 ** attempt), 300) + random.uniform(0, 5)
+                    # 재시도 시 2분 대기
+                    delay = 120 + random.uniform(0, 10)
                     logger.warning(f"Rate limit detected for {ticker}, retrying in {delay:.1f}s (attempt {attempt+1}/{max_retries})...")
                     time.sleep(delay)
                     continue
@@ -1025,8 +1065,8 @@ def _fetch_stock_info(ticker: str) -> dict:
 
         except Exception as e:
             if attempt < max_retries - 1:
-                # 에러 시에도 충분한 대기: 15초, 45초, 90초, 180초
-                delay = min(15 * (3 ** attempt), 300) + random.uniform(0, 10)
+                # 에러 시 2분 대기
+                delay = 120 + random.uniform(0, 10)
                 logger.warning(f"Error fetching {ticker}: {e}, retrying in {delay:.1f}s (attempt {attempt+1}/{max_retries})...")
                 time.sleep(delay)
             else:
