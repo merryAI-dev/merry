@@ -1,6 +1,6 @@
 # VC 투자 분석 에이전트
 
-투자 검토 엑셀 파일을 AI와 대화하며 분석하고 Exit 프로젝션을 자동 생성하는 도구입니다.
+투자 검토 엑셀/IR PDF/기업현황 진단시트를 AI와 대화하며 분석하고 결과 엑셀을 자동 생성하는 도구입니다.
 
 ## 🚀 빠른 시작 (3초 컷!)
 
@@ -45,6 +45,8 @@ echo "ANTHROPIC_API_KEY=your-api-key-here" > .env
 
 - **자동 엑셀 분석**: 투자조건, IS요약, Cap Table 자동 추출
 - **Exit 프로젝션 생성**: PER/EV 기반 시나리오별 수익률 계산
+- **Peer PER 분석**: 유사 상장기업 PER 비교 및 밸류에이션 지원
+- **기업현황 진단시트**: 체크리스트/가중치 기반 점수 산출 + 컨설턴트 보고서 엑셀 반영
 - **AI 대화형 분석**: 한국어로 자연스럽게 질문하고 즉시 답변
 - **전문 엑셀 생성**: 색상 코딩된 Exit 프로젝션 파일 자동 생성
 
@@ -77,6 +79,10 @@ python cli.py chat
 
 # 파일 분석
 python cli.py analyze <파일경로>
+
+# 모드 지정 (exit | peer | diagnosis)
+python cli.py chat --mode diagnosis
+python cli.py analyze <파일경로> --mode peer
 ```
 
 ## 문서

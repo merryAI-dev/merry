@@ -7,7 +7,7 @@ import asyncio
 import click
 from pathlib import Path
 
-from agent import ConversationalVCAgent
+from agent import ConversationalVCAgent, __version__ as AGENT_VERSION
 from agent.autonomous_agent import AutonomousVCAgent
 from shared.logging_config import setup_logging
 from shared.file_utils import copy_to_temp
@@ -17,7 +17,7 @@ setup_logging()
 
 
 @click.group()
-@click.version_option(version="0.1.0")
+@click.version_option(version=AGENT_VERSION)
 def cli():
     """VC 투자 분석 에이전트 - 대화형 AI 분석 도구"""
     pass
@@ -25,11 +25,18 @@ def cli():
 
 @cli.command()
 @click.option("--model", default="claude-opus-4-5-20251101", help="사용할 Claude 모델 (기본: Opus 4.5)")
-def chat(model):
+@click.option(
+    "--mode",
+    type=click.Choice(["exit", "peer", "diagnosis"], case_sensitive=False),
+    default="exit",
+    show_default=True,
+    help="대화 모드",
+)
+def chat(model, mode):
     """대화형 모드로 에이전트와 소통"""
 
     click.echo("=" * 60)
-    click.echo("VC Investment Agent - 대화형 모드")
+    click.echo(f"VC Investment Agent - 대화형 모드 (mode: {mode})")
     click.echo("=" * 60)
     click.echo()
 
@@ -65,7 +72,7 @@ def chat(model):
                 # 에이전트 응답 스트리밍
                 click.echo("Agent: ", nl=False)
 
-                async for chunk in agent.chat(user_input):
+                async for chunk in agent.chat(user_input, mode=mode):
                     click.echo(chunk, nl=False)
                 click.echo()  # 줄바꿈
                 click.echo()
@@ -82,16 +89,23 @@ def chat(model):
 
 
 @cli.command()
-@click.argument("excel_file", type=click.Path(exists=True))
+@click.argument("input_file", type=click.Path(exists=True))
 @click.option("--model", default="claude-opus-4-5-20251101", help="사용할 Claude 모델 (기본: Opus 4.5)")
-def analyze(excel_file, model):
-    """엑셀 파일 빠른 분석"""
+@click.option(
+    "--mode",
+    type=click.Choice(["exit", "peer", "diagnosis"], case_sensitive=False),
+    default="exit",
+    show_default=True,
+    help="분석 모드",
+)
+def analyze(input_file, model, mode):
+    """파일 빠른 분석"""
 
-    click.echo(f"{excel_file} 분석 중...")
+    click.echo(f"{input_file} 분석 중... (mode: {mode})")
     click.echo()
 
     # 파일을 temp 디렉토리로 복사 (보안 경로 제한 준수)
-    success, temp_path, error = copy_to_temp(excel_file)
+    success, temp_path, error = copy_to_temp(input_file)
     if not success:
         click.echo(f"오류: {error}", err=True)
         return
@@ -105,12 +119,20 @@ def analyze(excel_file, model):
         return
 
     # 분석 요청 (temp 경로 사용)
-    prompt = f"다음 파일을 분석하고 핵심 정보를 요약해줘: {temp_path}"
+    if mode == "diagnosis":
+        prompt = (
+            f"{temp_path} 파일을 분석하고 컨설턴트용 분석보고서 초안을 작성해줘. "
+            "점수(문제/솔루션/사업화/자금조달/팀/조직/임팩트)와 근거도 함께 제시해줘."
+        )
+    elif mode == "peer":
+        prompt = f"{temp_path} 파일을 분석해줘"
+    else:
+        prompt = f"다음 파일을 분석하고 핵심 정보를 요약해줘: {temp_path}"
 
     click.echo("Agent: ")
 
     async def stream_response():
-        async for chunk in agent.chat(prompt):
+        async for chunk in agent.chat(prompt, mode=mode):
             click.echo(chunk, nl=False)
         click.echo()
 
