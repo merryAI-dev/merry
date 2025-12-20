@@ -127,7 +127,7 @@ def analyze(input_file, model, mode):
     elif mode == "report":
         prompt = (
             f"{temp_path} 파일을 분석하고 시장규모 근거를 추출해줘. "
-            "DART 인수인의견 스타일로 초안을 작성하고 확인 필요 항목도 정리해줘."
+            "인수인의견 스타일로 초안을 작성하고 확인 필요 항목도 정리해줘."
         )
     elif mode == "peer":
         prompt = f"{temp_path} 파일을 분석해줘"
