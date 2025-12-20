@@ -8,7 +8,7 @@ import math
 import subprocess
 import shlex
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
 from typing import Any, Dict, List, Callable
@@ -79,12 +79,18 @@ def _resolve_underwriter_data_path(jsonl_path: str = None) -> tuple:
     if not jsonl_path:
         temp_root = PROJECT_ROOT / "temp"
         if temp_root.exists():
-            for p in sorted(
-                temp_root.glob("dart_underwriter_opinion*/underwriter_opinion.jsonl"),
-                key=lambda x: x.stat().st_mtime,
-                reverse=True
-            ):
-                candidates.append(p)
+            patterns = [
+                "dart_underwriter_opinion*/underwriter_opinion.jsonl",
+                "underwriter_opinion*/underwriter_opinion.jsonl",
+                "**/underwriter_opinion.jsonl",
+            ]
+            seen = set()
+            for pattern in patterns:
+                for p in temp_root.glob(pattern):
+                    if p in seen:
+                        continue
+                    seen.add(p)
+                    candidates.append(p)
 
     for candidate in candidates:
         if not candidate:
@@ -927,6 +933,55 @@ def register_tools() -> List[Dict[str, Any]]:
                     }
                 },
                 "required": ["pdf_path"]
+            }
+        },
+        {
+            "name": "fetch_underwriter_opinion_data",
+            "description": "인수인의견 원천 데이터를 API에서 수집하여 JSONL로 생성합니다. API 키가 필요하며, 결과는 temp/ 하위에 저장됩니다.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "start_date": {
+                        "type": "string",
+                        "description": "시작일 (YYYYMMDD, 선택)"
+                    },
+                    "end_date": {
+                        "type": "string",
+                        "description": "종료일 (YYYYMMDD, 선택)"
+                    },
+                    "lookback_days": {
+                        "type": "integer",
+                        "description": "종료일 기준 조회 기간 (일, 기본값: 365)"
+                    },
+                    "out_dir": {
+                        "type": "string",
+                        "description": "출력 디렉토리 (선택, temp/ 하위로 제한)"
+                    },
+                    "max_items": {
+                        "type": "integer",
+                        "description": "최대 처리 건수 (기본값: 200)"
+                    },
+                    "last_only": {
+                        "type": "boolean",
+                        "description": "최종 보고서만 수집 (기본값: true)"
+                    },
+                    "include_corrections": {
+                        "type": "boolean",
+                        "description": "정정/확정 보고서 포함 여부 (기본값: false)"
+                    },
+                    "min_length": {
+                        "type": "integer",
+                        "description": "섹션 최소 길이 (기본값: 600)"
+                    },
+                    "min_score": {
+                        "type": "number",
+                        "description": "섹션 최소 점수 (기본값: 3.0)"
+                    },
+                    "api_key": {
+                        "type": "string",
+                        "description": "API 키 (선택, 없으면 환경변수 사용)"
+                    }
+                }
             }
         },
         # ========================================
@@ -3089,6 +3144,123 @@ def execute_extract_pdf_market_evidence(
             doc.close()
 
 
+def execute_fetch_underwriter_opinion_data(
+    start_date: str = None,
+    end_date: str = None,
+    lookback_days: int = 365,
+    out_dir: str = None,
+    max_items: int = 200,
+    last_only: bool = True,
+    include_corrections: bool = False,
+    min_length: int = 600,
+    min_score: float = 3.0,
+    api_key: str = None
+) -> Dict[str, Any]:
+    """인수인의견 원천 데이터 수집 및 JSONL 생성"""
+    api_key = api_key or os.getenv("DART_API_KEY")
+    if not api_key:
+        return {
+            "success": False,
+            "error": "API 키가 필요합니다. tool 입력 또는 환경변수로 설정하세요."
+        }
+
+    today = datetime.now().date()
+    if end_date:
+        end_str = end_date.strip()
+    else:
+        end_str = today.strftime("%Y%m%d")
+
+    if start_date:
+        start_str = start_date.strip()
+    else:
+        try:
+            lookback_days = int(lookback_days) if lookback_days is not None else 365
+        except (TypeError, ValueError):
+            lookback_days = 365
+        start_str = (today - timedelta(days=lookback_days)).strftime("%Y%m%d")
+
+    if not re.match(r"^\d{8}$", start_str) or not re.match(r"^\d{8}$", end_str):
+        return {"success": False, "error": "start_date/end_date 형식은 YYYYMMDD 이어야 합니다."}
+
+    if out_dir:
+        out_path = Path(out_dir)
+        if not out_path.is_absolute():
+            out_path = (PROJECT_ROOT / out_path).resolve()
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_path = (PROJECT_ROOT / "temp" / f"underwriter_opinion_{timestamp}").resolve()
+
+    # temp 하위로 제한
+    temp_root = (PROJECT_ROOT / "temp").resolve()
+    try:
+        out_path.relative_to(temp_root)
+    except ValueError:
+        return {"success": False, "error": "출력 디렉토리는 temp/ 하위여야 합니다."}
+
+    out_path.mkdir(parents=True, exist_ok=True)
+
+    try:
+        max_items = int(max_items) if max_items is not None else 200
+    except (TypeError, ValueError):
+        max_items = 200
+    try:
+        min_length = int(min_length) if min_length is not None else 600
+    except (TypeError, ValueError):
+        min_length = 600
+    try:
+        min_score = float(min_score) if min_score is not None else 3.0
+    except (TypeError, ValueError):
+        min_score = 3.0
+
+    cmd = [
+        sys.executable,
+        str(PROJECT_ROOT / "scripts" / "dart_extract_underwriter_opinion.py"),
+        "--start", start_str,
+        "--end", end_str,
+        "--out", str(out_path),
+        "--api-key", api_key,
+        "--max-items", str(max_items),
+        "--min-length", str(min_length),
+        "--min-score", str(min_score),
+    ]
+
+    if last_only:
+        cmd.append("--last-only")
+    if include_corrections:
+        cmd.append("--include-corrections")
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+    except OSError as e:
+        return {"success": False, "error": f"데이터 수집 실행 실패: {str(e)}"}
+
+    if result.returncode != 0:
+        err_tail = (result.stderr or "").strip().splitlines()[-5:]
+        return {
+            "success": False,
+            "error": "데이터 수집 실패",
+            "details": "\n".join(err_tail)
+        }
+
+    output_file = out_path / "underwriter_opinion.jsonl"
+    if not output_file.exists():
+        return {"success": False, "error": "결과 JSONL 파일을 찾을 수 없습니다."}
+
+    return {
+        "success": True,
+        "output_dir": str(out_path),
+        "output_file": str(output_file),
+        "start_date": start_str,
+        "end_date": end_str,
+        "max_items": max_items
+    }
+
+
 # ========================================
 # Peer PER 분석 도구 실행 함수
 # ========================================
@@ -3433,6 +3605,7 @@ TOOL_EXECUTORS = {
     "analyze_peer_per": execute_analyze_peer_per,
     "search_underwriter_opinion_similar": execute_search_underwriter_opinion_similar,
     "extract_pdf_market_evidence": execute_extract_pdf_market_evidence,
+    "fetch_underwriter_opinion_data": execute_fetch_underwriter_opinion_data,
 }
 
 
