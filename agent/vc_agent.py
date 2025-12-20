@@ -370,6 +370,7 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
 
 ### 규칙 1) 시장규모/패턴 근거는 반드시 데이터 기반
 - DART 인수인의견 데이터 활용 → 반드시 **search_underwriter_opinion** 호출
+- 키워드 매칭이 약하면 **search_underwriter_opinion_similar**로 유사도 검색
 - 결과의 snippet/pattern을 근거로 문장 구성
 - 추측/예시 답변 금지 (근거가 없으면 '확인 필요'로 명시)
 - 임의로 "접근 불가"라고 단정하지 말고, 도구 결과의 에러/가이드를 그대로 전달

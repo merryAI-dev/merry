@@ -4,6 +4,7 @@ import os
 import sys
 import json
 import re
+import math
 import subprocess
 import shlex
 import time
@@ -48,6 +49,19 @@ UNDERWRITER_CATEGORY_KEYWORDS = {
         "any": ["위험", "리스크", "유의", "불확실", "변동", "미래예측"],
         "all": [],
     },
+}
+
+_UNDERWRITER_TFIDF_CACHE = {
+    "path": None,
+    "mtime": None,
+    "size": None,
+    "min_n": None,
+    "max_n": None,
+    "max_text_chars": None,
+    "idf": None,
+    "vectors": None,
+    "entries": None,
+    "texts": None,
 }
 
 
@@ -308,6 +322,121 @@ def _parse_underwriter_jsonl(jsonl_path: str) -> List[Dict[str, Any]]:
             except json.JSONDecodeError:
                 continue
     return entries
+
+
+def _normalize_similarity_text(text: str, max_chars: int = 2000) -> str:
+    if not text:
+        return ""
+    normalized = text.lower()
+    normalized = re.sub(r"\s+", " ", normalized)
+    normalized = re.sub(r"\d", "0", normalized)
+    normalized = normalized.strip()
+    if max_chars and len(normalized) > max_chars:
+        normalized = normalized[:max_chars]
+    return normalized
+
+
+def _char_ngram_counts(text: str, min_n: int = 3, max_n: int = 5) -> Dict[str, int]:
+    counts: Dict[str, int] = {}
+    length = len(text)
+    for n in range(min_n, max_n + 1):
+        if length < n:
+            continue
+        for i in range(length - n + 1):
+            token = text[i:i + n]
+            counts[token] = counts.get(token, 0) + 1
+    return counts
+
+
+def _build_tfidf_index(texts: List[str], min_n: int = 3, max_n: int = 5) -> tuple:
+    counts_list = [_char_ngram_counts(text, min_n=min_n, max_n=max_n) for text in texts]
+    df: Dict[str, int] = {}
+    for counts in counts_list:
+        for term in counts.keys():
+            df[term] = df.get(term, 0) + 1
+
+    doc_count = len(counts_list)
+    idf = {term: math.log((1 + doc_count) / (1 + freq)) + 1 for term, freq in df.items()}
+
+    vectors = []
+    for counts in counts_list:
+        vec: Dict[str, float] = {}
+        norm = 0.0
+        for term, tf in counts.items():
+            weight = (1 + math.log(tf)) * idf[term]
+            vec[term] = weight
+            norm += weight * weight
+        vectors.append((vec, math.sqrt(norm)))
+    return idf, vectors
+
+
+def _vectorize_query(text: str, idf: Dict[str, float], min_n: int = 3, max_n: int = 5) -> tuple:
+    counts = _char_ngram_counts(text, min_n=min_n, max_n=max_n)
+    vec: Dict[str, float] = {}
+    norm = 0.0
+    for term, tf in counts.items():
+        if term not in idf:
+            continue
+        weight = (1 + math.log(tf)) * idf[term]
+        vec[term] = weight
+        norm += weight * weight
+    return vec, math.sqrt(norm)
+
+
+def _cosine_similarity(vec_a: Dict[str, float], norm_a: float, vec_b: Dict[str, float], norm_b: float) -> float:
+    if norm_a == 0 or norm_b == 0:
+        return 0.0
+    if len(vec_a) > len(vec_b):
+        vec_a, vec_b = vec_b, vec_a
+        norm_a, norm_b = norm_b, norm_a
+    dot = 0.0
+    for term, weight in vec_a.items():
+        dot += weight * vec_b.get(term, 0.0)
+    return dot / (norm_a * norm_b)
+
+
+def _get_underwriter_tfidf_index(jsonl_path: str, min_n: int = 3, max_n: int = 5, max_text_chars: int = 2000):
+    cache = _UNDERWRITER_TFIDF_CACHE
+    try:
+        stat = os.stat(jsonl_path)
+    except OSError:
+        return None, "JSONL 파일 정보를 읽을 수 없습니다"
+
+    if (
+        cache["path"] == jsonl_path
+        and cache["mtime"] == stat.st_mtime
+        and cache["size"] == stat.st_size
+        and cache["min_n"] == min_n
+        and cache["max_n"] == max_n
+        and cache["max_text_chars"] == max_text_chars
+        and cache["idf"] is not None
+        and cache["vectors"] is not None
+        and cache["entries"] is not None
+        and cache["texts"] is not None
+    ):
+        return cache, None
+
+    entries = _parse_underwriter_jsonl(jsonl_path)
+    texts = []
+    for entry in entries:
+        combined = f"{entry.get('section_title', '')}\n{entry.get('section_text', '')}"
+        texts.append(_normalize_similarity_text(combined, max_chars=max_text_chars))
+
+    idf, vectors = _build_tfidf_index(texts, min_n=min_n, max_n=max_n)
+
+    cache.update({
+        "path": jsonl_path,
+        "mtime": stat.st_mtime,
+        "size": stat.st_size,
+        "min_n": min_n,
+        "max_n": max_n,
+        "max_text_chars": max_text_chars,
+        "idf": idf,
+        "vectors": vectors,
+        "entries": entries,
+        "texts": texts,
+    })
+    return cache, None
 
 
 def register_tools() -> List[Dict[str, Any]]:
@@ -707,6 +836,60 @@ def register_tools() -> List[Dict[str, Any]]:
                         "description": "결과 저장 파일명 (선택, temp/에 JSON 저장)"
                     }
                 }
+            }
+        },
+        {
+            "name": "search_underwriter_opinion_similar",
+            "description": "DART 인수인의견 JSONL 데이터에서 입력 질의와 유사한 문장을 유사도 기반으로 검색합니다. 키워드 매칭이 어려운 경우 보완용으로 사용하세요.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "유사도 검색 질의 (시장/기술/산업 관련 문장 권장)"
+                    },
+                    "jsonl_path": {
+                        "type": "string",
+                        "description": "underwriter_opinion.jsonl 경로 (선택, 기본: 프로젝트 temp 경로)"
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "카테고리 필터 (market_size, valuation, comparables, demand_forecast, risk 중 선택, 선택사항)"
+                    },
+                    "corp_name": {
+                        "type": "string",
+                        "description": "기업명 필터 (선택)"
+                    },
+                    "top_k": {
+                        "type": "integer",
+                        "description": "상위 결과 수 (기본값: 5)"
+                    },
+                    "min_score": {
+                        "type": "number",
+                        "description": "유사도 최소 점수 (기본값: 0.05)"
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": "문장/본문 최대 길이 (기본값: 800)"
+                    },
+                    "min_section_length": {
+                        "type": "integer",
+                        "description": "섹션 길이 최소값 (기본값: 0)"
+                    },
+                    "max_text_chars": {
+                        "type": "integer",
+                        "description": "유사도 계산용 텍스트 최대 길이 (기본값: 2000)"
+                    },
+                    "return_patterns": {
+                        "type": "boolean",
+                        "description": "일반화된 패턴 문장 반환 여부 (기본값: true)"
+                    },
+                    "output_filename": {
+                        "type": "string",
+                        "description": "결과 저장 파일명 (선택, temp/에 JSON 저장)"
+                    }
+                },
+                "required": ["query"]
             }
         },
         # ========================================
@@ -2611,6 +2794,172 @@ def execute_search_underwriter_opinion(
     return response
 
 
+def execute_search_underwriter_opinion_similar(
+    query: str,
+    jsonl_path: str = None,
+    category: str = None,
+    corp_name: str = None,
+    top_k: int = 5,
+    min_score: float = 0.05,
+    max_chars: int = 800,
+    min_section_length: int = 0,
+    max_text_chars: int = 2000,
+    return_patterns: bool = True,
+    output_filename: str = None
+) -> Dict[str, Any]:
+    """DART 인수인의견 JSONL에서 유사도 기반 문장 검색"""
+    if not query or not str(query).strip():
+        return {"success": False, "error": "query가 비어 있습니다"}
+
+    resolved_path, resolve_error = _resolve_underwriter_data_path(jsonl_path)
+    if resolve_error:
+        return {
+            "success": False,
+            "error": resolve_error,
+            "suggested_action": (
+                "scripts/dart_extract_underwriter_opinion.py 실행으로 데이터를 생성하거나 "
+                "UNDERWRITER_DATA_PATH 환경변수를 설정하세요."
+            )
+        }
+    jsonl_path = resolved_path
+    category = category.strip().lower() if isinstance(category, str) else category
+
+    try:
+        top_k = int(top_k) if top_k is not None else 5
+    except (TypeError, ValueError):
+        top_k = 5
+    try:
+        max_chars = int(max_chars) if max_chars is not None else 800
+    except (TypeError, ValueError):
+        max_chars = 800
+    try:
+        min_section_length = int(min_section_length) if min_section_length is not None else 0
+    except (TypeError, ValueError):
+        min_section_length = 0
+    try:
+        max_text_chars = int(max_text_chars) if max_text_chars is not None else 2000
+    except (TypeError, ValueError):
+        max_text_chars = 2000
+    try:
+        min_score = float(min_score) if min_score is not None else 0.05
+    except (TypeError, ValueError):
+        min_score = 0.05
+    if isinstance(return_patterns, str):
+        return_patterns = return_patterns.strip().lower() in ("true", "1", "yes", "y")
+
+    is_valid, error = _validate_file_path(
+        jsonl_path,
+        allowed_extensions=[".jsonl"],
+        require_temp_dir=True
+    )
+    if not is_valid:
+        return {
+            "success": False,
+            "error": error,
+            "suggested_action": "DART 데이터 파일을 temp/ 하위로 이동해 주세요."
+        }
+
+    if not os.path.exists(jsonl_path):
+        return {
+            "success": False,
+            "error": f"파일을 찾을 수 없습니다: {jsonl_path}",
+            "suggested_action": "DART 데이터 파일 경로를 확인하세요."
+        }
+
+    index, index_error = _get_underwriter_tfidf_index(
+        jsonl_path,
+        min_n=3,
+        max_n=5,
+        max_text_chars=max_text_chars
+    )
+    if index_error:
+        return {"success": False, "error": index_error}
+
+    query_text = _normalize_similarity_text(str(query), max_chars=max_text_chars)
+    query_vec, query_norm = _vectorize_query(query_text, index["idf"], min_n=3, max_n=5)
+
+    results = []
+    for entry, (vec, norm) in zip(index["entries"], index["vectors"]):
+        section_text = entry.get("section_text") or ""
+        section_title = entry.get("section_title") or ""
+        combined_text = f"{section_title}\n{section_text}"
+
+        if corp_name and corp_name not in entry.get("corp_name", ""):
+            continue
+
+        if min_section_length and entry.get("section_length", 0) < min_section_length:
+            continue
+
+        if category:
+            ok, _ = _match_underwriter_category(combined_text, category)
+            if not ok:
+                continue
+
+        score = _cosine_similarity(query_vec, query_norm, vec, norm)
+        if score < min_score:
+            continue
+
+        snippet = _extract_snippet(section_text, [], max_chars=max_chars)
+        results.append({
+            "corp_name": entry.get("corp_name"),
+            "rcept_no": entry.get("rcept_no"),
+            "report_nm": entry.get("report_nm"),
+            "rcept_dt": entry.get("rcept_dt"),
+            "section_title": section_title,
+            "section_length": entry.get("section_length"),
+            "quality_score": entry.get("quality_score"),
+            "snippet": snippet,
+            "score": round(score, 6)
+        })
+
+    results.sort(key=lambda x: x.get("score", 0), reverse=True)
+    if top_k:
+        results = results[:top_k]
+
+    patterns = []
+    if return_patterns:
+        seen = set()
+        for item in results:
+            template = _generalize_underwriter_text(item.get("snippet"), item.get("corp_name"))
+            if template and template not in seen:
+                patterns.append(template)
+                seen.add(template)
+
+    response = {
+        "success": True,
+        "source_path": jsonl_path,
+        "filters": {
+            "query": query,
+            "category": category,
+            "corp_name": corp_name,
+            "top_k": top_k,
+            "min_score": min_score,
+            "max_chars": max_chars,
+            "min_section_length": min_section_length,
+            "max_text_chars": max_text_chars
+        },
+        "results": results,
+        "patterns": patterns
+    }
+
+    if output_filename:
+        sanitized_name = _sanitize_filename(output_filename)
+        if not sanitized_name.endswith(".json"):
+            sanitized_name += ".json"
+        output_dir = PROJECT_ROOT / "temp"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / sanitized_name
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(response, f, ensure_ascii=False, indent=2)
+            response["output_file"] = str(output_path)
+        except OSError as e:
+            logger.error(f"Failed to write underwriter similarity output: {e}", exc_info=True)
+            response["output_file_error"] = str(e)
+
+    return response
+
+
 # ========================================
 # Peer PER 분석 도구 실행 함수
 # ========================================
@@ -2952,7 +3301,8 @@ TOOL_EXECUTORS = {
     "search_underwriter_opinion": execute_search_underwriter_opinion,
     "read_pdf_as_text": execute_read_pdf_as_text,
     "get_stock_financials": execute_get_stock_financials,
-    "analyze_peer_per": execute_analyze_peer_per
+    "analyze_peer_per": execute_analyze_peer_per,
+    "search_underwriter_opinion_similar": execute_search_underwriter_opinion_similar,
 }
 
 
