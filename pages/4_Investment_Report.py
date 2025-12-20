@@ -1,7 +1,7 @@
 """
 투자심사 보고서 작성 페이지
 - 기업 자료에서 시장규모 근거 추출
-- DART 인수인의견 스타일 초안 작성
+- 인수인의견 스타일 초안 작성
 """
 
 import asyncio
@@ -40,7 +40,7 @@ avatar_image = get_avatar_image()
 render_sidebar(mode="report")
 
 st.markdown("# 투자심사 보고서 작성")
-st.markdown("시장규모 근거를 추출하고 DART 인수인의견 스타일 초안을 작성합니다")
+st.markdown("시장규모 근거를 추출하고 인수인의견 스타일 초안을 작성합니다")
 st.divider()
 
 # 업로드 영역
@@ -90,7 +90,7 @@ if st.session_state.get("report_file_path"):
     with quick_cols[1]:
         if st.button("인수인의견 초안", use_container_width=True, type="primary", key="report_quick_draft"):
             st.session_state.report_quick_command = (
-                f"{file_name} 파일을 분석하고 DART 인수인의견 스타일로 초안을 작성해줘. "
+                f"{file_name} 파일을 분석하고 인수인의견 스타일로 초안을 작성해줘. "
                 "시장규모 근거와 확인 필요 항목도 포함해줘."
             )
 
@@ -98,7 +98,7 @@ if st.session_state.get("report_file_path"):
         if st.button("시장규모 + 초안", use_container_width=True, key="report_quick_full"):
             st.session_state.report_quick_command = (
                 f"{file_name} 파일을 분석하고 시장규모 근거를 추출한 뒤 "
-                "DART 인수인의견 스타일로 보고서 초안을 작성해줘."
+                "인수인의견 스타일로 보고서 초안을 작성해줘."
             )
 
     st.divider()
@@ -114,7 +114,7 @@ with chat_container:
             with st.chat_message("assistant", avatar=avatar_image):
                 st.markdown("""**투자심사 보고서 작성 모드**입니다.
 
-기업 자료에서 **시장규모 근거**를 추출하고, DART 인수인의견 스타일의 초안을 작성합니다.
+기업 자료에서 **시장규모 근거**를 추출하고, 인수인의견 스타일의 초안을 작성합니다.
 
 ---
 ### 시작하기

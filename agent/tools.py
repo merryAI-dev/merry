@@ -98,7 +98,7 @@ def _resolve_underwriter_data_path(jsonl_path: str = None) -> tuple:
             return str(resolved), None
 
     message = (
-        "DART 인수인의견 JSONL 파일을 찾을 수 없습니다. "
+        "인수인의견 JSONL 파일을 찾을 수 없습니다. "
         "temp/ 하위에 underwriter_opinion.jsonl을 두거나 "
         "UNDERWRITER_DATA_PATH 환경변수를 설정하세요."
     )
@@ -288,6 +288,16 @@ def _extract_market_size_sentences(text: str, max_sentences: int = 2) -> str:
     if not candidates:
         return ""
     return " ".join(candidates)
+
+
+def _extract_numeric_phrases(text: str) -> List[str]:
+    if not text:
+        return []
+    pattern = re.compile(
+        r"\d+(?:,\d{3})*(?:\.\d+)?\s*(?:조|억|억원|백만|백만원|천만|만원|원|달러|usd|백만달러|억달러|톤|t|kg|%)",
+        re.IGNORECASE,
+    )
+    return pattern.findall(text)
 
 
 def _generalize_underwriter_text(text: str, corp_name: str = None) -> str:
@@ -795,7 +805,7 @@ def register_tools() -> List[Dict[str, Any]]:
         # ========================================
         {
             "name": "search_underwriter_opinion",
-            "description": "DART 인수인의견(분석기관의 평가의견) JSONL 데이터에서 특정 카테고리/기업/키워드에 맞는 문장과 패턴을 추출합니다. 시장규모 근거, 비교기업 선정, 공모가 산정 논리 등 반복 패턴을 일반화할 때 사용하세요.",
+            "description": "인수인의견(분석기관의 평가의견) JSONL 데이터에서 특정 카테고리/기업/키워드에 맞는 문장과 패턴을 추출합니다. 시장규모 근거, 비교기업 선정, 공모가 산정 논리 등 반복 패턴을 일반화할 때 사용하세요.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -840,7 +850,7 @@ def register_tools() -> List[Dict[str, Any]]:
         },
         {
             "name": "search_underwriter_opinion_similar",
-            "description": "DART 인수인의견 JSONL 데이터에서 입력 질의와 유사한 문장을 유사도 기반으로 검색합니다. 키워드 매칭이 어려운 경우 보완용으로 사용하세요.",
+            "description": "인수인의견 JSONL 데이터에서 입력 질의와 유사한 문장을 유사도 기반으로 검색합니다. 키워드 매칭이 어려운 경우 보완용으로 사용하세요.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -890,6 +900,33 @@ def register_tools() -> List[Dict[str, Any]]:
                     }
                 },
                 "required": ["query"]
+            }
+        },
+        {
+            "name": "extract_pdf_market_evidence",
+            "description": "PDF에서 시장규모 근거가 될 수 있는 문장을 페이지 번호와 함께 추출합니다. 숫자/단위가 포함된 문장을 우선 수집합니다.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "pdf_path": {
+                        "type": "string",
+                        "description": "읽을 PDF 파일 경로"
+                    },
+                    "max_pages": {
+                        "type": "integer",
+                        "description": "읽을 최대 페이지 수 (기본값: 30)"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "최대 결과 수 (기본값: 20)"
+                    },
+                    "keywords": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "추가 키워드 (선택)"
+                    }
+                },
+                "required": ["pdf_path"]
             }
         },
         # ========================================
@@ -2638,16 +2675,13 @@ def execute_search_underwriter_opinion(
     return_patterns: bool = True,
     output_filename: str = None
 ) -> Dict[str, Any]:
-    """DART 인수인의견 JSONL에서 관련 문장 및 일반화 패턴 추출"""
+    """인수인의견 JSONL에서 관련 문장 및 일반화 패턴 추출"""
     resolved_path, resolve_error = _resolve_underwriter_data_path(jsonl_path)
     if resolve_error:
         return {
             "success": False,
             "error": resolve_error,
-            "suggested_action": (
-                "scripts/dart_extract_underwriter_opinion.py 실행으로 데이터를 생성하거나 "
-                "UNDERWRITER_DATA_PATH 환경변수를 설정하세요."
-            )
+            "suggested_action": "인수인의견 데이터 생성 스크립트를 실행하거나 UNDERWRITER_DATA_PATH를 설정하세요."
         }
     jsonl_path = resolved_path
     category = category.strip().lower() if isinstance(category, str) else category
@@ -2675,14 +2709,14 @@ def execute_search_underwriter_opinion(
         return {
             "success": False,
             "error": error,
-            "suggested_action": "DART 데이터 파일을 temp/ 하위로 이동해 주세요."
+            "suggested_action": "인수인의견 데이터 파일을 temp/ 하위로 이동해 주세요."
         }
 
     if not os.path.exists(jsonl_path):
         return {
             "success": False,
             "error": f"파일을 찾을 수 없습니다: {jsonl_path}",
-            "suggested_action": "DART 데이터 파일 경로를 확인하세요."
+            "suggested_action": "인수인의견 데이터 파일 경로를 확인하세요."
         }
 
     try:
@@ -2807,7 +2841,7 @@ def execute_search_underwriter_opinion_similar(
     return_patterns: bool = True,
     output_filename: str = None
 ) -> Dict[str, Any]:
-    """DART 인수인의견 JSONL에서 유사도 기반 문장 검색"""
+    """인수인의견 JSONL에서 유사도 기반 문장 검색"""
     if not query or not str(query).strip():
         return {"success": False, "error": "query가 비어 있습니다"}
 
@@ -2816,10 +2850,7 @@ def execute_search_underwriter_opinion_similar(
         return {
             "success": False,
             "error": resolve_error,
-            "suggested_action": (
-                "scripts/dart_extract_underwriter_opinion.py 실행으로 데이터를 생성하거나 "
-                "UNDERWRITER_DATA_PATH 환경변수를 설정하세요."
-            )
+            "suggested_action": "인수인의견 데이터 생성 스크립트를 실행하거나 UNDERWRITER_DATA_PATH를 설정하세요."
         }
     jsonl_path = resolved_path
     category = category.strip().lower() if isinstance(category, str) else category
@@ -2856,14 +2887,14 @@ def execute_search_underwriter_opinion_similar(
         return {
             "success": False,
             "error": error,
-            "suggested_action": "DART 데이터 파일을 temp/ 하위로 이동해 주세요."
+            "suggested_action": "인수인의견 데이터 파일을 temp/ 하위로 이동해 주세요."
         }
 
     if not os.path.exists(jsonl_path):
         return {
             "success": False,
             "error": f"파일을 찾을 수 없습니다: {jsonl_path}",
-            "suggested_action": "DART 데이터 파일 경로를 확인하세요."
+            "suggested_action": "인수인의견 데이터 파일 경로를 확인하세요."
         }
 
     index, index_error = _get_underwriter_tfidf_index(
@@ -2958,6 +2989,104 @@ def execute_search_underwriter_opinion_similar(
             response["output_file_error"] = str(e)
 
     return response
+
+
+# ========================================
+# PDF 시장규모 근거 추출 도구 실행 함수
+# ========================================
+
+def execute_extract_pdf_market_evidence(
+    pdf_path: str,
+    max_pages: int = 30,
+    max_results: int = 20,
+    keywords: List[str] = None
+) -> Dict[str, Any]:
+    """PDF에서 시장규모 근거 문장을 추출"""
+    is_valid, error = _validate_file_path(pdf_path, allowed_extensions=['.pdf'], require_temp_dir=True)
+    if not is_valid:
+        return {"success": False, "error": error}
+
+    if not os.path.exists(pdf_path):
+        return {"success": False, "error": f"파일을 찾을 수 없습니다: {pdf_path}"}
+
+    try:
+        max_pages = int(max_pages) if max_pages is not None else 30
+    except (TypeError, ValueError):
+        max_pages = 30
+    try:
+        max_results = int(max_results) if max_results is not None else 20
+    except (TypeError, ValueError):
+        max_results = 20
+
+    base_keywords = [
+        "시장", "규모", "전망", "성장", "성장률", "CAGR",
+        "TAM", "SAM", "SOM", "수요", "가격", "매출", "톤", "kg", "달러"
+    ]
+    if keywords:
+        base_keywords.extend([str(k) for k in keywords if k])
+
+    import fitz  # PyMuPDF
+
+    doc = None
+    try:
+        doc = fitz.open(pdf_path)
+        total_pages = len(doc)
+        pages_to_read = min(total_pages, max_pages)
+
+        evidence = []
+        seen = set()
+
+        for page_idx in range(pages_to_read):
+            page = doc[page_idx]
+            text = page.get_text()
+            for line in text.splitlines():
+                line_text = _normalize_text(line)
+                if not line_text:
+                    continue
+
+                if not any(keyword in line_text for keyword in base_keywords):
+                    continue
+
+                if not re.search(r"\d", line_text):
+                    continue
+
+                numbers = _extract_numeric_phrases(line_text)
+                if not numbers:
+                    continue
+
+                key = (page_idx + 1, line_text)
+                if key in seen:
+                    continue
+                seen.add(key)
+
+                matched = [kw for kw in base_keywords if kw in line_text]
+                evidence.append({
+                    "page": page_idx + 1,
+                    "text": line_text,
+                    "numbers": numbers,
+                    "matched_keywords": matched[:10],
+                    "source": f"PDF p.{page_idx + 1}"
+                })
+
+                if len(evidence) >= max_results:
+                    break
+            if len(evidence) >= max_results:
+                break
+
+        return {
+            "success": True,
+            "file_path": pdf_path,
+            "total_pages": total_pages,
+            "pages_read": pages_to_read,
+            "evidence": evidence,
+            "evidence_count": len(evidence)
+        }
+    except Exception as e:
+        logger.error(f"PDF market evidence extraction failed: {e}", exc_info=True)
+        return {"success": False, "error": f"시장규모 근거 추출 실패: {str(e)}"}
+    finally:
+        if doc:
+            doc.close()
 
 
 # ========================================
@@ -3303,6 +3432,7 @@ TOOL_EXECUTORS = {
     "get_stock_financials": execute_get_stock_financials,
     "analyze_peer_per": execute_analyze_peer_per,
     "search_underwriter_opinion_similar": execute_search_underwriter_opinion_similar,
+    "extract_pdf_market_evidence": execute_extract_pdf_market_evidence,
 }
 
 
