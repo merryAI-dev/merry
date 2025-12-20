@@ -27,7 +27,7 @@ def cli():
 @click.option("--model", default="claude-opus-4-5-20251101", help="사용할 Claude 모델 (기본: Opus 4.5)")
 @click.option(
     "--mode",
-    type=click.Choice(["exit", "peer", "diagnosis"], case_sensitive=False),
+    type=click.Choice(["exit", "peer", "diagnosis", "report"], case_sensitive=False),
     default="exit",
     show_default=True,
     help="대화 모드",
@@ -93,7 +93,7 @@ def chat(model, mode):
 @click.option("--model", default="claude-opus-4-5-20251101", help="사용할 Claude 모델 (기본: Opus 4.5)")
 @click.option(
     "--mode",
-    type=click.Choice(["exit", "peer", "diagnosis"], case_sensitive=False),
+    type=click.Choice(["exit", "peer", "diagnosis", "report"], case_sensitive=False),
     default="exit",
     show_default=True,
     help="분석 모드",
@@ -123,6 +123,11 @@ def analyze(input_file, model, mode):
         prompt = (
             f"{temp_path} 파일을 분석하고 컨설턴트용 분석보고서 초안을 작성해줘. "
             "점수(문제/솔루션/사업화/자금조달/팀/조직/임팩트)와 근거도 함께 제시해줘."
+        )
+    elif mode == "report":
+        prompt = (
+            f"{temp_path} 파일을 분석하고 시장규모 근거를 추출해줘. "
+            "DART 인수인의견 스타일로 초안을 작성하고 확인 필요 항목도 정리해줘."
         )
     elif mode == "peer":
         prompt = f"{temp_path} 파일을 분석해줘"

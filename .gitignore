@@ -10,7 +10,7 @@ ENV/
 .venv
 
 # Environment variables (보안)
-.env
+.env*
 !.env.example
 
 # IDEs
