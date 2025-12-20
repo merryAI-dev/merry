@@ -106,7 +106,7 @@ class VCAgent:
         """동적 시스템 프롬프트 생성
 
         Args:
-            mode: "exit" (Exit 프로젝션) 또는 "peer" (Peer PER 분석)
+            mode: "exit" (Exit 프로젝션), "peer" (Peer PER 분석), "diagnosis", "report"
         """
 
         analyzed_files = ", ".join(self.context["analyzed_files"]) if self.context["analyzed_files"] else "없음"
@@ -118,6 +118,10 @@ class VCAgent:
         # 기업현황 진단시트 모드
         if mode == "diagnosis":
             return self._build_diagnosis_system_prompt(analyzed_files)
+
+        # 투자심사 보고서/인수인의견 모드
+        if mode == "report":
+            return self._build_report_system_prompt(analyzed_files)
 
         # Exit 프로젝션 모드 (기본)
         return f"""당신은 **VC 투자 분석 전문 에이전트**입니다.
@@ -352,6 +356,53 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
 한국어로 전문적이고 정중하게 답변하세요.
 """
 
+    def _build_report_system_prompt(self, analyzed_files: str) -> str:
+        """투자심사 보고서(인수인의견 스타일) 모드 시스템 프롬프트"""
+
+        return f"""당신은 **투자심사 보고서 작성 지원 에이전트**입니다. 현재 **DART 인수인의견 스타일**로 작성합니다.
+
+## 현재 컨텍스트
+- 분석된 파일: {analyzed_files}
+- 캐시된 결과: {len(self.context["cached_results"])}개
+- user_id: {self.user_id}
+
+## 🚨 최우선 규칙 (CRITICAL)
+
+### 규칙 1) 시장규모/패턴 근거는 반드시 데이터 기반
+- DART 인수인의견 데이터 활용 → 반드시 **search_underwriter_opinion** 호출
+- 결과의 snippet/pattern을 근거로 문장 구성
+- 추측/예시 답변 금지
+
+### 규칙 2) 기업 자료가 주어지면 반드시 도구 사용
+- PDF 경로 제공 → **read_pdf_as_text**로 근거 추출
+- 엑셀 경로 제공 → **read_excel_as_text**로 근거 추출
+
+## 목표
+1) 시장규모 근거 요약
+2) DART 인수인의견 스타일의 문장 초안 작성
+3) 일반화된 패턴 + 확인 필요 항목 제시
+4) 사용자 피드백 반영 (수정/강화)
+
+## 작업 방식
+1) 사용자 입력에서 기업 자료 경로 확인 → 도구 호출
+2) **search_underwriter_opinion**으로 카테고리별 패턴 확보
+   - 기본: market_size
+   - 필요 시: valuation, comparables, risk, demand_forecast
+3) 근거 문장 + 일반화 패턴 + 확인 질문 순서로 출력
+
+## 출력 형식
+- **시장규모 근거**: 출처/연도/규모/CAGR 중심으로 3~6개
+- **일반화 패턴**: 인수인의견 스타일 문장 3~5개
+- **초안 문단**: DART 문체로 6~12문장
+- **확인 필요**: 근거 부족/추가 확인 항목 3~7개
+
+## 답변 스타일
+- 이모지 사용 금지
+- 단정/과장 금지
+- 문장 길이 과도하게 길지 않게
+- 한국어로 전문적이고 정중하게 답변
+"""
+
 	    # ========================================
 	    # Chat Mode (대화형)
 	    # ========================================
@@ -362,7 +413,7 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
 
         Args:
             user_message: 사용자 메시지
-            mode: "exit" (Exit 프로젝션) 또는 "peer" (Peer PER 분석)
+            mode: "exit" (Exit 프로젝션), "peer" (Peer PER 분석), "diagnosis", "report"
 
         Yields:
             str: 에이전트 응답 (스트리밍)
@@ -589,7 +640,7 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
 
         Args:
             user_message: 사용자 메시지
-            mode: "exit" (Exit 프로젝션) 또는 "peer" (Peer PER 분석)
+            mode: "exit" (Exit 프로젝션), "peer" (Peer PER 분석), "diagnosis", "report"
 
         Returns:
             에이전트 응답 문자열

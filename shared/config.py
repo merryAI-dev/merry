@@ -44,6 +44,13 @@ def initialize_session_state():
         "diagnosis_draft_path": None,
         "diagnosis_draft_progress": None,
 
+        # 투자심사 보고서 (인수인의견 스타일)
+        "report_messages": [],
+        "report_file_path": None,
+        "report_file_name": None,
+        "report_show_welcome": True,
+        "report_quick_command": None,
+
         # 파일 관리
         "uploaded_file_path": None,
 

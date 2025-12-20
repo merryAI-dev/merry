@@ -7,6 +7,7 @@ import re
 import subprocess
 import shlex
 import time
+from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from typing import Any, Dict, List, Callable
@@ -18,6 +19,36 @@ logger = get_logger("tools")
 # 프로젝트 루트를 Python 경로에 추가
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+DEFAULT_UNDERWRITER_DATA_PATH = (
+    PROJECT_ROOT
+    / "temp"
+    / "dart_underwriter_opinion_2025_v5_window"
+    / "underwriter_opinion.jsonl"
+)
+
+UNDERWRITER_CATEGORY_KEYWORDS = {
+    "market_size": {
+        "any": ["시장 규모", "시장규모", "TAM", "SAM", "SOM", "CAGR", "연평균", "성장률", "시장 전망", "시장전망", "시장성장"],
+        "all": ["시장", "규모"],
+    },
+    "valuation": {
+        "any": ["공모가격", "희망공모가액", "PER", "EV/EBITDA", "PBR", "PSR", "DCF", "할인율"],
+        "all": [],
+    },
+    "comparables": {
+        "any": ["비교회사", "비교기업", "유사기업", "선정"],
+        "all": [],
+    },
+    "demand_forecast": {
+        "any": ["수요예측", "수요 예측"],
+        "all": [],
+    },
+    "risk": {
+        "any": ["위험", "리스크", "유의", "불확실", "변동", "미래예측"],
+        "all": [],
+    },
+}
 
 
 # ========================================
@@ -132,6 +163,111 @@ def _validate_numeric_param(value: Any, param_name: str, min_val: float = None, 
         return True, num_value, None
     except (TypeError, ValueError):
         return False, None, f"{param_name}은(는) 유효한 숫자여야 합니다"
+
+
+def _normalize_text(text: str) -> str:
+    if not text:
+        return ""
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _match_underwriter_category(text: str, category: str) -> tuple:
+    if not category:
+        return True, []
+    keywords = UNDERWRITER_CATEGORY_KEYWORDS.get(category)
+    if not keywords:
+        return False, []
+
+    text_lower = text.lower()
+    any_terms = [t.lower() for t in keywords.get("any", []) if t]
+    all_terms = [t.lower() for t in keywords.get("all", []) if t]
+
+    if all_terms and not all(term in text_lower for term in all_terms):
+        return False, []
+    if any_terms and not any(term in text_lower for term in any_terms):
+        return False, []
+
+    matched = [term for term in any_terms if term in text_lower]
+    matched += [term for term in all_terms if term in text_lower and term not in matched]
+    return True, matched
+
+
+def _extract_snippet(text: str, terms: List[str], max_chars: int) -> str:
+    if not text:
+        return ""
+
+    text_clean = _normalize_text(text)
+    if not text_clean:
+        return ""
+
+    if terms:
+        text_lower = text_clean.lower()
+        for term in terms:
+            term_lower = term.lower()
+            idx = text_lower.find(term_lower)
+            if idx >= 0:
+                start = max(0, idx - 120)
+                end = min(len(text_clean), idx + max_chars)
+                return text_clean[start:end].strip()
+
+    return text_clean[:max_chars].strip()
+
+
+def _split_sentences(text: str) -> List[str]:
+    if not text:
+        return []
+    normalized = text.replace("\n", " ")
+    parts = re.split(r"(?<=[.!?])\s+|(?<=\.)\s+|(?<=다\.)\s+", normalized)
+    return [_normalize_text(p) for p in parts if _normalize_text(p)]
+
+
+def _extract_market_size_sentences(text: str, max_sentences: int = 2) -> str:
+    if not text:
+        return ""
+    candidates = []
+    for sentence in _split_sentences(text):
+        if len(candidates) >= max_sentences:
+            break
+        if any(keyword in sentence for keyword in ["시장", "TAM", "SAM", "SOM", "CAGR", "연평균", "성장률", "규모"]):
+            if re.search(r"\d", sentence):
+                candidates.append(sentence)
+    if not candidates:
+        return ""
+    return " ".join(candidates)
+
+
+def _generalize_underwriter_text(text: str, corp_name: str = None) -> str:
+    if not text:
+        return ""
+    generalized = text
+    if corp_name:
+        generalized = re.sub(re.escape(corp_name), "{회사}", generalized)
+    generalized = re.sub(r"\b20\d{2}년\b", "{연도}", generalized)
+    generalized = re.sub(r"\b20\d{2}\b", "{연도}", generalized)
+    generalized = re.sub(
+        r"\d+(?:,\d{3})*(?:\.\d+)?\s*(?:조|억|억원|백만|백만원|천만|만원|원|달러|USD|백만달러|억달러)\b",
+        "{금액}",
+        generalized,
+    )
+    generalized = re.sub(r"\d+(?:\.\d+)?\s*%", "{비율}", generalized)
+    generalized = re.sub(r"\d{1,3}(?:,\d{3})+", "{숫자}", generalized)
+    generalized = re.sub(r"\d+", "{숫자}", generalized)
+    generalized = re.sub(r"\s+", " ", generalized).strip()
+    return generalized
+
+
+def _parse_underwriter_jsonl(jsonl_path: str) -> List[Dict[str, Any]]:
+    entries = []
+    with open(jsonl_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    return entries
 
 
 def register_tools() -> List[Dict[str, Any]]:
@@ -483,6 +619,54 @@ def register_tools() -> List[Dict[str, Any]]:
                     }
                 },
                 "required": ["projection_type", "parameters"]
+            }
+        },
+        # ========================================
+        # Underwriter opinion 데이터 도구
+        # ========================================
+        {
+            "name": "search_underwriter_opinion",
+            "description": "DART 인수인의견(분석기관의 평가의견) JSONL 데이터에서 특정 카테고리/기업/키워드에 맞는 문장과 패턴을 추출합니다. 시장규모 근거, 비교기업 선정, 공모가 산정 논리 등 반복 패턴을 일반화할 때 사용하세요.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "jsonl_path": {
+                        "type": "string",
+                        "description": "underwriter_opinion.jsonl 경로 (선택, 기본: 프로젝트 temp 경로)"
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "카테고리 (market_size, valuation, comparables, demand_forecast, risk 중 선택)"
+                    },
+                    "corp_name": {
+                        "type": "string",
+                        "description": "기업명 필터 (선택)"
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "추가 검색어 (선택)"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "최대 결과 수 (기본값: 5)"
+                    },
+                    "max_chars": {
+                        "type": "integer",
+                        "description": "문장/본문 최대 길이 (기본값: 800)"
+                    },
+                    "min_section_length": {
+                        "type": "integer",
+                        "description": "섹션 길이 최소값 (기본값: 0)"
+                    },
+                    "return_patterns": {
+                        "type": "boolean",
+                        "description": "일반화된 패턴 문장 반환 여부 (기본값: true)"
+                    },
+                    "output_filename": {
+                        "type": "string",
+                        "description": "결과 저장 파일명 (선택, temp/에 JSON 저장)"
+                    }
+                }
             }
         },
         # ========================================
@@ -2217,6 +2401,159 @@ def execute_write_company_diagnosis_report(
 
 
 # ========================================
+# Underwriter opinion 데이터 도구 실행 함수
+# ========================================
+
+def execute_search_underwriter_opinion(
+    jsonl_path: str = None,
+    category: str = None,
+    corp_name: str = None,
+    query: str = None,
+    max_results: int = 5,
+    max_chars: int = 800,
+    min_section_length: int = 0,
+    return_patterns: bool = True,
+    output_filename: str = None
+) -> Dict[str, Any]:
+    """DART 인수인의견 JSONL에서 관련 문장 및 일반화 패턴 추출"""
+    jsonl_path = jsonl_path or str(DEFAULT_UNDERWRITER_DATA_PATH)
+    category = category.strip().lower() if isinstance(category, str) else category
+    try:
+        max_results = int(max_results) if max_results is not None else 5
+    except (TypeError, ValueError):
+        max_results = 5
+    try:
+        max_chars = int(max_chars) if max_chars is not None else 800
+    except (TypeError, ValueError):
+        max_chars = 800
+    try:
+        min_section_length = int(min_section_length) if min_section_length is not None else 0
+    except (TypeError, ValueError):
+        min_section_length = 0
+    if isinstance(return_patterns, str):
+        return_patterns = return_patterns.strip().lower() in ("true", "1", "yes", "y")
+
+    is_valid, error = _validate_file_path(
+        jsonl_path,
+        allowed_extensions=[".jsonl"],
+        require_temp_dir=True
+    )
+    if not is_valid:
+        return {"success": False, "error": error}
+
+    if not os.path.exists(jsonl_path):
+        return {"success": False, "error": f"파일을 찾을 수 없습니다: {jsonl_path}"}
+
+    try:
+        entries = _parse_underwriter_jsonl(jsonl_path)
+    except Exception as e:
+        logger.error(f"Underwriter JSONL parse failed: {e}", exc_info=True)
+        return {"success": False, "error": "JSONL 파싱 실패"}
+
+    results = []
+    query_lower = query.lower() if query else None
+
+    for entry in entries:
+        section_text = entry.get("section_text") or ""
+        section_title = entry.get("section_title") or ""
+        combined_text = f"{section_title}\n{section_text}"
+
+        if corp_name:
+            if corp_name not in entry.get("corp_name", ""):
+                continue
+
+        if min_section_length and entry.get("section_length", 0) < min_section_length:
+            continue
+
+        matched_keywords = []
+        if category:
+            ok, matched_keywords = _match_underwriter_category(combined_text, category)
+            if not ok:
+                continue
+
+        if query_lower:
+            if query_lower not in combined_text.lower():
+                continue
+            matched_keywords.append(query_lower)
+
+        if category == "market_size":
+            snippet = _extract_market_size_sentences(section_text)
+        else:
+            snippet = ""
+
+        if snippet and max_chars:
+            snippet = snippet[:max_chars].strip()
+
+        if not snippet:
+            terms = matched_keywords or []
+            snippet = _extract_snippet(section_text, terms, max_chars=max_chars)
+
+        score = 0.0
+        quality_score = entry.get("quality_score") or 0
+        section_length = entry.get("section_length") or 0
+        score += float(quality_score)
+        score += float(section_length) * 0.0001
+        score += len(matched_keywords) * 0.3
+
+        results.append({
+            "corp_name": entry.get("corp_name"),
+            "rcept_no": entry.get("rcept_no"),
+            "report_nm": entry.get("report_nm"),
+            "rcept_dt": entry.get("rcept_dt"),
+            "section_title": section_title,
+            "section_length": section_length,
+            "quality_score": quality_score,
+            "matched_keywords": matched_keywords,
+            "snippet": snippet,
+            "score": round(score, 4)
+        })
+
+    results.sort(key=lambda x: x.get("score", 0), reverse=True)
+    results = results[:max_results] if max_results else results
+
+    patterns = []
+    if return_patterns:
+        seen = set()
+        for item in results:
+            template = _generalize_underwriter_text(item.get("snippet"), item.get("corp_name"))
+            if template and template not in seen:
+                patterns.append(template)
+                seen.add(template)
+
+    response = {
+        "success": True,
+        "source_path": jsonl_path,
+        "filters": {
+            "category": category,
+            "corp_name": corp_name,
+            "query": query,
+            "max_results": max_results,
+            "max_chars": max_chars,
+            "min_section_length": min_section_length
+        },
+        "results": results,
+        "patterns": patterns
+    }
+
+    if output_filename:
+        sanitized_name = _sanitize_filename(output_filename)
+        if not sanitized_name.endswith(".json"):
+            sanitized_name += ".json"
+        output_dir = PROJECT_ROOT / "temp"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / sanitized_name
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(response, f, ensure_ascii=False, indent=2)
+            response["output_file"] = str(output_path)
+        except OSError as e:
+            logger.error(f"Failed to write underwriter output: {e}", exc_info=True)
+            response["output_file_error"] = str(e)
+
+    return response
+
+
+# ========================================
 # Peer PER 분석 도구 실행 함수
 # ========================================
 
@@ -2554,6 +2891,7 @@ TOOL_EXECUTORS = {
     "calculate_irr": execute_calculate_irr,
     "generate_exit_projection": execute_generate_exit_projection,
     # Peer PER 분석 도구
+    "search_underwriter_opinion": execute_search_underwriter_opinion,
     "read_pdf_as_text": execute_read_pdf_as_text,
     "get_stock_financials": execute_get_stock_financials,
     "analyze_peer_per": execute_analyze_peer_per

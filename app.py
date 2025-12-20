@@ -100,6 +100,23 @@ if st.button("기업현황 진단시트 시작", type="primary", use_container_w
 st.divider()
 
 # ========================================
+# 투자심사 보고서
+# ========================================
+st.markdown("### 투자심사 보고서")
+st.markdown("""
+**DART 인수인의견 스타일 보고서 초안 작성**
+
+- 기업 자료(PDF/엑셀)에서 시장규모 근거 추출
+- 인수인의견 패턴을 일반화해 문장 초안 생성
+- 확인 필요 사항 정리
+""")
+
+if st.button("투자심사 보고서 시작", type="primary", use_container_width=True, key="start_report"):
+    st.switch_page("pages/4_Investment_Report.py")
+
+st.divider()
+
+# ========================================
 # 사용 가이드
 # ========================================
 st.markdown("## 사용 가이드")

@@ -20,7 +20,7 @@ def render_sidebar(mode: str = "exit"):
     """모든 페이지에서 사용하는 공통 사이드바
 
     Args:
-        mode: "exit" | "peer" | "diagnosis"
+        mode: "exit" | "peer" | "diagnosis" | "report"
     """
     with st.sidebar:
         # 로그인 정보
@@ -74,6 +74,9 @@ def render_sidebar(mode: str = "exit"):
         elif mode == "diagnosis":
             st.markdown("### 파일 업로드")
             st.caption("진단시트 모드에서는 메인 화면에서 엑셀을 업로드합니다.")
+        elif mode == "report":
+            st.markdown("### 파일 업로드")
+            st.caption("보고서 모드에서는 메인 화면에서 기업 자료를 업로드합니다.")
 
         st.divider()
 
