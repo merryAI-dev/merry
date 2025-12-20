@@ -51,6 +51,46 @@ UNDERWRITER_CATEGORY_KEYWORDS = {
 }
 
 
+def _resolve_underwriter_data_path(jsonl_path: str = None) -> tuple:
+    candidates = []
+    if jsonl_path:
+        candidates.append(Path(jsonl_path))
+
+    env_path = os.getenv("UNDERWRITER_DATA_PATH")
+    if env_path:
+        candidates.append(Path(env_path))
+
+    candidates.append(DEFAULT_UNDERWRITER_DATA_PATH)
+
+    if not jsonl_path:
+        temp_root = PROJECT_ROOT / "temp"
+        if temp_root.exists():
+            for p in sorted(
+                temp_root.glob("dart_underwriter_opinion*/underwriter_opinion.jsonl"),
+                key=lambda x: x.stat().st_mtime,
+                reverse=True
+            ):
+                candidates.append(p)
+
+    for candidate in candidates:
+        if not candidate:
+            continue
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+
+        if resolved.exists():
+            return str(resolved), None
+
+    message = (
+        "DART 인수인의견 JSONL 파일을 찾을 수 없습니다. "
+        "temp/ 하위에 underwriter_opinion.jsonl을 두거나 "
+        "UNDERWRITER_DATA_PATH 환경변수를 설정하세요."
+    )
+    return None, message
+
+
 # ========================================
 # 재시도 데코레이터 (외부 API 호출용)
 # ========================================
@@ -2416,7 +2456,17 @@ def execute_search_underwriter_opinion(
     output_filename: str = None
 ) -> Dict[str, Any]:
     """DART 인수인의견 JSONL에서 관련 문장 및 일반화 패턴 추출"""
-    jsonl_path = jsonl_path or str(DEFAULT_UNDERWRITER_DATA_PATH)
+    resolved_path, resolve_error = _resolve_underwriter_data_path(jsonl_path)
+    if resolve_error:
+        return {
+            "success": False,
+            "error": resolve_error,
+            "suggested_action": (
+                "scripts/dart_extract_underwriter_opinion.py 실행으로 데이터를 생성하거나 "
+                "UNDERWRITER_DATA_PATH 환경변수를 설정하세요."
+            )
+        }
+    jsonl_path = resolved_path
     category = category.strip().lower() if isinstance(category, str) else category
     try:
         max_results = int(max_results) if max_results is not None else 5
@@ -2439,10 +2489,18 @@ def execute_search_underwriter_opinion(
         require_temp_dir=True
     )
     if not is_valid:
-        return {"success": False, "error": error}
+        return {
+            "success": False,
+            "error": error,
+            "suggested_action": "DART 데이터 파일을 temp/ 하위로 이동해 주세요."
+        }
 
     if not os.path.exists(jsonl_path):
-        return {"success": False, "error": f"파일을 찾을 수 없습니다: {jsonl_path}"}
+        return {
+            "success": False,
+            "error": f"파일을 찾을 수 없습니다: {jsonl_path}",
+            "suggested_action": "DART 데이터 파일 경로를 확인하세요."
+        }
 
     try:
         entries = _parse_underwriter_jsonl(jsonl_path)
