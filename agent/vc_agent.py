@@ -9,7 +9,8 @@ Unified VC Investment Agent - Single Agent Architecture
 
 import os
 import json
-from typing import AsyncIterator, Dict, Any, List, Optional
+import re
+from typing import Any, AsyncIterator, Dict, List, Optional
 from dotenv import load_dotenv
 
 from anthropic import Anthropic, AsyncAnthropic
@@ -65,8 +66,9 @@ class VCAgent:
         # 도구 등록
         self.tools = register_tools()
 
-        # 대화 히스토리
+        # 대화 히스토리 (기본/보이스 분리)
         self.conversation_history: List[Dict[str, Any]] = []
+        self.voice_conversation_history: List[Dict[str, Any]] = []
 
         # 작업 컨텍스트
         self.context = {
@@ -102,7 +104,7 @@ class VCAgent:
     # System Prompt
     # ========================================
 
-    def _build_system_prompt(self, mode: str = "exit") -> str:
+    def _build_system_prompt(self, mode: str = "exit", context_text: Optional[str] = None) -> str:
         """동적 시스템 프롬프트 생성
 
         Args:
@@ -110,6 +112,10 @@ class VCAgent:
         """
 
         analyzed_files = ", ".join(self.context["analyzed_files"]) if self.context["analyzed_files"] else "없음"
+
+        if mode.startswith("voice_"):
+            submode = mode.split("_", 1)[1] if "_" in mode else "chat"
+            return self._build_voice_system_prompt(submode, context_text)
 
         # Peer PER 분석 모드
         if mode == "peer":
@@ -207,6 +213,71 @@ class VCAgent:
 - 좋은 예: "IRR 35.2%로 목표 수익률을 상회합니다."
 
 한국어로 전문적이고 정중하게 답변하세요.
+"""
+
+    def _build_voice_system_prompt(self, submode: str, context_text: Optional[str]) -> str:
+        last_checkin_text = context_text or "없음"
+
+        base = f"""당신은 사람처럼 자연스럽게 대화하는 음성 에이전트입니다.
+
+목표:
+- 짧고 명확한 문장으로 말합니다.
+- 사용자의 감정과 톤을 반영합니다.
+- 대화 흐름을 끊지 않고 질문을 2~4개씩 나눠서 합니다.
+
+어제 기록(저장된 로그 기반):
+{last_checkin_text}
+"""
+
+        if submode == "1on1":
+            return base + """
+현재 모드: 1:1
+
+진행 방식:
+1) 안부 인사 후, 최근 상황을 짧게 묻습니다.
+2) 관계/협업 관점에서 핵심 이슈를 2~4개 질문합니다.
+3) 대화가 끝나면 요약을 제공합니다.
+
+요약 형식:
+- 어제 로그 요약
+- 학습 포인트
+- 감정 상태
+- 다음 액션 (3개 이하)
+
+주의:
+- 과장하지 말고, 불확실하면 질문으로 확인합니다.
+- 한국어로 답변합니다.
+"""
+
+        if submode == "checkin":
+            return base + """
+현재 모드: 데일리 체크인
+
+진행 방식:
+1) 짧게 인사하고 오늘 컨디션을 물어봅니다.
+2) 어제 로그가 있으면 2~4개의 근거를 언급하며 "학습"과 "감정"을 HCI 관점으로 설명합니다.
+3) 오늘 목표/우선순위를 2~4개 질문으로 확인합니다.
+4) 마지막에 요약을 제공합니다.
+
+요약 형식:
+- 어제 로그 요약
+- 학습 포인트
+- 감정 상태
+- 오늘 목표/우선순위
+- 다음 액션 (3개 이하)
+
+주의:
+- 감정 표현은 HCI 관점(사회적 존재감, 공감)에서 짧게 설명합니다.
+- 한국어로 답변합니다.
+"""
+
+        return base + """
+현재 모드: 자유 대화
+
+규칙:
+- 한 번에 너무 길게 말하지 않습니다.
+- 필요하면 질문으로 맥락을 확인합니다.
+- 한국어로 답변합니다.
 """
 
     def _build_peer_system_prompt(self, analyzed_files: str) -> str:
@@ -412,7 +483,13 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
 	    # Chat Mode (대화형)
 	    # ========================================
 
-    async def chat(self, user_message: str, mode: str = "exit") -> AsyncIterator[str]:
+    async def chat(
+        self,
+        user_message: str,
+        mode: str = "exit",
+        allow_tools: bool = True,
+        context_text: Optional[str] = None,
+    ) -> AsyncIterator[str]:
         """
         대화형 인터페이스 (스트리밍)
 
@@ -429,9 +506,13 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
 
         # 현재 모드 저장
         self._current_mode = mode
+        self._current_allow_tools = allow_tools
+        self._current_context_text = context_text
+        tools = self.tools if allow_tools else []
+        history = self.voice_conversation_history if mode.startswith("voice_") else self.conversation_history
 
         # 대화 히스토리에 추가
-        self.conversation_history.append({
+        history.append({
             "role": "user",
             "content": user_message
         })
@@ -445,14 +526,14 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
         self.last_interaction["context"] = {"mode": mode}
 
         # 시스템 프롬프트 (모드에 따라 다름)
-        system_prompt = self._build_system_prompt(mode)
+        system_prompt = self._build_system_prompt(mode, context_text=context_text)
 
         # Claude API 호출 (스트리밍)
         async with self.async_client.messages.stream(
             model=self.model,
             system=system_prompt,
-            messages=self.conversation_history,
-            tools=self.tools,
+            messages=history,
+            tools=tools,
             max_tokens=8192
         ) as stream:
 
@@ -510,13 +591,13 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
                     # 도구 결과가 있으면 대화 계속
                     if tool_results:
                         # Assistant 메시지 추가
-                        self.conversation_history.append({
+                        history.append({
                             "role": "assistant",
                             "content": message.content
                         })
 
                         # Tool 결과 추가
-                        self.conversation_history.append({
+                        history.append({
                             "role": "user",
                             "content": tool_results
                         })
@@ -537,13 +618,17 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
 
         # 저장된 모드 사용
         mode = getattr(self, '_current_mode', 'exit')
-        system_prompt = self._build_system_prompt(mode)
+        context_text = getattr(self, '_current_context_text', None)
+        allow_tools = getattr(self, '_current_allow_tools', True)
+        tools = self.tools if allow_tools else []
+        history = self.voice_conversation_history if mode.startswith("voice_") else self.conversation_history
+        system_prompt = self._build_system_prompt(mode, context_text=context_text)
 
         async with self.async_client.messages.stream(
             model=self.model,
             system=system_prompt,
-            messages=self.conversation_history,
-            tools=self.tools,
+            messages=history,
+            tools=tools,
             max_tokens=8192
         ) as stream:
 
@@ -585,12 +670,12 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
                             yield f"**도구: {tool_name}** {'완료' if tool_ok else '실패'}\n\n"
 
                     if tool_results:
-                        self.conversation_history.append({
+                        history.append({
                             "role": "assistant",
                             "content": message.content
                         })
 
-                        self.conversation_history.append({
+                        history.append({
                             "role": "user",
                             "content": tool_results
                         })
@@ -636,11 +721,98 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
                 if output_file:
                     self.memory.add_generated_file(output_file)
 
+    def _recent_voice_conversation_text(self, limit: int = 8) -> str:
+        items = self.voice_conversation_history[-limit:]
+        lines = []
+        for msg in items:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if not content:
+                continue
+            lines.append(f"{role}: {content}")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _extract_summary_json(text: str) -> Optional[Dict[str, Any]]:
+        text = text.strip()
+        if not text:
+            return None
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        match = re.search(r"\{.*\}", text, re.S)
+        if not match:
+            return None
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return None
+
+    def summarize_checkin_sync(self, mode: str, context_text: str) -> Dict[str, Any]:
+        """Summarize voice check-in context into a structured JSON payload."""
+        conversation = self._recent_voice_conversation_text(limit=8)
+        context_text = context_text or "none"
+
+        system_prompt = """You produce a concise JSON summary for a daily check-in.
+Return JSON only. Do not include markdown or extra text.
+Use Korean for all string values.
+
+Required keys:
+- mode (string)
+- yesterday_summary (string)
+- learnings (array of strings)
+- emotion_state (string)
+- emotion_rationale (string)
+- today_priorities (array of strings)
+- next_actions (array of strings)
+
+If unknown, use empty string or empty array."""
+
+        user_prompt = f"""Context:\n{context_text}\n\nConversation:\n{conversation}\n\nReturn JSON now."""
+
+        response = self.client.messages.create(
+            model=self.model,
+            system=system_prompt,
+            max_tokens=400,
+            messages=[{"role": "user", "content": user_prompt}],
+        )
+
+        assistant_text = ""
+        for block in response.content:
+            if hasattr(block, "text"):
+                assistant_text += block.text
+
+        parsed = self._extract_summary_json(assistant_text)
+        if not isinstance(parsed, dict):
+            return {
+                "mode": mode,
+                "yesterday_summary": "",
+                "learnings": [],
+                "emotion_state": "",
+                "emotion_rationale": "",
+                "today_priorities": [],
+                "next_actions": [],
+            }
+
+        parsed.setdefault("mode", mode)
+        parsed.setdefault("learnings", [])
+        parsed.setdefault("today_priorities", [])
+        parsed.setdefault("next_actions", [])
+        return parsed
+
     # ========================================
     # Utility Methods
     # ========================================
 
-    def chat_sync(self, user_message: str, mode: str = "exit") -> str:
+    def chat_sync(
+        self,
+        user_message: str,
+        mode: str = "exit",
+        allow_tools: bool = True,
+        context_text: Optional[str] = None,
+    ) -> str:
         """동기 버전 chat (간단한 사용)
 
         Args:
@@ -654,7 +826,12 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
 
         async def run():
             response = ""
-            async for chunk in self.chat(user_message, mode=mode):
+            async for chunk in self.chat(
+                user_message,
+                mode=mode,
+                allow_tools=allow_tools,
+                context_text=context_text,
+            ):
                 response += chunk
             return response
 
@@ -703,6 +880,7 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
     def reset(self):
         """세션 초기화"""
         self.conversation_history = []
+        self.voice_conversation_history = []
         self.context = {
             "analyzed_files": [],
             "cached_results": {},
