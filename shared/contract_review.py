@@ -11,7 +11,9 @@ from __future__ import annotations
 import re
 import base64
 import json
+import math
 from pathlib import Path
+from collections import Counter
 from typing import Callable, Dict, List, Optional
 
 from shared.logging_config import get_logger
@@ -163,6 +165,7 @@ MASK_TOKEN_MAP = {
 
 OCR_DEFAULT_MODEL = "claude-opus-4-5-20251101"
 OCR_DEFAULT_DPI = 200
+OCR_DENSITY_DPI = 36
 OCR_MIN_CHARS_PER_PAGE = 200
 OCR_SINGLE_HANGUL_RATIO_THRESHOLD = 0.35
 OCR_SYMBOL_RATIO_THRESHOLD = 0.02
@@ -213,6 +216,8 @@ CLAUSE_SEVERITY = {
     },
 }
 
+SECTION_HEADING_PATTERN = re.compile(r"(제\\s*\\d+\\s*조|Article\\s*\\d+)", re.IGNORECASE)
+
 SENSITIVE_PATTERNS = [
     (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"), "[EMAIL]"),
     (re.compile(r"\\b(01[016789])[-.\\s]?\\d{3,4}[-.\\s]?\\d{4}\\b"), "[PHONE]"),
@@ -248,6 +253,15 @@ def _count_symbol_ratio(text: str) -> float:
         return 1.0
     symbols = text.count("●") + text.count("■") + text.count("□") + text.count("�")
     return symbols / max(1, len(text))
+
+
+def _tokenize_text(text: str) -> List[str]:
+    return re.findall(r"[A-Za-z0-9가-힣]+", text.lower())
+
+
+def _extract_section_title(text: str) -> str:
+    match = SECTION_HEADING_PATTERN.search(text or "")
+    return match.group(1) if match else ""
 
 
 def _single_hangul_ratio(text: str) -> float:
@@ -624,6 +638,164 @@ def _build_segments_from_docx(path: Path) -> List[Dict[str, str]]:
     return segments
 
 
+def _source_sort_key(source: Optional[str]) -> tuple:
+    if not source:
+        return (2, "")
+    if source.startswith("p"):
+        try:
+            return (0, int(source[1:]))
+        except ValueError:
+            return (0, 0)
+    return (1, source)
+
+
+def _merge_segments_by_source(
+    base_segments: List[Dict[str, str]],
+    override_segments: List[Dict[str, str]],
+) -> List[Dict[str, str]]:
+    merged: Dict[str, Dict[str, str]] = {}
+    for seg in base_segments:
+        source = seg.get("source") or ""
+        if source:
+            merged[source] = seg
+    for seg in override_segments:
+        source = seg.get("source") or ""
+        if source:
+            merged[source] = seg
+    return [merged[source] for source in sorted(merged.keys(), key=_source_sort_key)]
+
+
+def _score_segments(segments: List[Dict[str, str]]) -> Dict[str, object]:
+    token_lists: List[List[str]] = []
+    texts: List[str] = []
+    for seg in segments:
+        text = seg.get("text", "")
+        texts.append(text)
+        token_lists.append(_tokenize_text(text))
+
+    if not token_lists:
+        return {"scores_by_source": {}, "ranked": []}
+
+    df_counter: Counter = Counter()
+    for tokens in token_lists:
+        df_counter.update(set(tokens))
+
+    total_docs = len(token_lists)
+    idf = {
+        token: math.log((total_docs + 1) / (df + 1)) + 1.0
+        for token, df in df_counter.items()
+    }
+
+    raw_scores = []
+    scores_by_source: Dict[str, float] = {}
+    for idx, seg in enumerate(segments):
+        tokens = token_lists[idx]
+        text = texts[idx]
+        if not tokens:
+            score = 0.0
+        else:
+            tf_counts = Counter(tokens)
+            tfidf_sum = 0.0
+            for token, count in tf_counts.items():
+                tf = count / max(1, len(tokens))
+                tfidf_sum += tf * idf.get(token, 1.0)
+            tfidf_avg = tfidf_sum / max(1, len(tf_counts))
+            numeric_density = len(re.findall(r"\\d", text)) / max(1, len(text))
+            length_score = min(len(text) / 800.0, 1.0)
+            score = tfidf_avg + (0.4 * numeric_density) + (0.2 * length_score)
+
+        source = seg.get("source") or f"seg{idx}"
+        raw_scores.append((source, score, text))
+        scores_by_source[source] = score
+
+    if not raw_scores:
+        return {"scores_by_source": {}, "ranked": []}
+
+    scores_only = [score for _, score, _ in raw_scores]
+    min_score = min(scores_only)
+    max_score = max(scores_only)
+    scale = max_score - min_score if max_score != min_score else 1.0
+
+    ranked = []
+    for source, score, text in raw_scores:
+        normalized = (score - min_score) / scale
+        ranked.append({
+            "source": source,
+            "weight": round(normalized, 3),
+            "section": _extract_section_title(text),
+            "snippet": _normalize_whitespace(text)[:180],
+        })
+
+    ranked.sort(key=lambda item: item["weight"], reverse=True)
+    return {
+        "scores_by_source": {item["source"]: item["weight"] for item in ranked},
+        "ranked": ranked,
+    }
+
+
+def _select_ocr_pages(
+    path: Path,
+    strategy: str,
+    page_budget: int,
+) -> List[int]:
+    if not fitz:
+        raise ImportError("PyMuPDF(fitz)가 필요합니다.")
+
+    with fitz.open(path) as doc:
+        page_count = doc.page_count
+        if page_budget <= 0 or page_budget >= page_count:
+            return list(range(page_count))
+
+        if strategy == "front_back":
+            pages = []
+            if page_count > 0:
+                pages.append(0)
+            if page_count > 1:
+                pages.append(1)
+            if page_count > 2:
+                pages.append(page_count - 1)
+            if page_count > 3:
+                pages.append(page_count - 2)
+            pages = list(dict.fromkeys(pages))
+            remaining = page_budget - len(pages)
+            if remaining > 0:
+                step = page_count / (remaining + 1)
+                for i in range(1, remaining + 1):
+                    idx = int(round(i * step))
+                    if idx >= page_count:
+                        idx = page_count - 1
+                    if idx not in pages:
+                        pages.append(idx)
+            return sorted(pages[:page_budget])
+
+        if strategy == "uniform":
+            step = max(1, page_count // page_budget)
+            pages = list(range(0, page_count, step))[:page_budget]
+            return sorted(set(pages))
+
+        ratios = []
+        zoom = OCR_DENSITY_DPI / 72
+        mat = fitz.Matrix(zoom, zoom)
+        for page_index in range(page_count):
+            page = doc.load_page(page_index)
+            pix = page.get_pixmap(matrix=mat, alpha=False)
+            samples = pix.samples
+            if not samples:
+                ratios.append((0.0, page_index))
+                continue
+            dark = 0
+            total_pixels = pix.width * pix.height
+            for idx in range(0, len(samples), 3):
+                if samples[idx] + samples[idx + 1] + samples[idx + 2] < 540:
+                    dark += 1
+            ratio = dark / max(1, total_pixels)
+            ratios.append((ratio, page_index))
+
+        ratios.sort(reverse=True)
+        selected = sorted([page_index for _, page_index in ratios[:page_budget]])
+        return selected
+
+
 def _render_pdf_page_to_png(doc: "fitz.Document", page_index: int, dpi: int) -> bytes:
     zoom = dpi / 72
     mat = fitz.Matrix(zoom, zoom)
@@ -647,6 +819,7 @@ def _ocr_pdf_with_claude(
     model: str = OCR_DEFAULT_MODEL,
     dpi: int = OCR_DEFAULT_DPI,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    page_indices: Optional[List[int]] = None,
 ) -> List[Dict[str, str]]:
     if not fitz:
         raise ImportError("PyMuPDF(fitz)가 필요합니다.")
@@ -658,9 +831,10 @@ def _ocr_pdf_with_claude(
     client = Anthropic(api_key=api_key)
     segments: List[Dict[str, str]] = []
     with fitz.open(path) as doc:
+        pages = page_indices or list(range(doc.page_count))
         if progress_callback:
-            progress_callback(0, doc.page_count, "OCR 시작")
-        for page_index in range(doc.page_count):
+            progress_callback(0, len(pages), "OCR 시작")
+        for idx, page_index in enumerate(pages, start=1):
             png_bytes = _render_pdf_page_to_png(doc, page_index, dpi)
             encoded = base64.b64encode(png_bytes).decode("ascii")
             response = client.messages.create(
@@ -687,7 +861,7 @@ def _ocr_pdf_with_claude(
             text = _extract_claude_text(response)
             segments.append({"source": f"p{page_index + 1}", "text": text})
             if progress_callback:
-                progress_callback(page_index + 1, doc.page_count, "OCR 진행 중")
+                progress_callback(idx, len(pages), "OCR 진행 중")
     return segments
 
 
@@ -696,12 +870,15 @@ def load_document(
     ocr_mode: str = "off",
     api_key: str = "",
     ocr_model: str = OCR_DEFAULT_MODEL,
+    ocr_page_budget: int = 0,
+    ocr_strategy: str = "density",
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> Dict[str, object]:
     ext = path.suffix.lower()
     page_count = 0
     ocr_used = False
     ocr_error = ""
+    ocr_pages_used: List[int] = []
     if ext == ".pdf":
         segments, page_count = _build_segments_from_pdf(path)
         if ocr_mode in ("auto", "force"):
@@ -711,13 +888,17 @@ def load_document(
                     ocr_error = "Claude API 키가 없습니다."
                 else:
                     try:
-                        segments = _ocr_pdf_with_claude(
+                        ocr_pages = _select_ocr_pages(path, ocr_strategy, ocr_page_budget)
+                        ocr_segments = _ocr_pdf_with_claude(
                             path,
                             api_key=api_key,
                             model=ocr_model,
                             progress_callback=progress_callback,
+                            page_indices=ocr_pages,
                         )
+                        segments = _merge_segments_by_source(segments, ocr_segments)
                         ocr_used = True
+                        ocr_pages_used = ocr_pages
                     except Exception as exc:
                         ocr_error = str(exc)
                         logger.warning("Claude OCR 실패: %s", exc)
@@ -727,6 +908,7 @@ def load_document(
         text = path.read_text(encoding="utf-8", errors="ignore")
         segments = [{"source": "text", "text": text}] if text else []
 
+    scoring = _score_segments(segments)
     full_text = "\n".join(seg["text"] for seg in segments if seg.get("text"))
     return {
         "segments": segments,
@@ -734,6 +916,9 @@ def load_document(
         "page_count": page_count,
         "ocr_used": ocr_used,
         "ocr_error": ocr_error,
+        "ocr_pages_used": ocr_pages_used,
+        "segment_scores": scoring.get("scores_by_source", {}),
+        "priority_segments": scoring.get("ranked", []),
     }
 
 
@@ -788,17 +973,25 @@ def _find_clause_snippet(segments: List[Dict[str, str]], keywords: List[str]) ->
     return None
 
 
-def detect_clauses(segments: List[Dict[str, str]], doc_type: str) -> List[Dict[str, object]]:
+def detect_clauses(
+    segments: List[Dict[str, str]],
+    doc_type: str,
+    scores_by_source: Optional[Dict[str, float]] = None,
+) -> List[Dict[str, object]]:
     clauses = []
     taxonomy = CLAUSE_TAXONOMY.get(doc_type, [])
     for clause in taxonomy:
         hit = _find_clause_snippet(segments, clause["keywords"])
+        weight = 0.0
+        if hit and scores_by_source:
+            weight = scores_by_source.get(hit.get("source", ""), 0.0)
         clauses.append({
             "id": clause["id"],
             "label": clause["label"],
             "present": bool(hit),
             "source": hit["source"] if hit else None,
             "snippet": hit["snippet"] if hit else "",
+            "weight": round(weight, 3),
         })
     return clauses
 
