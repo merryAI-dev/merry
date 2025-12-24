@@ -188,6 +188,14 @@ if st.session_state.peer_analysis_result:
     st.markdown("### Peer 기업 PER 비교")
 
     result = st.session_state.peer_analysis_result
+    if result.get("cache_hit"):
+        st.caption("캐시 사용: 최근 조회 결과를 재사용했습니다.")
+    warnings = result.get("warnings") or []
+    if warnings:
+        st.warning("검증/주의 사항")
+        for warning in warnings:
+            st.markdown(f"- {warning}")
+
     if "peers" in result:
         # DataFrame 생성
         peer_df = pd.DataFrame([

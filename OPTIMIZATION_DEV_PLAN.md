@@ -1,66 +1,65 @@
-# Optimization Development Plan
+# 최적화 개발계획서
 
-## Goals
-- Speed: deliver a usable "fast scan" result quickly, then deepen only if needed.
-- Accuracy: reduce OCR artifacts and avoid hallucinated outputs.
-- UX clarity: show what was analyzed, what is missing, and what needs review.
-- Cost control: minimize OCR/LLM calls with caching and routing.
+## 목표
+- 속도: "빠른 스캔" 결과를 즉시 제공하고, 필요한 부분만 확장 분석
+- 정확도: OCR 노이즈를 줄이고 근거 기반 출력 유지
+- UX 명확성: 무엇을 분석했는지/무엇이 부족한지 명확히 표시
+- 비용 관리: OCR/LLM 호출 최소화 (캐시/라우팅)
 
-## Scope
-- Contract Review Agent (primary focus in this plan)
-- Peer PER Analysis (phase 3 extension)
-- Investment Report Drafting (phase 3 extension)
+## 범위
+- 계약서 리서치 에이전트 (우선순위 1)
+- Peer PER 분석 (우선순위 2)
+- 투자심사 보고서 작성 (우선순위 2)
 
-## Non-goals
-- Model fine-tuning or custom model training
-- Legal advice or legal judgment automation
+## 비범위
+- 모델 파인튜닝/학습
+- 법률 자문 자동화
 
-## Architecture (High-Level)
-1) Fast-first pipeline: quick scan → risk summary → drill-down
-2) OCR two-layer: local OCR → Claude cleanup (text-only)
-3) Rule-based extraction + weighted segment ranking
-4) Multi-turn drill-down with evidence snippets
-5) Cache by file hash + settings
+## 아키텍처 개요
+1) Fast-first 파이프라인: 빠른 스캔 → 리스크 요약 → 드릴다운
+2) OCR 2단계: 로컬 OCR → Claude 텍스트 정제
+3) 규칙 기반 추출 + 비지도 가중치(중요 구간 우선)
+4) 멀티턴 질의응답(근거 스니펫 제공)
+5) 파일 해시 기반 캐시
 
-## Milestones and Status
-### Phase 0 — Baseline UX and Safety (Done)
-- [x] Results-first layout (summary before details)
-- [x] Masking default ON and file-name hiding
-- [x] Clear progress UI and OCR status
+## 마일스톤 & 상태
+### Phase 0 — UX/안전장치 (완료)
+- [x] 요약 우선 레이아웃
+- [x] 마스킹 기본 ON + 파일명 기본 숨김
+- [x] 진행 상태/로딩 UI
 
-### Phase 1 — Fast OCR and Evidence Quality (Done)
-- [x] Fast scan with OCR page budget and selection strategy
-- [x] Local OCR + Claude cleanup (text-only refinement)
-- [x] OCR engine reporting and fallback handling
-- [x] Weighted segment ranking and clause weight display
+### Phase 1 — OCR/증거 품질 (완료)
+- [x] OCR 페이지 예산/선정 전략
+- [x] 로컬 OCR + Claude 정제
+- [x] OCR 엔진 상태 표시
+- [x] 중요 구간 가중치 표시
 
-### Phase 2 — Caching and Reuse (In Progress)
-- [x] Per-document cache keyed by file hash + OCR settings
-- [ ] Cache invalidation strategy for major extraction changes
-- [ ] Optional UI: "clear cache" per document
+### Phase 2 — 캐시/재사용 (완료)
+- [x] 파일 해시 + 설정 기반 캐시
+- [x] 캐시 무효화 정책(버전/설정 변경 시 정리)
+- [x] UI: 문서별 캐시 삭제 버튼
 
-### Phase 3 — Cross-Module Optimization (Planned)
-- [ ] Peer analysis: cache heavy tool outputs by file hash
-- [ ] Peer analysis: outlier/consistency checks for metrics
-- [ ] Report drafting: template slots + validation checks
-- [ ] Report drafting: quick summary view before full draft
+### Phase 3 — Cross-Module 최적화 (진행)
+- [x] Peer 분석: 결과 캐시 + 이상치/일관성 체크
+- [ ] 보고서: 템플릿 슬롯 + 검증 룰
+- [x] 보고서: 요약 먼저 → 상세 확장
 
-## Acceptance Criteria
-- Fast scan returns a usable risk summary within the first run.
-- OCR artifacts reduced (spacing/garbling) compared to raw OCR text.
-- Repeat analyses of the same file reuse cache.
-- User can understand which document(s) are missing for comparison.
+## 수용 기준
+- 빠른 스캔으로 리스크 요약이 즉시 노출
+- OCR 노이즈가 로컬 OCR 대비 의미 있게 감소
+- 동일 파일 재분석 시 캐시 재사용
+- 문서 누락/비교 불가 사유가 명확히 표시
 
-## Operational Notes
-- Local OCR requires `tesseract-ocr` and `tesseract-ocr-kor`.
-- Claude cleanup uses text-only calls (no image uploads).
-- Cache storage is local (`temp/cache/...`) and non-persistent on some hosts.
+## 운영 노트
+- 로컬 OCR: `tesseract-ocr`, `tesseract-ocr-kor` 필요
+- Claude 정제는 텍스트만 전송 (이미지 전송 없음)
+- 캐시는 `temp/cache/...` 경로에 저장됨
 
-## Risks and Mitigations
-- OCR accuracy variance → mitigate with OCR budget tuning + refine toggle.
-- Cache staleness → mitigate with versioned cache keys.
-- Document variety → mitigate with weighted segments + drill-down Q&A.
+## 리스크 & 대응
+- OCR 품질 편차 → OCR 예산/정제 토글 제공
+- 캐시 오염 → 버전 키/무효화 정책 추가 예정
+- 문서 다양성 → 가중치/드릴다운 Q&A로 보완
 
-## Next Implementation Targets
-1) Cache invalidation / reset UX
-2) Peer/Report caching and validation
+## 다음 구현 대상
+1) 보고서 템플릿 슬롯 + 검증 룰
+2) 계약서 리스크 Q&A 고도화 (질문 추천/근거 스니펫 강화)

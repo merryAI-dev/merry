@@ -35,3 +35,25 @@ def load_json(path: Path) -> Optional[Dict[str, Any]]:
 def save_json(path: Path, data: Dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+
+
+def remove_cache_file(path: Path) -> bool:
+    try:
+        path.unlink(missing_ok=True)
+        return True
+    except Exception:
+        return False
+
+
+def clear_cache_dir(namespace: str, user_id: str) -> int:
+    cache_dir = Path("temp") / "cache" / namespace / user_id
+    if not cache_dir.exists():
+        return 0
+    count = 0
+    for item in cache_dir.glob("*.json"):
+        try:
+            item.unlink()
+            count += 1
+        except Exception:
+            continue
+    return count

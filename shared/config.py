@@ -51,6 +51,7 @@ def initialize_session_state():
         "report_file_name": None,
         "report_show_welcome": True,
         "report_quick_command": None,
+        "report_evidence": None,
 
         # 파일 관리
         "uploaded_file_path": None,
@@ -94,6 +95,7 @@ def initialize_session_state():
         "contract_analysis": {},
         "contract_search_query": "",
         "contract_masking": True,
+        "contract_cache_version": 0,
         "contract_ocr_mode": "자동(권장)",
         "contract_ocr_model": "claude-opus-4-5-20251101",
         "contract_ocr_refine": True,
