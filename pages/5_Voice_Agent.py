@@ -80,6 +80,8 @@ if not st.session_state.whisper_model:
     st.session_state.whisper_model = "small"
 if not st.session_state.whisper_language:
     st.session_state.whisper_language = "ko"
+if not st.session_state.mms_model_id:
+    st.session_state.mms_model_id = "facebook/mms-tts-kss"
 
 
 def _apply_naverc_key_from_sidebar():
@@ -96,13 +98,20 @@ def _capture_audio() -> Tuple[Optional[bytes], Optional[str]]:
     mime = None
 
     if hasattr(st, "audio_input"):
-        audio_file = st.audio_input("음성 입력")
+        audio_file = st.audio_input("음성 입력", key="voice_audio_input")
     else:
-        audio_file = st.file_uploader("오디오 업로드 (WAV/MP3)", type=["wav", "mp3"])
+        audio_file = st.file_uploader(
+            "오디오 업로드 (WAV/MP3)",
+            type=["wav", "mp3"],
+            key="voice_audio_upload",
+        )
 
     if audio_file:
         audio_bytes = audio_file.read()
         mime = getattr(audio_file, "type", None)
+
+    if audio_bytes is not None:
+        st.session_state.voice_last_audio_size = len(audio_bytes)
 
     return audio_bytes, mime
 
@@ -224,6 +233,12 @@ with st.sidebar:
         help="STT 결과를 Claude로 정제해서 대화 입력에 사용합니다.",
     )
     st.caption("브라우저에서 재생 버튼을 눌러야 음성이 출력됩니다.")
+    with st.expander("입력 상태", expanded=False):
+        last_audio_size = st.session_state.get("voice_last_audio_size")
+        if last_audio_size:
+            st.caption(f"마지막 오디오 크기: {last_audio_size} bytes")
+        else:
+            st.caption("최근 오디오 입력이 없습니다.")
 
     st.divider()
     if st.button("대화 초기화", type="secondary", use_container_width=True):
@@ -299,10 +314,22 @@ else:
     context_payload = checkin_summary_text or checkin_context_text
     context_display = checkin_summary_text or checkin_context_preview
 
+voice_log_count = len(checkin_context.get("voice_logs", []))
+chat_log_count = len(checkin_context.get("chat_messages", []))
+summary_count = len(checkin_summaries) if checkin_summaries else 0
+
 if context_display:
-    st.info(f"컨텍스트 요약:\n\n{context_display}")
+    st.info(
+        "컨텍스트 로드 완료 · "
+        f"체크인 요약 {summary_count}개, "
+        f"음성 로그 {voice_log_count}개, "
+        f"채팅 로그 {chat_log_count}개"
+    )
+    with st.expander("컨텍스트 미리보기", expanded=False):
+        st.write(context_display)
     if context_payload and context_payload != context_display:
         with st.expander("컨텍스트 전체 보기", expanded=False):
+            st.caption("전체 로그가 많으면 느릴 수 있습니다.")
             st.write(context_payload)
 elif last_checkin:
     st.info(
@@ -364,8 +391,8 @@ def _resolve_user_text() -> Tuple[Optional[str], Optional[str]]:
     if st.session_state.voice_stt_provider == "local_whisper":
         stt_result = local_stt_faster_whisper(
             audio_bytes,
-            model_size_or_path=st.session_state.whisper_model,
-            language=st.session_state.whisper_language or "ko",
+            model_size_or_path=(st.session_state.whisper_model or "small").strip(),
+            language=(st.session_state.whisper_language or "ko").strip(),
             compute_type=st.session_state.whisper_compute_type,
         )
     else:
@@ -392,9 +419,10 @@ def _run_tts_with_fallback(
     errors = []
     for provider in providers:
         if provider == "local_mms":
+            model_id = (st.session_state.mms_model_id or "facebook/mms-tts-kss").strip()
             tts_result = local_tts_mms(
                 text,
-                model_id=st.session_state.mms_model_id,
+                model_id=model_id,
             )
         elif provider == "local_piper":
             tts_result = local_tts_piper(
