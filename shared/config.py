@@ -76,6 +76,7 @@ def initialize_session_state():
         "piper_config_path": "",
         "piper_bin_path": "piper",
         "mms_model_id": "facebook/mms-tts-kss",
+        "voice_refine_enabled": True,
     }
 
     for key, value in defaults.items():
