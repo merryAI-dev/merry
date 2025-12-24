@@ -103,6 +103,7 @@ def initialize_session_state():
         "contract_ocr_strategy": "밀도 기반(빠름)",
         "contract_ocr_budget": 6,
         "contract_chat": [],
+        "contract_show_file_names": False,
     }
 
     for key, value in defaults.items():
