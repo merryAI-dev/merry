@@ -230,6 +230,20 @@ with st.sidebar:
         help="끄면 응답을 텍스트로만 표시해 속도를 최대로 올립니다.",
     )
 
+    st.divider()
+    st.markdown("### 속도 설정")
+    st.checkbox(
+        "속도 우선 모드",
+        key="voice_fast_mode",
+        help="컨텍스트/요약 로딩을 생략하고 빠른 모델을 사용합니다.",
+    )
+    if st.session_state.voice_fast_mode:
+        st.text_input(
+            "Fast Model",
+            key="voice_fast_model",
+            placeholder="claude-3-5-haiku-20241022",
+        )
+
     speaker = st.session_state.get("voice_speaker", "nara")
     speed = 0
     pitch = 0
@@ -354,14 +368,17 @@ st.markdown("# Voice Agent")
 st.caption("로컬 STT/TTS 또는 Naver CLOVA로 음성 대화를 제공합니다.")
 
 user_id = get_user_id()
-last_checkin = get_latest_checkin(user_id)
+fast_mode = st.session_state.voice_fast_mode
+last_checkin = None
+
 context_scope = st.selectbox(
     "컨텍스트 범위",
     options=["어제", "최근 7일", "전체 로그"],
     index=2,
+    disabled=fast_mode,
 )
 use_full_context = False
-if context_scope == "전체 로그":
+if context_scope == "전체 로그" and not fast_mode:
     use_full_context = st.checkbox(
         "모든 로그 세션 사용 (제한 없음)",
         value=True,
@@ -374,69 +391,82 @@ context_limit = st.slider(
     max_value=200,
     value=60,
     step=10,
-    disabled=use_full_context,
+    disabled=fast_mode or use_full_context,
 )
 fetch_limit = None if use_full_context else context_limit
 context_item_limit = None if use_full_context else context_limit
 summary_limit = None if use_full_context else 15
 
-if context_scope == "어제":
-    checkin_context = get_checkin_context(user_id, day_offset=1, limit=context_limit)
-elif context_scope == "최근 7일":
-    checkin_context = get_checkin_context_days(user_id, days=7, limit=context_limit)
+if fast_mode:
+    checkin_context = {"start": "", "end": "", "voice_logs": [], "chat_messages": []}
+    checkin_context_text = ""
+    checkin_context_preview = ""
+    checkin_summary_text = ""
+    checkin_summaries = []
+    checkin_summaries_text = ""
+    checkin_summaries_preview = ""
+    context_payload = ""
+    context_display = ""
+    st.info("속도 우선 모드: 체크인 컨텍스트/요약 로딩을 생략합니다.")
 else:
-    checkin_context = get_checkin_context_all(user_id, limit=fetch_limit)
-
-preview_items = min(context_limit, 8)
-checkin_context_text = build_checkin_context_text(checkin_context, max_items=context_item_limit)
-checkin_context_preview = build_checkin_context_text(checkin_context, max_items=preview_items)
-checkin_summary = get_latest_checkin_summary(user_id, day_offset=1)
-checkin_summary_text = build_checkin_summary_text(checkin_summary) if checkin_summary else ""
-checkin_summaries = get_checkin_summaries(user_id, limit=summary_limit)
-checkin_summaries_text = build_checkin_summaries_context_text(
-    checkin_summaries,
-    max_items=None if use_full_context else 8,
-)
-checkin_summaries_preview = build_checkin_summaries_context_text(checkin_summaries, max_items=5)
-
-context_payload = ""
-context_display = ""
-if context_scope == "전체 로그":
-    if checkin_summaries_text:
-        context_payload = f"[최근 체크인 요약]\n{checkin_summaries_text}\n\n[최근 로그]\n{checkin_context_text}"
+    last_checkin = get_latest_checkin(user_id)
+    if context_scope == "어제":
+        checkin_context = get_checkin_context(user_id, day_offset=1, limit=context_limit)
+    elif context_scope == "최근 7일":
+        checkin_context = get_checkin_context_days(user_id, days=7, limit=context_limit)
     else:
-        context_payload = checkin_context_text
+        checkin_context = get_checkin_context_all(user_id, limit=fetch_limit)
 
-    if checkin_summaries_preview:
-        context_display = f"[최근 체크인 요약]\n{checkin_summaries_preview}\n\n[최근 로그]\n{checkin_context_preview}"
+    preview_items = min(context_limit, 8)
+    checkin_context_text = build_checkin_context_text(checkin_context, max_items=context_item_limit)
+    checkin_context_preview = build_checkin_context_text(checkin_context, max_items=preview_items)
+    checkin_summary = get_latest_checkin_summary(user_id, day_offset=1)
+    checkin_summary_text = build_checkin_summary_text(checkin_summary) if checkin_summary else ""
+    checkin_summaries = get_checkin_summaries(user_id, limit=summary_limit)
+    checkin_summaries_text = build_checkin_summaries_context_text(
+        checkin_summaries,
+        max_items=None if use_full_context else 8,
+    )
+    checkin_summaries_preview = build_checkin_summaries_context_text(checkin_summaries, max_items=5)
+
+    context_payload = ""
+    context_display = ""
+    if context_scope == "전체 로그":
+        if checkin_summaries_text:
+            context_payload = f"[최근 체크인 요약]\n{checkin_summaries_text}\n\n[최근 로그]\n{checkin_context_text}"
+        else:
+            context_payload = checkin_context_text
+
+        if checkin_summaries_preview:
+            context_display = f"[최근 체크인 요약]\n{checkin_summaries_preview}\n\n[최근 로그]\n{checkin_context_preview}"
+        else:
+            context_display = checkin_context_preview
     else:
-        context_display = checkin_context_preview
-else:
-    context_payload = checkin_summary_text or checkin_context_text
-    context_display = checkin_summary_text or checkin_context_preview
+        context_payload = checkin_summary_text or checkin_context_text
+        context_display = checkin_summary_text or checkin_context_preview
 
-voice_log_count = len(checkin_context.get("voice_logs", []))
-chat_log_count = len(checkin_context.get("chat_messages", []))
-summary_count = len(checkin_summaries) if checkin_summaries else 0
+    voice_log_count = len(checkin_context.get("voice_logs", []))
+    chat_log_count = len(checkin_context.get("chat_messages", []))
+    summary_count = len(checkin_summaries) if checkin_summaries else 0
 
-if context_display:
-    st.info(
-        "컨텍스트 로드 완료 · "
-        f"체크인 요약 {summary_count}개, "
-        f"음성 로그 {voice_log_count}개, "
-        f"채팅 로그 {chat_log_count}개"
-    )
-    with st.expander("컨텍스트 미리보기", expanded=False):
-        st.write(context_display)
-    if context_payload and context_payload != context_display:
-        with st.expander("컨텍스트 전체 보기", expanded=False):
-            st.caption("전체 로그가 많으면 느릴 수 있습니다.")
-            st.write(context_payload)
-elif last_checkin:
-    st.info(
-        f"최근 체크인: {last_checkin.get('timestamp', '')}\n\n"
-        f"{last_checkin.get('assistant_text', '')[:200]}..."
-    )
+    if context_display:
+        st.info(
+            "컨텍스트 로드 완료 · "
+            f"체크인 요약 {summary_count}개, "
+            f"음성 로그 {voice_log_count}개, "
+            f"채팅 로그 {chat_log_count}개"
+        )
+        with st.expander("컨텍스트 미리보기", expanded=False):
+            st.write(context_display)
+        if context_payload and context_payload != context_display:
+            with st.expander("컨텍스트 전체 보기", expanded=False):
+                st.caption("전체 로그가 많으면 느릴 수 있습니다.")
+                st.write(context_payload)
+    elif last_checkin:
+        st.info(
+            f"최근 체크인: {last_checkin.get('timestamp', '')}\n\n"
+            f"{last_checkin.get('assistant_text', '')[:200]}..."
+        )
 
 st.divider()
 
@@ -587,12 +617,17 @@ if send_clicked:
         last_checkin_text = context_payload or checkin_summary_text or checkin_context_text or (
             last_checkin.get("assistant_text") if last_checkin else None
         )
+        model_override = None
+        if st.session_state.voice_fast_mode:
+            last_checkin_text = None
+            model_override = (st.session_state.voice_fast_model or "claude-3-5-haiku-20241022").strip()
         voice_mode = f"voice_{st.session_state.voice_mode}"
         response = st.session_state.agent.chat_sync(
             user_message=user_text,
             mode=voice_mode,
             allow_tools=False,
             context_text=last_checkin_text,
+            model_override=model_override,
         )
 
         audio_out = None
@@ -631,7 +666,7 @@ if send_clicked:
             st.session_state.voice_auto_play_index = len(st.session_state.voice_messages) - 1
 
         session_id = st.session_state.agent.memory.session_id
-        if st.session_state.voice_mode in ("checkin", "1on1"):
+        if st.session_state.voice_mode in ("checkin", "1on1") and not st.session_state.voice_fast_mode:
             summary = st.session_state.agent.summarize_checkin_sync(
                 mode=st.session_state.voice_mode,
                 context_text=context_payload or "",
@@ -655,6 +690,11 @@ if send_clicked:
                 "transcript": transcript or "",
             },
         )
+
+        if st.session_state.voice_fast_mode and st.session_state.agent:
+            st.session_state.agent.voice_conversation_history = (
+                st.session_state.agent.voice_conversation_history[-6:]
+            )
 
         st.rerun()
 
