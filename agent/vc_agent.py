@@ -10,6 +10,7 @@ Unified VC Investment Agent - Single Agent Architecture
 import os
 import json
 import re
+from datetime import date, timedelta
 from typing import Any, AsyncIterator, Dict, List, Optional
 from dotenv import load_dotenv
 
@@ -214,6 +215,66 @@ class VCAgent:
 
 한국어로 전문적이고 정중하게 답변하세요.
 """
+
+    def _is_feedback_learning_question(self, text: str) -> bool:
+        text = (text or "").strip().lower()
+        if not text:
+            return False
+        has_feedback = "피드백" in text or "feedback" in text
+        has_learning = any(token in text for token in ["학습", "배웠", "learn", "learned"])
+        return has_feedback and has_learning
+
+    def _resolve_feedback_day_offset(self, text: str) -> int:
+        text = (text or "").strip()
+        if "오늘" in text:
+            return 0
+        if "그제" in text:
+            return 2
+        if "어제" in text:
+            return 1
+        if "지난주" in text or "최근" in text:
+            return 7
+        return 1
+
+    def _build_feedback_summary_text(self, day_offset: int = 1, limit: int = 50) -> str:
+        feedbacks = self.feedback.get_recent_feedback(limit=limit) if self.feedback else []
+        if not feedbacks:
+            return "어제 피드백 기록이 없습니다. 추측 없이 기록 기반으로만 답변합니다."
+
+        target_date = (date.today() - timedelta(days=day_offset)).isoformat()
+        entries = []
+        for fb in feedbacks:
+            timestamp = fb.get("timestamp") or fb.get("created_at") or ""
+            if isinstance(timestamp, str) and timestamp.startswith(target_date):
+                entries.append(fb)
+
+        if not entries:
+            return "어제 피드백 기록이 없습니다. 추측 없이 기록 기반으로만 답변합니다."
+
+        lines = ["어제 피드백 기록 기반 요약:"]
+        for entry in entries[:8]:
+            feedback_type = entry.get("feedback_type") or "unknown"
+            user_message = (entry.get("user_message") or "").strip()
+            feedback_value = entry.get("feedback_value")
+            context = entry.get("context") or {}
+
+            lines.append(f"- 유형: {feedback_type}")
+            if user_message:
+                lines.append(f"  - 사용자: {user_message[:200]}")
+            if feedback_value is not None:
+                if isinstance(feedback_value, (dict, list)):
+                    value_text = json.dumps(feedback_value, ensure_ascii=False)
+                else:
+                    value_text = str(feedback_value)
+                lines.append(f"  - 피드백: {value_text[:200]}")
+            if context:
+                if isinstance(context, (dict, list)):
+                    context_text = json.dumps(context, ensure_ascii=False)
+                else:
+                    context_text = str(context)
+                lines.append(f"  - 컨텍스트: {context_text[:200]}")
+
+        return "\n".join(lines)
 
     def _build_voice_system_prompt(self, submode: str, context_text: Optional[str]) -> str:
         last_checkin_text = context_text or "없음"
@@ -489,6 +550,7 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
         mode: str = "exit",
         allow_tools: bool = True,
         context_text: Optional[str] = None,
+        model_override: Optional[str] = None,
     ) -> AsyncIterator[str]:
         """
         대화형 인터페이스 (스트리밍)
@@ -525,12 +587,27 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
         self.last_interaction["assistant_response"] = ""
         self.last_interaction["context"] = {"mode": mode}
 
+        if self._is_feedback_learning_question(user_message):
+            summary = self._build_feedback_summary_text(
+                day_offset=self._resolve_feedback_day_offset(user_message)
+            )
+            history.append({
+                "role": "assistant",
+                "content": summary
+            })
+            self.memory.add_message("assistant", summary)
+            self.last_interaction["assistant_response"] = summary
+            yield summary
+            return
+
         # 시스템 프롬프트 (모드에 따라 다름)
         system_prompt = self._build_system_prompt(mode, context_text=context_text)
+        model = model_override or self.model
+        self._current_model = model
 
         # Claude API 호출 (스트리밍)
         async with self.async_client.messages.stream(
-            model=self.model,
+            model=model,
             system=system_prompt,
             messages=history,
             tools=tools,
@@ -623,9 +700,10 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
         tools = self.tools if allow_tools else []
         history = self.voice_conversation_history if mode.startswith("voice_") else self.conversation_history
         system_prompt = self._build_system_prompt(mode, context_text=context_text)
+        model = getattr(self, "_current_model", self.model)
 
         async with self.async_client.messages.stream(
-            model=self.model,
+            model=model,
             system=system_prompt,
             messages=history,
             tools=tools,
@@ -840,6 +918,7 @@ Rules:
         mode: str = "exit",
         allow_tools: bool = True,
         context_text: Optional[str] = None,
+        model_override: Optional[str] = None,
     ) -> str:
         """동기 버전 chat (간단한 사용)
 
@@ -859,6 +938,7 @@ Rules:
                 mode=mode,
                 allow_tools=allow_tools,
                 context_text=context_text,
+                model_override=model_override,
             ):
                 response += chunk
             return response
