@@ -58,6 +58,26 @@ def initialize_session_state():
         "message_feedback": {},
         "feedback_input_visible": {},
         "feedback_text": {},
+
+        # Voice Agent
+        "voice_agent": None,
+        "voice_messages": [],
+        "voice_mode": "checkin",
+        "voice_last_transcript": "",
+        "voice_last_error": None,
+        "voice_last_audio": None,
+        "naver_api_key_id": "",
+        "naver_api_key": "",
+        "voice_speaker": "nara",
+        "voice_stt_provider": "local_whisper",
+        "voice_tts_provider": "local_mms",
+        "whisper_model": "small",
+        "whisper_compute_type": "int8",
+        "whisper_language": "ko",
+        "piper_model_path": "",
+        "piper_config_path": "",
+        "piper_bin_path": "piper",
+        "mms_model_id": "facebook/mms-tts-kss",
     }
 
     for key, value in defaults.items():
