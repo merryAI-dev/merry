@@ -4,8 +4,10 @@ VC 투자 분석 에이전트 - 홈페이지
 실행: streamlit run app.py
 """
 
+import json
 import re
 import streamlit as st
+import streamlit.components.v1 as components
 
 from shared.config import (
     get_avatar_image,
@@ -374,50 +376,6 @@ st.markdown(
 )
 
 
-def _render_graph_node(
-    title: str,
-    summary: str,
-    bullets: list[str],
-    chips: list[str],
-    button_label: str,
-    page_path: str,
-    key: str,
-    accent: str = "ember",
-) -> None:
-    with st.container():
-        st.markdown(f'<div class="graph-node-marker" data-accent="{accent}"></div>', unsafe_allow_html=True)
-        st.markdown(f"#### {title}")
-        st.markdown(f"<p class='graph-node__summary'>{summary}</p>", unsafe_allow_html=True)
-        if bullets:
-            items = "".join([f"<li>{item}</li>" for item in bullets])
-            st.markdown(f"<ul class='graph-node__list'>{items}</ul>", unsafe_allow_html=True)
-        if chips:
-            chip_html = "".join([f"<span class='graph-node__chip'>{chip}</span>" for chip in chips])
-            st.markdown(f"<div class='graph-node__chips'>{chip_html}</div>", unsafe_allow_html=True)
-        if st.button(button_label, use_container_width=True, key=key):
-            st.switch_page(page_path)
-
-
-def _render_graph_hub() -> None:
-    with st.container():
-        st.markdown('<div class="graph-node-marker" data-accent="hub"></div>', unsafe_allow_html=True)
-        st.markdown("#### VC 투자 분석 그래프")
-        st.markdown(
-            "<p class='graph-node__summary'>메리와 대화하며 각 모듈을 연결합니다. "
-            "필요한 분석을 선택해 바로 시작하세요.</p>",
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            "<div class='graph-node__chips'>"
-            "<span class='graph-node__chip'>Exit</span>"
-            "<span class='graph-node__chip'>Peer</span>"
-            "<span class='graph-node__chip'>Report</span>"
-            "<span class='graph-node__chip'>Contract</span>"
-            "</div>",
-            unsafe_allow_html=True,
-        )
-
-
 hero_cols = st.columns([1, 4, 1])
 with hero_cols[0]:
     st.image(get_header_image(), width=140)
@@ -438,120 +396,491 @@ with hero_cols[1]:
 
 st.markdown("<div class='graph-map-title'>Module Graph</div>", unsafe_allow_html=True)
 
-with st.container():
-    st.markdown('<div class="graph-canvas-marker"></div>', unsafe_allow_html=True)
-    st.markdown(
-        """
-        <div class="graph-zones">
-            <div class="graph-zone graph-zone--analysis">
-                <span class="graph-zone__label">핵심 분석</span>
-            </div>
-            <div class="graph-zone graph-zone--governance">
-                <span class="graph-zone__label">인사이트 허브</span>
-            </div>
-            <div class="graph-zone graph-zone--interaction">
-                <span class="graph-zone__label">딜리전스</span>
-            </div>
+GRAPH_NODES = [
+    {
+        "id": "exit",
+        "title": "Exit 프로젝션",
+        "summary": "투자검토 엑셀 기반 Exit 분석.",
+        "bullets": ["PER 시나리오/IRR/멀티플", "3-Tier 결과 엑셀 생성", "SAFE 전환 시나리오 지원"],
+        "chips": ["Excel", "Scenario", "IRR"],
+        "page": "Exit_Projection",
+        "cta": "Exit 프로젝션 시작",
+        "accent": "ember",
+        "x": 50,
+        "y": 12,
+    },
+    {
+        "id": "peer",
+        "title": "Peer PER 분석",
+        "summary": "유사 상장 기업 PER 벤치마킹.",
+        "bullets": ["PDF 기반 비즈니스 모델 파악", "Yahoo Finance PER 조회", "매출/목표가치 역산"],
+        "chips": ["PDF", "Market", "PER"],
+        "page": "Peer_PER_Analysis",
+        "cta": "Peer PER 분석 시작",
+        "accent": "amber",
+        "x": 20,
+        "y": 33,
+    },
+    {
+        "id": "report",
+        "title": "투자심사 보고서",
+        "summary": "인수인의견 스타일 초안 생성.",
+        "bullets": ["시장규모 근거 추출", "보고서 문장 초안", "확인 필요 사항 정리"],
+        "chips": ["Report", "Evidence", "Draft"],
+        "page": "Investment_Report",
+        "cta": "투자심사 보고서 시작",
+        "accent": "teal",
+        "x": 80,
+        "y": 33,
+    },
+    {
+        "id": "hub",
+        "title": "VC 투자 분석 그래프",
+        "summary": "메리와 대화하며 각 모듈을 연결합니다.",
+        "bullets": ["필요한 분석을 선택해 바로 시작", "각 모듈은 업무 흐름으로 연결"],
+        "chips": ["Exit", "Peer", "Report", "Contract"],
+        "page": "",
+        "cta": "허브 노드",
+        "accent": "hub",
+        "x": 50,
+        "y": 55,
+    },
+    {
+        "id": "diagnosis",
+        "title": "기업현황 진단시트",
+        "summary": "진단시트 기반 컨설턴트 보고서.",
+        "bullets": ["체크리스트 자동 분석", "점수/리포트 초안", "엑셀에 반영/저장"],
+        "chips": ["Checklist", "Scoring"],
+        "page": "Company_Diagnosis",
+        "cta": "기업현황 진단시트 시작",
+        "accent": "ember",
+        "x": 22,
+        "y": 80,
+    },
+    {
+        "id": "contract",
+        "title": "계약서 리서치",
+        "summary": "텀싯/투자계약서 근거 기반 검토.",
+        "bullets": ["PDF·DOCX 텍스트 추출", "핵심 항목/근거 스니펫", "문서 간 일치 여부 점검"],
+        "chips": ["OCR", "Compare", "Risk"],
+        "page": "Contract_Review",
+        "cta": "계약서 리서치 시작",
+        "accent": "amber",
+        "x": 78,
+        "y": 80,
+    },
+]
+
+nodes_html = []
+for node in GRAPH_NODES:
+    bullet_html = "".join([f"<li>{item}</li>" for item in node.get("bullets", [])])
+    chip_html = "".join([f"<span class='node-chip'>{chip}</span>" for chip in node.get("chips", [])])
+    cta_label = node.get("cta", "시작")
+    cta_html = (
+        f"<button class='node-cta'>{cta_label}</button>"
+        if node.get("page")
+        else f"<div class='node-cta hub'>{cta_label}</div>"
+    )
+    nodes_html.append(
+        f"""
+        <div class="graph-node accent-{node['accent']}" data-node="{node['id']}" data-page="{node['page']}"
+             style="--x:{node['x']};--y:{node['y']};">
+            <div class="node-title">{node['title']}</div>
+            <div class="node-summary">{node['summary']}</div>
+            <ul class="node-list">{bullet_html}</ul>
+            <div class="node-chips">{chip_html}</div>
+            {cta_html}
         </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    st.markdown(
         """
-        <svg class="graph-lines" viewBox="0 0 1000 720" preserveAspectRatio="none" aria-hidden="true">
-            <g>
-                <path d="M500 90 L250 250" />
-                <path d="M500 90 L750 250" />
-                <path d="M250 250 L500 420" />
-                <path d="M750 250 L500 420" />
-                <path d="M500 420 L250 600" />
-                <path d="M500 420 L750 600" />
-            </g>
-            <g>
-                <circle class="graph-dot" cx="500" cy="90" r="6" />
-                <circle class="graph-dot" cx="250" cy="250" r="5" />
-                <circle class="graph-dot" cx="750" cy="250" r="5" />
-                <circle class="graph-dot" cx="500" cy="420" r="7" />
-                <circle class="graph-dot" cx="250" cy="600" r="5" />
-                <circle class="graph-dot" cx="750" cy="600" r="5" />
-            </g>
-        </svg>
-        """,
-        unsafe_allow_html=True,
     )
 
-    row1 = st.columns([1, 2, 1])
-    with row1[1]:
-        _render_graph_node(
-            "Exit 프로젝션",
-            "투자검토 엑셀 기반 Exit 분석.",
-            ["PER 시나리오/IRR/멀티플", "3-Tier 결과 엑셀 생성", "SAFE 전환 시나리오 지원"],
-            ["Excel", "Scenario", "IRR"],
-            "Exit 프로젝션 시작",
-            "pages/1_Exit_Projection.py",
-            "graph_exit",
-            accent="ember",
-        )
+graph_nodes_markup = "\n".join(nodes_html)
+page_slugs = [node["page"] for node in GRAPH_NODES if node.get("page")]
 
-    st.markdown("<div class='graph-row-gap'></div>", unsafe_allow_html=True)
+graph_html = f"""
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
-    row2 = st.columns([1, 2, 1])
-    with row2[0]:
-        _render_graph_node(
-            "Peer PER 분석",
-            "유사 상장 기업 PER 벤치마킹.",
-            ["PDF 기반 비즈니스 모델 파악", "Yahoo Finance PER 조회", "매출/목표가치 역산"],
-            ["PDF", "Market", "PER"],
-            "Peer PER 분석 시작",
-            "pages/2_Peer_PER_Analysis.py",
-            "graph_peer",
-            accent="amber",
-        )
-    with row2[2]:
-        _render_graph_node(
-            "투자심사 보고서",
-            "인수인의견 스타일 초안 생성.",
-            ["시장규모 근거 추출", "보고서 문장 초안", "확인 필요 사항 정리"],
-            ["Report", "Evidence", "Draft"],
-            "투자심사 보고서 시작",
-            "pages/4_Investment_Report.py",
-            "graph_report",
-            accent="teal",
-        )
+:root {{
+    --graph-bg: #f7f2ea;
+    --graph-ink: #1c1914;
+    --graph-muted: #5f554b;
+    --graph-node-bg: rgba(255, 255, 255, 0.92);
+    --graph-border: rgba(28, 25, 20, 0.16);
+    --graph-shadow: 0 18px 40px rgba(25, 18, 9, 0.12);
+    --accent-ember: #cc3a2b;
+    --accent-amber: #d08a2e;
+    --accent-teal: #1a8c86;
+}}
 
-    st.markdown("<div class='graph-row-gap'></div>", unsafe_allow_html=True)
+html, body {{
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    font-family: "Space Grotesk", "Noto Sans KR", sans-serif;
+}}
 
-    row3 = st.columns([1, 2, 1])
-    with row3[1]:
-        _render_graph_hub()
+.graph-shell {{
+    position: relative;
+    height: 760px;
+    border-radius: 32px;
+    background: var(--graph-bg);
+    overflow: hidden;
+    box-shadow: 0 30px 60px rgba(25, 18, 9, 0.08);
+}}
 
-    st.markdown("<div class='graph-row-gap'></div>", unsafe_allow_html=True)
+.graph-shell::before {{
+    content: "";
+    position: absolute;
+    inset: 0;
+    background-image:
+        radial-gradient(circle at 15% 10%, rgba(255, 247, 236, 0.9), rgba(255, 247, 236, 0) 40%),
+        radial-gradient(circle at 85% 20%, rgba(255, 232, 218, 0.7), rgba(255, 232, 218, 0) 35%),
+        repeating-linear-gradient(0deg, rgba(28, 25, 20, 0.06), rgba(28, 25, 20, 0.06) 1px, transparent 1px, transparent 28px),
+        repeating-linear-gradient(90deg, rgba(28, 25, 20, 0.06), rgba(28, 25, 20, 0.06) 1px, transparent 1px, transparent 28px);
+    opacity: 0.9;
+    animation: haze 16s ease-in-out infinite;
+    z-index: 0;
+}}
 
-    row4 = st.columns([1, 2, 1])
-    with row4[0]:
-        _render_graph_node(
-            "기업현황 진단시트",
-            "진단시트 기반 컨설턴트 보고서.",
-            ["체크리스트 자동 분석", "점수/리포트 초안", "엑셀에 반영/저장"],
-            ["Checklist", "Scoring"],
-            "기업현황 진단시트 시작",
-            "pages/3_Company_Diagnosis.py",
-            "graph_diagnosis",
-            accent="ember",
-        )
-    with row4[2]:
-        _render_graph_node(
-            "계약서 리서치",
-            "텀싯/투자계약서 근거 기반 검토.",
-            ["PDF·DOCX 텍스트 추출", "핵심 항목/근거 스니펫", "문서 간 일치 여부 점검"],
-            ["OCR", "Compare", "Risk"],
-            "계약서 리서치 시작",
-            "pages/7_Contract_Review.py",
-            "graph_contract",
-            accent="amber",
-        )
+.graph-lines {{
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}}
 
-    st.markdown("<div class='graph-row-gap'></div>", unsafe_allow_html=True)
+.graph-zones {{
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+}}
+
+.graph-zone {{
+    position: absolute;
+    border: 1px dashed rgba(28, 25, 20, 0.2);
+    border-radius: 28px;
+    background: rgba(255, 255, 255, 0.45);
+    backdrop-filter: blur(4px);
+}}
+
+.graph-zone span {{
+    position: absolute;
+    top: 12px;
+    left: 16px;
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--graph-muted);
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(28, 25, 20, 0.12);
+    background: rgba(247, 242, 234, 0.95);
+}}
+
+.zone-analysis {{ top: 4%; left: 6%; width: 88%; height: 36%; }}
+.zone-hub {{ top: 44%; left: 12%; width: 76%; height: 20%; }}
+.zone-diligence {{ top: 68%; left: 6%; width: 88%; height: 26%; }}
+
+.graph-node {{
+    position: absolute;
+    left: calc(var(--x) * 1%);
+    top: calc(var(--y) * 1%);
+    transform: translate(-50%, -50%);
+    width: min(330px, 34vw);
+    min-width: 240px;
+    max-width: 360px;
+    background: var(--graph-node-bg);
+    border: 1px solid var(--graph-border);
+    border-radius: 20px;
+    padding: 16px 16px 12px 16px;
+    box-shadow: var(--graph-shadow);
+    z-index: 3;
+    cursor: pointer;
+    transition: border 0.2s ease, box-shadow 0.2s ease;
+}}
+
+.graph-node:hover {{
+    border-color: rgba(28, 25, 20, 0.35);
+    box-shadow: 0 26px 50px rgba(25, 18, 9, 0.18);
+}}
+
+.graph-node::after {{
+    content: "";
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 10px;
+    height: 10px;
+    border-radius: 999px;
+    box-shadow: 0 0 0 6px rgba(204, 58, 43, 0.14);
+}}
+
+.graph-node.accent-amber::after {{
+    background: var(--accent-amber);
+    box-shadow: 0 0 0 6px rgba(208, 138, 46, 0.16);
+}}
+
+.graph-node.accent-teal::after {{
+    background: var(--accent-teal);
+    box-shadow: 0 0 0 6px rgba(26, 140, 134, 0.16);
+}}
+
+.graph-node.accent-ember::after {{
+    background: var(--accent-ember);
+    box-shadow: 0 0 0 6px rgba(204, 58, 43, 0.16);
+}}
+
+.graph-node.accent-hub::after {{
+    width: 14px;
+    height: 14px;
+    background: #11100f;
+    box-shadow: 0 0 0 8px rgba(17, 16, 15, 0.1);
+}}
+
+.node-title {{
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 6px;
+}}
+
+.node-summary {{
+    font-size: 13px;
+    color: var(--graph-muted);
+    margin-bottom: 10px;
+}}
+
+.node-list {{
+    padding-left: 18px;
+    margin: 0 0 10px 0;
+    font-size: 12.5px;
+    line-height: 1.6;
+}}
+
+.node-chips {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+}}
+
+.node-chip {{
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10.5px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(28, 25, 20, 0.12);
+    background: rgba(255, 255, 255, 0.8);
+}}
+
+.node-cta {{
+    display: block;
+    width: 100%;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 10px 12px;
+    border-radius: 999px;
+    border: none;
+    background: rgba(28, 25, 20, 0.1);
+    color: var(--graph-ink);
+}}
+
+.graph-node .node-cta {{
+    cursor: pointer;
+}}
+
+.graph-node.accent-ember .node-cta {{
+    background: rgba(204, 58, 43, 0.12);
+}}
+
+.graph-node.accent-amber .node-cta {{
+    background: rgba(208, 138, 46, 0.12);
+}}
+
+.graph-node.accent-teal .node-cta {{
+    background: rgba(26, 140, 134, 0.12);
+}}
+
+.graph-node.accent-hub .node-cta {{
+    background: rgba(17, 16, 15, 0.08);
+    cursor: default;
+}}
+
+.graph-shell.is-mobile {{
+    height: auto;
+    padding: 16px 12px 24px 12px;
+}}
+
+.graph-shell.is-mobile .graph-lines,
+.graph-shell.is-mobile .graph-zones {{
+    display: none;
+}}
+
+.graph-shell.is-mobile .graph-node {{
+    position: relative;
+    left: auto;
+    top: auto;
+    transform: none !important;
+    margin: 14px auto;
+    width: min(420px, 92%);
+}}
+
+@keyframes haze {{
+    0% {{ filter: hue-rotate(0deg); opacity: 0.9; }}
+    50% {{ filter: hue-rotate(8deg); opacity: 0.75; }}
+    100% {{ filter: hue-rotate(0deg); opacity: 0.9; }}
+}}
+</style>
+</head>
+<body>
+<div class="graph-shell" id="graph-shell">
+    <canvas class="graph-lines" id="graph-lines"></canvas>
+    <div class="graph-zones">
+        <div class="graph-zone zone-analysis"><span>핵심 분석</span></div>
+        <div class="graph-zone zone-hub"><span>인사이트 허브</span></div>
+        <div class="graph-zone zone-diligence"><span>딜리전스</span></div>
+    </div>
+    {graph_nodes_markup}
+</div>
+<script>
+const graph = document.getElementById("graph-shell");
+const canvas = document.getElementById("graph-lines");
+const ctx = canvas.getContext("2d");
+const nodes = Array.from(document.querySelectorAll(".graph-node"));
+const nodeMap = {{}};
+const pageSlugs = {json.dumps(page_slugs, ensure_ascii=False)};
+nodes.forEach((node) => {{
+    nodeMap[node.dataset.node] = node;
+}});
+
+const edges = [
+    ["exit", "peer"],
+    ["exit", "report"],
+    ["peer", "hub"],
+    ["report", "hub"],
+    ["hub", "diagnosis"],
+    ["hub", "contract"],
+];
+
+let activeNode = null;
+
+function resizeCanvas() {{
+    const rect = graph.getBoundingClientRect();
+    canvas.width = rect.width * window.devicePixelRatio;
+    canvas.height = rect.height * window.devicePixelRatio;
+    ctx.setTransform(window.devicePixelRatio, 0, 0, window.devicePixelRatio, 0, 0);
+}}
+
+function getCenter(node) {{
+    const rect = node.getBoundingClientRect();
+    const parent = graph.getBoundingClientRect();
+    return {{
+        x: rect.left - parent.left + rect.width / 2,
+        y: rect.top - parent.top + rect.height / 2,
+    }};
+}}
+
+function navigate(page) {{
+    if (!page) return;
+    const url = new URL(window.location.href);
+    if (url.searchParams.has("page")) {{
+        url.searchParams.set("page", page);
+        window.location.href = url.toString();
+        return;
+    }}
+    const segments = url.pathname.split("/").filter(Boolean);
+    const last = segments.length ? segments[segments.length - 1] : "";
+    const baseSegments = pageSlugs.includes(last) ? segments.slice(0, -1) : segments;
+    const basePath = baseSegments.length ? `/${{baseSegments.join("/")}}` : "";
+    window.location.href = `${{url.origin}}${{basePath}}/${{page}}`;
+}}
+
+nodes.forEach((node) => {{
+    const page = node.dataset.page;
+    if (!page) {{
+        node.style.cursor = "default";
+    }} else {{
+        node.addEventListener("click", () => navigate(page));
+    }}
+    node.addEventListener("mouseenter", () => {{
+        activeNode = node.dataset.node;
+    }});
+    node.addEventListener("mouseleave", () => {{
+        activeNode = null;
+    }});
+}});
+
+function updateLayout() {{
+    const isMobile = graph.clientWidth < 900;
+    graph.classList.toggle("is-mobile", isMobile);
+    resizeCanvas();
+}}
+
+function drawLines(time) {{
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const dashOffset = -time * 0.05;
+
+    edges.forEach(([from, to]) => {{
+        const startNode = nodeMap[from];
+        const endNode = nodeMap[to];
+        if (!startNode || !endNode) return;
+        const start = getCenter(startNode);
+        const end = getCenter(endNode);
+        const isActive = activeNode && (activeNode === from || activeNode === to);
+        ctx.beginPath();
+        ctx.setLineDash([10, 12]);
+        ctx.lineDashOffset = dashOffset;
+        ctx.strokeStyle = isActive ? "rgba(26, 140, 134, 0.65)" : "rgba(28, 25, 20, 0.28)";
+        ctx.lineWidth = isActive ? 2.4 : 2.0;
+        ctx.moveTo(start.x, start.y);
+        ctx.lineTo(end.x, end.y);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.setLineDash([]);
+        ctx.fillStyle = isActive ? "rgba(26, 140, 134, 0.9)" : "rgba(28, 25, 20, 0.6)";
+        ctx.arc(start.x, start.y, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(end.x, end.y, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+    }});
+}}
+
+function animate(time) {{
+    if (!graph.classList.contains("is-mobile")) {{
+        nodes.forEach((node, idx) => {{
+            const dx = Math.sin(time * 0.001 + idx) * 6;
+            const dy = Math.cos(time * 0.0012 + idx) * 5;
+            node.style.transform = `translate(-50%, -50%) translate(${{dx}}px, ${{dy}}px)`;
+        }});
+    }} else {{
+        nodes.forEach((node) => {{
+            node.style.transform = "";
+        }});
+    }}
+    drawLines(time);
+    requestAnimationFrame(animate);
+}}
+
+window.addEventListener("resize", updateLayout);
+updateLayout();
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
+"""
+
+components.html(graph_html, height=780, scrolling=False)
 
 st.divider()
 
