@@ -143,6 +143,61 @@ def _get_day_range(day_offset: int = 1) -> tuple[datetime, datetime]:
     return start, end
 
 
+def _fetch_supabase_rows(
+    table: str,
+    select: str,
+    user_id: str,
+    order_column: str = "created_at",
+    desc: bool = True,
+    page_size: int = 500,
+    max_rows: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    if not SUPABASE_AVAILABLE:
+        return []
+
+    client = get_supabase_client()
+    if not client:
+        return []
+
+    rows: List[Dict[str, Any]] = []
+    offset = 0
+    page_size = max(page_size, 1)
+
+    while True:
+        if max_rows is not None and len(rows) >= max_rows:
+            break
+
+        fetch_size = page_size
+        if max_rows is not None:
+            remaining = max_rows - len(rows)
+            if remaining <= 0:
+                break
+            fetch_size = min(fetch_size, remaining)
+
+        end = offset + fetch_size - 1
+        try:
+            response = (
+                client.table(table)
+                .select(select)
+                .eq("user_id", user_id)
+                .order(order_column, desc=desc)
+                .range(offset, end)
+                .execute()
+            )
+            batch = response.data or []
+        except Exception as exc:
+            logger.warning(f"Supabase {table} fetch failed: {exc}")
+            break
+
+        rows.extend(batch)
+        if len(batch) < fetch_size:
+            break
+
+        offset += fetch_size
+
+    return rows
+
+
 def _get_voice_logs_between_supabase(
     user_id: str,
     start: datetime,
@@ -235,29 +290,19 @@ def _get_chat_messages_between_supabase(
         return []
 
 
-def _get_recent_chat_messages_supabase(user_id: str, limit: int) -> List[Dict[str, str]]:
-    if not SUPABASE_AVAILABLE:
-        return []
-
-    client = get_supabase_client()
-    if not client:
-        return []
-
-    try:
-        response = client.table("chat_messages").select(
-            "role, content, created_at"
-        ).eq(
-            "user_id", user_id
-        ).order(
-            "created_at", desc=True
-        ).limit(limit).execute()
-        rows = response.data or []
-        for row in rows:
-            row["timestamp"] = row.get("created_at")
-        return rows
-    except Exception as exc:
-        logger.warning(f"Supabase chat_messages fetch failed: {exc}")
-        return []
+def _get_recent_chat_messages_supabase(
+    user_id: str,
+    limit: Optional[int],
+) -> List[Dict[str, str]]:
+    rows = _fetch_supabase_rows(
+        "chat_messages",
+        "role, content, created_at",
+        user_id,
+        max_rows=limit,
+    )
+    for row in rows:
+        row["timestamp"] = row.get("created_at")
+    return rows
 
 
 def get_checkin_context(
@@ -295,7 +340,7 @@ def get_checkin_context_days(
 
 def get_checkin_context_all(
     user_id: str,
-    limit: int = 100,
+    limit: Optional[int] = 100,
 ) -> Dict[str, List[Dict[str, str]]]:
     voice_logs = get_recent_voice_logs(user_id, limit=limit)
     chat_messages = _get_recent_chat_messages_supabase(user_id, limit=limit)
@@ -381,36 +426,31 @@ def _normalize_summary_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
     return entry
 
 
-def _get_checkin_summaries_supabase(user_id: str, limit: int) -> List[Dict[str, Any]]:
-    if not SUPABASE_AVAILABLE:
-        return []
-
-    client = get_supabase_client()
-    if not client:
-        return []
-
-    try:
-        response = client.table(VOICE_CHECKIN_TABLE).select("*").eq(
-            "user_id", user_id
-        ).order("created_at", desc=True).limit(limit).execute()
-        rows = response.data or []
-        return [_normalize_summary_entry(row) for row in rows]
-    except Exception as exc:
-        logger.warning(f"Supabase checkin summaries fetch failed: {exc}")
-        return []
+def _get_checkin_summaries_supabase(
+    user_id: str,
+    limit: Optional[int],
+) -> List[Dict[str, Any]]:
+    rows = _fetch_supabase_rows(
+        VOICE_CHECKIN_TABLE,
+        "*",
+        user_id,
+        max_rows=limit,
+    )
+    return [_normalize_summary_entry(row) for row in rows]
 
 
-def _get_checkin_summaries_local(user_id: str, limit: int) -> List[Dict[str, Any]]:
+def _get_checkin_summaries_local(user_id: str, limit: Optional[int]) -> List[Dict[str, Any]]:
     user_dir = _get_user_dir(user_id)
     path = user_dir / "checkin_summary.jsonl"
     entries = _read_log_lines(path)
     if not entries:
         return []
     normalized = [_normalize_summary_entry(entry) for entry in entries]
-    return list(reversed(normalized))[:limit]
+    ordered = list(reversed(normalized))
+    return ordered if limit is None else ordered[:limit]
 
 
-def get_checkin_summaries(user_id: str, limit: int = 30) -> List[Dict[str, Any]]:
+def get_checkin_summaries(user_id: str, limit: Optional[int] = 30) -> List[Dict[str, Any]]:
     summaries = _get_checkin_summaries_supabase(user_id, limit)
     if summaries:
         return summaries
@@ -424,12 +464,16 @@ def _shorten(text: Optional[str], limit: int = 160) -> str:
     return text if len(text) <= limit else text[:limit].rstrip() + "..."
 
 
-def build_checkin_context_text(context: Dict[str, List[Dict[str, str]]], max_items: int = 8) -> str:
+def build_checkin_context_text(
+    context: Dict[str, List[Dict[str, str]]],
+    max_items: Optional[int] = 8,
+) -> str:
     voice_logs = context.get("voice_logs", [])
     chat_messages = context.get("chat_messages", [])
 
     lines: List[str] = []
-    for entry in voice_logs[:max_items]:
+    voice_slice = voice_logs if max_items is None else voice_logs[:max_items]
+    for entry in voice_slice:
         user_text = _shorten(entry.get("user_text"))
         assistant_text = _shorten(entry.get("assistant_text"))
         if user_text:
@@ -437,7 +481,8 @@ def build_checkin_context_text(context: Dict[str, List[Dict[str, str]]], max_ite
         if assistant_text:
             lines.append(f"- 에이전트(음성): {assistant_text}")
 
-    for entry in chat_messages[:max_items]:
+    chat_slice = chat_messages if max_items is None else chat_messages[:max_items]
+    for entry in chat_slice:
         role = entry.get("role")
         if role == "tool":
             continue
@@ -445,18 +490,22 @@ def build_checkin_context_text(context: Dict[str, List[Dict[str, str]]], max_ite
         if content:
             lines.append(f"- {role}: {content}")
 
+    if max_items is None:
+        return "\n".join(lines).strip()
+
     return "\n".join(lines[: max_items * 2]).strip()
 
 
 def build_checkin_summaries_context_text(
     summaries: List[Dict[str, Any]],
-    max_items: int = 10,
+    max_items: Optional[int] = 10,
 ) -> str:
     if not summaries:
         return ""
 
     lines: List[str] = []
-    for entry in summaries[:max_items]:
+    summary_slice = summaries if max_items is None else summaries[:max_items]
+    for entry in summary_slice:
         summary_date = entry.get("summary_date") or ""
         summary_text = build_checkin_summary_text(entry)
         if not summary_text:
@@ -498,29 +547,23 @@ def build_checkin_summary_text(summary: Dict[str, str]) -> str:
 
     return "\n".join(lines)
 
-def _get_recent_voice_logs_supabase(user_id: str, limit: int) -> List[Dict[str, str]]:
-    if not SUPABASE_AVAILABLE:
-        return []
-
-    client = get_supabase_client()
-    if not client:
-        return []
-
-    try:
-        response = client.table(VOICE_LOG_TABLE).select("*").eq(
-            "user_id", user_id
-        ).order("created_at", desc=True).limit(limit).execute()
-        rows = response.data or []
-        for row in rows:
-            if "created_at" in row and "timestamp" not in row:
-                row["timestamp"] = row["created_at"]
-        return rows
-    except Exception as exc:
-        logger.warning(f"Supabase voice log fetch failed: {exc}")
-        return []
+def _get_recent_voice_logs_supabase(
+    user_id: str,
+    limit: Optional[int],
+) -> List[Dict[str, str]]:
+    rows = _fetch_supabase_rows(
+        VOICE_LOG_TABLE,
+        "*",
+        user_id,
+        max_rows=limit,
+    )
+    for row in rows:
+        if "created_at" in row and "timestamp" not in row:
+            row["timestamp"] = row["created_at"]
+    return rows
 
 
-def get_recent_voice_logs(user_id: str, limit: int = 20) -> List[Dict[str, str]]:
+def get_recent_voice_logs(user_id: str, limit: Optional[int] = 20) -> List[Dict[str, str]]:
     entries = _get_recent_voice_logs_supabase(user_id, limit)
     if entries:
         return entries
@@ -530,7 +573,8 @@ def get_recent_voice_logs(user_id: str, limit: int = 20) -> List[Dict[str, str]]
     entries = _read_log_lines(path)
     if not entries:
         return []
-    return entries[-limit:][::-1]
+    ordered = list(reversed(entries))
+    return ordered if limit is None else ordered[:limit]
 
 
 def get_latest_checkin(user_id: str, modes: Iterable[str] = ("checkin", "1on1")) -> Optional[Dict[str, str]]:

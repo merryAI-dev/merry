@@ -5,7 +5,7 @@ Voice Agent Page (Naver CLOVA STT/TTS)
 from __future__ import annotations
 
 import os
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import streamlit as st
 
@@ -124,6 +124,8 @@ with st.sidebar:
         else 2,
         key="voice_tts_provider",
     )
+    if clova_credentials_present() and st.session_state.voice_tts_provider != "clova":
+        st.caption("Streamlit 배포에서는 CLOVA TTS가 안정적입니다.")
 
     if st.session_state.voice_stt_provider == "local_whisper":
         st.text_input(
@@ -186,6 +188,7 @@ with st.sidebar:
         key="voice_refine_enabled",
         help="STT 결과를 Claude로 정제해서 대화 입력에 사용합니다.",
     )
+    st.caption("브라우저에서 재생 버튼을 눌러야 음성이 출력됩니다.")
 
     st.divider()
     if st.button("대화 초기화", type="secondary", use_container_width=True):
@@ -206,33 +209,66 @@ context_scope = st.selectbox(
     options=["어제", "최근 7일", "전체 로그"],
     index=2,
 )
-context_limit = st.slider("컨텍스트 최대 항목", min_value=10, max_value=200, value=60, step=10)
+use_full_context = False
+if context_scope == "전체 로그":
+    use_full_context = st.checkbox(
+        "모든 로그 세션 사용 (제한 없음)",
+        value=True,
+        help="Supabase 전체 로그를 컨텍스트로 사용합니다. 데이터가 많으면 느릴 수 있습니다.",
+    )
+
+context_limit = st.slider(
+    "컨텍스트 최대 항목",
+    min_value=10,
+    max_value=200,
+    value=60,
+    step=10,
+    disabled=use_full_context,
+)
+fetch_limit = None if use_full_context else context_limit
+context_item_limit = None if use_full_context else context_limit
+summary_limit = None if use_full_context else 15
 
 if context_scope == "어제":
     checkin_context = get_checkin_context(user_id, day_offset=1, limit=context_limit)
 elif context_scope == "최근 7일":
     checkin_context = get_checkin_context_days(user_id, days=7, limit=context_limit)
 else:
-    checkin_context = get_checkin_context_all(user_id, limit=context_limit)
+    checkin_context = get_checkin_context_all(user_id, limit=fetch_limit)
 
-checkin_context_text = build_checkin_context_text(checkin_context, max_items=8)
+preview_items = min(context_limit, 8)
+checkin_context_text = build_checkin_context_text(checkin_context, max_items=context_item_limit)
+checkin_context_preview = build_checkin_context_text(checkin_context, max_items=preview_items)
 checkin_summary = get_latest_checkin_summary(user_id, day_offset=1)
 checkin_summary_text = build_checkin_summary_text(checkin_summary) if checkin_summary else ""
-checkin_summaries = get_checkin_summaries(user_id, limit=15)
-checkin_summaries_text = build_checkin_summaries_context_text(checkin_summaries, max_items=8)
+checkin_summaries = get_checkin_summaries(user_id, limit=summary_limit)
+checkin_summaries_text = build_checkin_summaries_context_text(
+    checkin_summaries,
+    max_items=None if use_full_context else 8,
+)
+checkin_summaries_preview = build_checkin_summaries_context_text(checkin_summaries, max_items=5)
 
 context_payload = ""
-if context_scope == "전체 로그" and checkin_summaries_text:
-    context_payload = f"[최근 체크인 요약]\n{checkin_summaries_text}\n\n[최근 로그]\n{checkin_context_text}"
+context_display = ""
+if context_scope == "전체 로그":
+    if checkin_summaries_text:
+        context_payload = f"[최근 체크인 요약]\n{checkin_summaries_text}\n\n[최근 로그]\n{checkin_context_text}"
+    else:
+        context_payload = checkin_context_text
+
+    if checkin_summaries_preview:
+        context_display = f"[최근 체크인 요약]\n{checkin_summaries_preview}\n\n[최근 로그]\n{checkin_context_preview}"
+    else:
+        context_display = checkin_context_preview
 else:
     context_payload = checkin_summary_text or checkin_context_text
+    context_display = checkin_summary_text or checkin_context_preview
 
-if context_payload:
-    st.info(f"컨텍스트 요약:\n\n{context_payload}")
-elif checkin_summary_text:
-    st.info(f"어제 체크인 요약 (Supabase):\n\n{checkin_summary_text}")
-elif checkin_context_text:
-    st.info(f"어제 기록 요약 (Supabase):\n\n{checkin_context_text}")
+if context_display:
+    st.info(f"컨텍스트 요약:\n\n{context_display}")
+    if context_payload and context_payload != context_display:
+        with st.expander("컨텍스트 전체 보기", expanded=False):
+            st.write(context_payload)
 elif last_checkin:
     st.info(
         f"최근 체크인: {last_checkin.get('timestamp', '')}\n\n"
@@ -263,6 +299,10 @@ for msg in st.session_state.voice_messages:
         if msg.get("refined_text"):
             st.caption("정제 텍스트:")
         st.write(msg["content"])
+        if msg.get("tts_note"):
+            st.caption(msg["tts_note"])
+        if msg.get("tts_error"):
+            st.caption(f"TTS 오류: {msg['tts_error']}")
         if msg.get("audio"):
             st.audio(msg["audio"], format=msg.get("audio_format", "audio/mp3"))
 
@@ -304,6 +344,56 @@ def _resolve_user_text() -> Tuple[Optional[str], Optional[str]]:
     return transcript, transcript
 
 
+def _run_tts_with_fallback(
+    text: str,
+    speed: int,
+    volume: int,
+    pitch: int,
+) -> Dict[str, Optional[bytes]]:
+    providers = [st.session_state.voice_tts_provider]
+    if st.session_state.voice_tts_provider in ("local_mms", "local_piper") and clova_credentials_present():
+        providers.append("clova")
+
+    errors = []
+    for provider in providers:
+        if provider == "local_mms":
+            tts_result = local_tts_mms(
+                text,
+                model_id=st.session_state.mms_model_id,
+            )
+        elif provider == "local_piper":
+            tts_result = local_tts_piper(
+                text,
+                model_path=st.session_state.piper_model_path,
+                config_path=st.session_state.piper_config_path or None,
+                piper_bin=st.session_state.piper_bin_path,
+            )
+        else:
+            tts_result = clova_tts(
+                text,
+                speaker=st.session_state.voice_speaker,
+                speed=speed,
+                volume=volume,
+                pitch=pitch,
+            )
+
+        if tts_result.get("success"):
+            tts_result["provider"] = provider
+            if errors:
+                tts_result["fallback_used"] = True
+                tts_result["fallback_error"] = " / ".join(errors)
+            return tts_result
+
+        errors.append(f"{provider}: {tts_result.get('error') or 'unknown error'}")
+
+    return {
+        "success": False,
+        "audio": None,
+        "error": " / ".join(errors) if errors else "TTS 실패",
+        "format": "audio/mpeg",
+    }
+
+
 if checkin_seed:
     seed = "오늘 체크인을 시작합니다. 어제 로그를 반영해 간단히 안부를 묻고, 학습과 감정 상태를 짧게 언급한 뒤, 오늘 목표를 2~4개 질문으로 확인해줘."
     send_clicked = True
@@ -343,31 +433,23 @@ if send_clicked:
             context_text=last_checkin_text,
         )
 
-        if st.session_state.voice_tts_provider == "local_mms":
-            tts_result = local_tts_mms(
-                response,
-                model_id=st.session_state.mms_model_id,
-            )
-        elif st.session_state.voice_tts_provider == "local_piper":
-            tts_result = local_tts_piper(
-                response,
-                model_path=st.session_state.piper_model_path,
-                config_path=st.session_state.piper_config_path or None,
-                piper_bin=st.session_state.piper_bin_path,
-            )
-        else:
-            tts_result = clova_tts(
-                response,
-                speaker=st.session_state.voice_speaker,
-                speed=speed,
-                volume=volume,
-                pitch=pitch,
-            )
-
+        tts_result = _run_tts_with_fallback(
+            response,
+            speed=speed,
+            volume=volume,
+            pitch=pitch,
+        )
+        selected_provider = st.session_state.voice_tts_provider
+        used_provider = tts_result.get("provider", selected_provider)
         audio_out = tts_result.get("audio") if tts_result.get("success") else None
-        audio_format = tts_result.get("format", "audio/mp3")
+        audio_format = tts_result.get("format") or ("audio/mpeg" if used_provider == "clova" else "audio/wav")
+        tts_note = None
+        tts_error = None
         if not tts_result.get("success"):
-            st.session_state.voice_last_error = tts_result.get("error")
+            tts_error = tts_result.get("error")
+            st.session_state.voice_last_error = tts_error
+        elif used_provider != selected_provider:
+            tts_note = f"TTS 자동 전환: {selected_provider} → {used_provider}"
 
         st.session_state.voice_messages.append(
             {
@@ -375,6 +457,8 @@ if send_clicked:
                 "content": response,
                 "audio": audio_out,
                 "audio_format": audio_format,
+                "tts_note": tts_note,
+                "tts_error": tts_error,
             }
         )
 
