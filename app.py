@@ -121,6 +121,7 @@ st.markdown(
         position: relative;
         padding: 12px 4px 20px 4px;
         margin-bottom: 12px;
+        min-height: 760px;
     }
 
     div[data-testid="stContainer"]:has(.graph-canvas-marker)::after {
@@ -173,21 +174,21 @@ st.markdown(
         top: 2%;
         left: 5%;
         width: 90%;
-        height: 42%;
+        height: 38%;
     }
 
     .graph-zone--governance {
-        top: 48%;
-        left: 5%;
-        width: 90%;
-        height: 24%;
+        top: 42%;
+        left: 10%;
+        width: 80%;
+        height: 22%;
     }
 
     .graph-zone--interaction {
-        top: 75%;
-        left: 12%;
-        width: 76%;
-        height: 20%;
+        top: 67%;
+        left: 5%;
+        width: 90%;
+        height: 28%;
     }
 
     .graph-lines {
@@ -201,10 +202,11 @@ st.markdown(
     }
 
     .graph-lines path {
-        stroke: rgba(28, 25, 20, 0.16);
-        stroke-width: 2;
+        stroke: rgba(28, 25, 20, 0.28);
+        stroke-width: 2.2;
         stroke-linecap: round;
-        stroke-dasharray: 6 10;
+        stroke-dasharray: 10 14;
+        animation: dash 10s linear infinite;
     }
 
     .graph-lines .graph-dot {
@@ -224,6 +226,11 @@ st.markdown(
         z-index: 3;
         animation: floatNode 7s ease-in-out infinite;
         will-change: transform;
+        transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+        max-width: 360px;
+        width: 100%;
+        margin: 0 auto;
+        min-height: 250px;
     }
 
     div[data-testid="stContainer"]:has(.graph-node-marker)::after {
@@ -299,18 +306,35 @@ st.markdown(
 
     div[data-testid="stContainer"]:has(.graph-node-marker) .stButton > button {
         border-radius: 999px !important;
-        border-color: var(--graph-ink) !important;
+        border-color: rgba(28, 25, 20, 0.45) !important;
         color: var(--graph-ink) !important;
-        background: transparent !important;
+        background: rgba(255, 255, 255, 0.7) !important;
+        min-height: 44px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        transition: transform 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
     }
 
     div[data-testid="stContainer"]:has(.graph-node-marker) .stButton > button:hover {
-        background: rgba(28, 25, 20, 0.06) !important;
+        background: rgba(28, 25, 20, 0.08) !important;
+        box-shadow: 0 8px 16px rgba(25, 18, 9, 0.15);
+        transform: translateY(-2px);
+    }
+
+    div[data-testid="stContainer"]:has(.graph-node-marker):hover {
+        transform: translateY(-10px);
+        box-shadow: 0 24px 50px rgba(25, 18, 9, 0.18);
+        border-color: rgba(28, 25, 20, 0.28);
+        animation-play-state: paused;
+    }
+
+    div[data-testid="stContainer"]:has(.graph-node-marker):hover::after {
+        box-shadow: 0 0 0 8px rgba(204, 58, 43, 0.2);
     }
 
     @keyframes floatNode {
         0% { transform: translateY(0px); }
-        50% { transform: translateY(-8px); }
+        50% { transform: translateY(-10px); }
         100% { transform: translateY(0px); }
     }
 
@@ -324,6 +348,19 @@ st.markdown(
         0% { transform: scale(1); opacity: 0.65; }
         50% { transform: scale(1.25); opacity: 0.35; }
         100% { transform: scale(1); opacity: 0.65; }
+    }
+
+    @keyframes dash {
+        from { stroke-dashoffset: 0; }
+        to { stroke-dashoffset: -120; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .graph-lines path,
+        div[data-testid="stContainer"]:has(.graph-node-marker),
+        div[data-testid="stContainer"]:has(.graph-canvas-marker)::after {
+            animation: none !important;
+        }
     }
 
     @media (max-width: 900px) {
@@ -376,7 +413,6 @@ def _render_graph_hub() -> None:
             "<span class='graph-node__chip'>Peer</span>"
             "<span class='graph-node__chip'>Report</span>"
             "<span class='graph-node__chip'>Contract</span>"
-            "<span class='graph-node__chip'>Voice</span>"
             "</div>",
             unsafe_allow_html=True,
         )
@@ -408,13 +444,13 @@ with st.container():
         """
         <div class="graph-zones">
             <div class="graph-zone graph-zone--analysis">
-                <span class="graph-zone__label">Core Analysis</span>
+                <span class="graph-zone__label">핵심 분석</span>
             </div>
             <div class="graph-zone graph-zone--governance">
-                <span class="graph-zone__label">Governance</span>
+                <span class="graph-zone__label">인사이트 허브</span>
             </div>
             <div class="graph-zone graph-zone--interaction">
-                <span class="graph-zone__label">Interaction</span>
+                <span class="graph-zone__label">딜리전스</span>
             </div>
         </div>
         """,
@@ -422,24 +458,22 @@ with st.container():
     )
     st.markdown(
         """
-        <svg class="graph-lines" viewBox="0 0 1000 900" preserveAspectRatio="none" aria-hidden="true">
+        <svg class="graph-lines" viewBox="0 0 1000 720" preserveAspectRatio="none" aria-hidden="true">
             <g>
                 <path d="M500 90 L250 250" />
                 <path d="M500 90 L750 250" />
-                <path d="M250 250 L500 430" />
-                <path d="M750 250 L500 430" />
-                <path d="M500 430 L250 610" />
-                <path d="M500 430 L750 610" />
-                <path d="M500 430 L500 780" />
+                <path d="M250 250 L500 420" />
+                <path d="M750 250 L500 420" />
+                <path d="M500 420 L250 600" />
+                <path d="M500 420 L750 600" />
             </g>
             <g>
                 <circle class="graph-dot" cx="500" cy="90" r="6" />
                 <circle class="graph-dot" cx="250" cy="250" r="5" />
                 <circle class="graph-dot" cx="750" cy="250" r="5" />
-                <circle class="graph-dot" cx="500" cy="430" r="7" />
-                <circle class="graph-dot" cx="250" cy="610" r="5" />
-                <circle class="graph-dot" cx="750" cy="610" r="5" />
-                <circle class="graph-dot" cx="500" cy="780" r="5" />
+                <circle class="graph-dot" cx="500" cy="420" r="7" />
+                <circle class="graph-dot" cx="250" cy="600" r="5" />
+                <circle class="graph-dot" cx="750" cy="600" r="5" />
             </g>
         </svg>
         """,
@@ -519,21 +553,6 @@ with st.container():
 
     st.markdown("<div class='graph-row-gap'></div>", unsafe_allow_html=True)
 
-    row5 = st.columns([1, 2, 1])
-    with row5[1]:
-        _render_graph_node(
-            "Voice Agent",
-            "체크인/원온원 음성 대화.",
-            ["Naver CLOVA STT/TTS", "어제 로그 기반 요약", "대화형 체크인 플로우"],
-            ["STT/TTS", "Check-in"],
-            "Voice Agent 시작",
-            "pages/5_Voice_Agent.py",
-            "graph_voice",
-            accent="teal",
-        )
-        if st.button("체크인 기록 보기", type="secondary", use_container_width=True, key="start_checkin_review"):
-            st.switch_page("pages/6_Checkin_Review.py")
-
 st.divider()
 
 # ========================================
@@ -592,17 +611,6 @@ ROUTE_DEFS = [
         "keywords": [
             "투자심사", "인수인의견", "보고서", "시장규모", "근거", "report",
             "증거", "시장", "draft",
-        ],
-    },
-    {
-        "id": "voice",
-        "label": "Voice Agent",
-        "page": "pages/5_Voice_Agent.py",
-        "summary": "체크인/원온원 음성 대화에 적합합니다.",
-        "next_step": "모드(체크인/원온원)를 선택하고 시작하세요.",
-        "strong_keywords": ["체크인", "원온원", "음성"],
-        "keywords": [
-            "체크인", "원온원", "음성", "voice", "stt", "tts", "1on1",
         ],
     },
     {
