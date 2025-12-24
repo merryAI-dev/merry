@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import base64
 import os
+import time
 from typing import Dict, Optional, Tuple
 
 import streamlit as st
@@ -375,23 +376,17 @@ for idx, msg in enumerate(st.session_state.voice_messages):
         if msg.get("tts_error"):
             st.caption(f"TTS 오류: {msg['tts_error']}")
         if msg.get("audio"):
-            st.audio(
+            audio_id = msg.get("audio_id") or f"voice-audio-{idx}"
+            auto_index = st.session_state.get("voice_auto_play_index")
+            autoplay = st.session_state.voice_auto_play and auto_index == idx
+            _render_audio_player(
                 msg["audio"],
-                format=msg.get("audio_format", "audio/mpeg"),
-                key=f"voice_audio_{idx}",
+                msg.get("audio_format", "audio/mpeg"),
+                element_id=audio_id,
+                autoplay=autoplay,
             )
 
-auto_index = st.session_state.get("voice_auto_play_index")
-if st.session_state.voice_auto_play and auto_index is not None:
-    target = None
-    if 0 <= auto_index < len(st.session_state.voice_messages):
-        target = st.session_state.voice_messages[auto_index]
-    if target and target.get("audio"):
-        _render_autoplay_audio(
-            target["audio"],
-            target.get("audio_format", "audio/mpeg"),
-            element_id=f"auto-play-{auto_index}",
-        )
+if st.session_state.get("voice_auto_play_index") is not None:
     st.session_state.voice_auto_play_index = None
 
 st.divider()
@@ -483,25 +478,32 @@ def _run_tts_with_fallback(
     }
 
 
-def _render_autoplay_audio(audio_bytes: bytes, audio_format: str, element_id: str) -> None:
+def _render_audio_player(
+    audio_bytes: bytes,
+    audio_format: str,
+    element_id: str,
+    autoplay: bool = False,
+) -> None:
     if not audio_bytes:
         return
 
     mime = audio_format if audio_format and audio_format.startswith("audio/") else "audio/mpeg"
     audio_base64 = base64.b64encode(audio_bytes).decode("ascii")
+    autoplay_attr = "autoplay" if autoplay else ""
+    autoplay_flag = "true" if autoplay else "false"
     components.html(
         f"""
-        <audio id="{element_id}" autoplay>
+        <audio id="{element_id}" controls {autoplay_attr} style="width: 100%;">
             <source src="data:{mime};base64,{audio_base64}" type="{mime}">
         </audio>
         <script>
             const audio = document.getElementById("{element_id}");
-            if (audio) {{
+            if (audio && {autoplay_flag}) {{
                 audio.play().catch(() => {{}});
             }}
         </script>
         """,
-        height=0,
+        height=60,
     )
 
 
@@ -568,6 +570,7 @@ if send_clicked:
                 "content": response,
                 "audio": audio_out,
                 "audio_format": audio_format,
+                "audio_id": f"voice-audio-{time.time_ns()}",
                 "tts_note": tts_note,
                 "tts_error": tts_error,
             }
