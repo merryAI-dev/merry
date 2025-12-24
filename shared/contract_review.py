@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 import base64
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 from shared.logging_config import get_logger
 
@@ -451,6 +451,7 @@ def _ocr_pdf_with_claude(
     api_key: str,
     model: str = OCR_DEFAULT_MODEL,
     dpi: int = OCR_DEFAULT_DPI,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> List[Dict[str, str]]:
     if not fitz:
         raise ImportError("PyMuPDF(fitz)가 필요합니다.")
@@ -462,6 +463,8 @@ def _ocr_pdf_with_claude(
     client = Anthropic(api_key=api_key)
     segments: List[Dict[str, str]] = []
     with fitz.open(path) as doc:
+        if progress_callback:
+            progress_callback(0, doc.page_count, "OCR 시작")
         for page_index in range(doc.page_count):
             png_bytes = _render_pdf_page_to_png(doc, page_index, dpi)
             encoded = base64.b64encode(png_bytes).decode("ascii")
@@ -488,6 +491,8 @@ def _ocr_pdf_with_claude(
             )
             text = _extract_claude_text(response)
             segments.append({"source": f"p{page_index + 1}", "text": text})
+            if progress_callback:
+                progress_callback(page_index + 1, doc.page_count, "OCR 진행 중")
     return segments
 
 
@@ -496,18 +501,31 @@ def load_document(
     ocr_mode: str = "off",
     api_key: str = "",
     ocr_model: str = OCR_DEFAULT_MODEL,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> Dict[str, object]:
     ext = path.suffix.lower()
     page_count = 0
+    ocr_used = False
+    ocr_error = ""
     if ext == ".pdf":
         segments, page_count = _build_segments_from_pdf(path)
         if ocr_mode in ("auto", "force"):
             should_ocr = ocr_mode == "force" or _needs_ocr(segments, page_count)
             if should_ocr:
-                try:
-                    segments = _ocr_pdf_with_claude(path, api_key=api_key, model=ocr_model)
-                except Exception as exc:
-                    logger.warning("Claude OCR 실패: %s", exc)
+                if not api_key:
+                    ocr_error = "Claude API 키가 없습니다."
+                else:
+                    try:
+                        segments = _ocr_pdf_with_claude(
+                            path,
+                            api_key=api_key,
+                            model=ocr_model,
+                            progress_callback=progress_callback,
+                        )
+                        ocr_used = True
+                    except Exception as exc:
+                        ocr_error = str(exc)
+                        logger.warning("Claude OCR 실패: %s", exc)
     elif ext in (".docx",):
         segments = _build_segments_from_docx(path)
     else:
@@ -515,7 +533,13 @@ def load_document(
         segments = [{"source": "text", "text": text}] if text else []
 
     full_text = "\n".join(seg["text"] for seg in segments if seg.get("text"))
-    return {"segments": segments, "text": full_text, "page_count": page_count}
+    return {
+        "segments": segments,
+        "text": full_text,
+        "page_count": page_count,
+        "ocr_used": ocr_used,
+        "ocr_error": ocr_error,
+    }
 
 
 def extract_fields(segments: List[Dict[str, str]]) -> Dict[str, Dict[str, object]]:

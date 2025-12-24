@@ -156,23 +156,34 @@ st.divider()
 analyze_clicked = st.button("분석 실행", type="primary")
 
 
-def _analyze_document(path_str: str, doc_type: str) -> Optional[Dict[str, object]]:
+def _analyze_document(
+    path_str: str,
+    doc_type: str,
+    doc_label: str,
+    on_step=None,
+    ocr_callback=None,
+) -> Optional[Dict[str, object]]:
     if not path_str:
         return None
 
     path = Path(path_str)
     try:
+        if on_step:
+            on_step(f"{doc_label} 문서 파싱 중...")
         loaded = load_document(
             path,
             ocr_mode=_resolve_ocr_mode(),
             api_key=user_api_key,
             ocr_model=(ocr_model or OCR_DEFAULT_MODEL).strip(),
+            progress_callback=ocr_callback,
         )
     except Exception as exc:
         st.error(f"문서 파싱 실패: {path.name} ({exc})")
         return None
 
     segments = loaded.get("segments", [])
+    if on_step:
+        on_step(f"{doc_label} 필드/조항 추출 중...")
     fields = extract_fields(segments)
     clauses = detect_clauses(segments, doc_type)
 
@@ -185,6 +196,8 @@ def _analyze_document(path_str: str, doc_type: str) -> Optional[Dict[str, object
         "clauses": clauses,
         "text_length": len(loaded.get("text", "")),
         "page_count": loaded.get("page_count", 0),
+        "ocr_used": loaded.get("ocr_used", False),
+        "ocr_error": loaded.get("ocr_error", ""),
     }
 
 
@@ -192,18 +205,84 @@ if analyze_clicked:
     term_sheet_path = st.session_state.get("contract_term_sheet_path")
     investment_path = st.session_state.get("contract_investment_path")
 
+    status = st.status("분석 준비 중...", expanded=True)
+    overall_progress = st.progress(0.0, text="분석 대기 중")
+    ocr_progress_placeholder = st.empty()
+    detail_placeholder = st.empty()
+
+    total_steps = 0
+    if term_sheet_path:
+        total_steps += 2
+    if investment_path:
+        total_steps += 2
+    if term_sheet_path and investment_path:
+        total_steps += 1
+    progress_state = {"done": 0}
+
+    def _advance(label: str) -> None:
+        progress_state["done"] += 1
+        ratio = progress_state["done"] / total_steps if total_steps else 1.0
+        overall_progress.progress(min(ratio, 1.0), text=label)
+        detail_placeholder.markdown(f"현재 단계: {label}")
+        status.update(label=label, state="running")
+
+    def _make_ocr_callback(doc_label: str):
+        def _callback(current: int, total: int, message: str) -> None:
+            if total <= 0:
+                return
+            ratio = min(current / total, 1.0)
+            ocr_progress_placeholder.progress(
+                ratio,
+                text=f"{doc_label} {message} ({current}/{total})",
+            )
+
+        return _callback
+
     st.session_state.contract_analysis = {}
 
     if term_sheet_path:
-        st.session_state.contract_analysis["term_sheet"] = _analyze_document(term_sheet_path, "term_sheet")
+        doc = _analyze_document(
+            term_sheet_path,
+            "term_sheet",
+            "텀싯",
+            on_step=_advance,
+            ocr_callback=_make_ocr_callback("텀싯"),
+        )
+        if doc:
+            if doc.get("ocr_error"):
+                ocr_progress_placeholder.progress(1.0, text=f"텀싯 OCR 실패: {doc.get('ocr_error')}")
+            elif doc.get("ocr_used"):
+                ocr_progress_placeholder.progress(1.0, text="텀싯 OCR 완료")
+            else:
+                ocr_progress_placeholder.progress(0.0, text="텀싯 OCR 미사용")
+            st.session_state.contract_analysis["term_sheet"] = doc
     if investment_path:
-        st.session_state.contract_analysis["investment_agreement"] = _analyze_document(
+        doc = _analyze_document(
             investment_path,
             "investment_agreement",
+            "투자계약서",
+            on_step=_advance,
+            ocr_callback=_make_ocr_callback("투자계약서"),
         )
+        if doc:
+            if doc.get("ocr_error"):
+                ocr_progress_placeholder.progress(1.0, text=f"투자계약서 OCR 실패: {doc.get('ocr_error')}")
+            elif doc.get("ocr_used"):
+                ocr_progress_placeholder.progress(1.0, text="투자계약서 OCR 완료")
+            else:
+                ocr_progress_placeholder.progress(0.0, text="투자계약서 OCR 미사용")
+            st.session_state.contract_analysis["investment_agreement"] = doc
 
     if not st.session_state.contract_analysis:
         st.warning("먼저 문서를 업로드하세요.")
+        status.update(label="문서 업로드 필요", state="error")
+        overall_progress.progress(0.0, text="분석 중단")
+    else:
+        if term_sheet_path and investment_path:
+            _advance("문서 간 일치 검토 준비...")
+        status.update(label="분석 완료", state="complete")
+        overall_progress.progress(1.0, text="분석 완료")
+        st.toast("분석 완료")
 
 analysis = st.session_state.contract_analysis
 
@@ -231,9 +310,14 @@ if analysis:
         title = "텀싯" if key == "term_sheet" else "투자계약서"
         display_doc = mask_analysis(doc, replacements) if masking_enabled else doc
         st.markdown(f"### {title}")
+        ocr_status = "OCR: 사용됨" if doc.get("ocr_used") else "OCR: 미사용"
+        if doc.get("ocr_error"):
+            ocr_status = "OCR: 실패"
         st.caption(
-            f"파일: {doc.get('name')} · 길이: {doc.get('text_length', 0):,} chars · 세그먼트: {len(doc.get('segments', []))}"
+            f"파일: {doc.get('name')} · 길이: {doc.get('text_length', 0):,} chars · 세그먼트: {len(doc.get('segments', []))} · {ocr_status}"
         )
+        if doc.get("ocr_error"):
+            st.warning(f"OCR 실패: {doc.get('ocr_error')}")
 
         st.markdown("**핵심 필드 추출**")
         field_rows = []
