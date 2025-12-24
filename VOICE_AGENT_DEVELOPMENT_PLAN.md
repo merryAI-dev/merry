@@ -101,6 +101,7 @@ Update this section as work proceeds. Use [ ] for todo, [~] for in progress,
 - 2025-12-24: Local STT/TTS (faster-whisper + Piper) option added for CPU deployments.
 - 2025-12-24: Added MMS TTS + check-in JSON summaries stored in Supabase.
 - 2025-12-24: Check-in review page added for Supabase summaries + raw logs.
+- 2025-12-24: Voice flow integrated into existing VCAgent (no separate agent class).
 
 ## Decision Rationale (Summary)
 These are concise, user-facing reasons for design choices.

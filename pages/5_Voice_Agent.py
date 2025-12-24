@@ -9,8 +9,8 @@ from typing import Optional, Tuple
 
 import streamlit as st
 
-from shared.auth import check_authentication, get_user_api_key, get_user_id
-from shared.config import initialize_session_state, inject_custom_css
+from shared.auth import check_authentication, get_user_id
+from shared.config import initialize_agent, initialize_session_state, inject_custom_css
 from shared.clova_speech import clova_credentials_present, clova_stt, clova_tts
 from shared.local_speech import local_stt_faster_whisper, local_tts_mms, local_tts_piper
 from shared.voice_logs import (
@@ -22,9 +22,6 @@ from shared.voice_logs import (
     get_latest_checkin,
     get_latest_checkin_summary,
 )
-from agent.voice_agent import VoiceAgent
-
-
 # ========================================
 # Page setup
 # ========================================
@@ -36,15 +33,8 @@ st.set_page_config(
 
 initialize_session_state()
 check_authentication()
+initialize_agent()
 inject_custom_css()
-
-
-def _ensure_voice_agent():
-    if st.session_state.voice_agent is None:
-        st.session_state.voice_agent = VoiceAgent(
-            api_key=get_user_api_key(),
-            user_id=get_user_id(),
-        )
 
 
 def _apply_naverc_key_from_sidebar():
@@ -76,11 +66,8 @@ def _reset_voice_session():
     st.session_state.voice_messages = []
     st.session_state.voice_last_transcript = ""
     st.session_state.voice_last_error = None
-    if st.session_state.voice_agent:
-        st.session_state.voice_agent.conversation_history = []
-
-
-_ensure_voice_agent()
+    if st.session_state.agent:
+        st.session_state.agent.voice_conversation_history = []
 
 
 # ========================================
@@ -290,10 +277,12 @@ if send_clicked:
         last_checkin_text = checkin_summary_text or checkin_context_text or (
             last_checkin.get("assistant_text") if last_checkin else None
         )
-        response = st.session_state.voice_agent.chat_sync(
+        voice_mode = f"voice_{st.session_state.voice_mode}"
+        response = st.session_state.agent.chat_sync(
             user_message=user_text,
-            mode=st.session_state.voice_mode,
-            last_checkin=last_checkin_text,
+            mode=voice_mode,
+            allow_tools=False,
+            context_text=last_checkin_text,
         )
 
         if st.session_state.voice_tts_provider == "local_mms":
@@ -331,9 +320,9 @@ if send_clicked:
             }
         )
 
-        session_id = st.session_state.voice_agent.memory.session_id
+        session_id = st.session_state.agent.memory.session_id
         if st.session_state.voice_mode in ("checkin", "1on1"):
-            summary = st.session_state.voice_agent.summarize_checkin_sync(
+            summary = st.session_state.agent.summarize_checkin_sync(
                 mode=st.session_state.voice_mode,
                 context_text=checkin_context_text or "",
             )

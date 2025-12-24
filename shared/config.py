@@ -59,8 +59,6 @@ def initialize_session_state():
         "feedback_input_visible": {},
         "feedback_text": {},
 
-        # Voice Agent
-        "voice_agent": None,
         "voice_messages": [],
         "voice_mode": "checkin",
         "voice_last_transcript": "",
