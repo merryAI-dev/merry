@@ -99,6 +99,10 @@ def initialize_session_state():
         "contract_llm_opinion": False,
         "contract_opinion_model": "claude-opus-4-5-20251101",
         "contract_opinion_text": "",
+        "contract_analysis_mode": "빠른 스캔",
+        "contract_ocr_strategy": "밀도 기반(빠름)",
+        "contract_ocr_budget": 6,
+        "contract_chat": [],
     }
 
     for key, value in defaults.items():

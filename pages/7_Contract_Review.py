@@ -29,6 +29,7 @@ from shared.contract_review import (
     generate_contract_opinion_llm,
     mask_analysis,
     mask_comparisons,
+    mask_sensitive_text,
     mask_search_hits,
     search_segments,
 )
@@ -86,6 +87,33 @@ ocr_model = st.text_input(
 )
 st.caption("OCR 사용 시 페이지 이미지가 외부 API로 전송됩니다. 마스킹은 OCR 이후 표시 단계에서 적용됩니다.")
 
+st.markdown("### 분석 모드")
+analysis_mode = st.selectbox(
+    "분석 모드",
+    ["빠른 스캔", "정밀 분석"],
+    index=0,
+    key="contract_analysis_mode",
+    help="빠른 스캔은 OCR 페이지를 제한하고 핵심 리스크를 먼저 보여줍니다.",
+)
+ocr_strategy = st.selectbox(
+    "OCR 페이지 선정",
+    ["밀도 기반(빠름)", "앞/뒤 우선", "균등 분할"],
+    index=0,
+    key="contract_ocr_strategy",
+)
+ocr_budget = st.slider(
+    "OCR 페이지 예산",
+    min_value=2,
+    max_value=40,
+    value=6,
+    step=1,
+    key="contract_ocr_budget",
+    disabled=analysis_mode == "정밀 분석" or ocr_choice == "끄기",
+    help="빠른 스캔에서 OCR할 최대 페이지 수입니다.",
+)
+if analysis_mode == "빠른 스캔":
+    st.caption("빠른 스캔은 선택된 페이지만 OCR해서 속도를 높입니다. 세부 확인은 추가 질문으로 진행하세요.")
+
 user_id = get_user_id()
 user_api_key = get_user_api_key()
 allowed_extensions = ALLOWED_EXTENSIONS_PDF + [".docx"]
@@ -102,6 +130,21 @@ def _resolve_ocr_mode() -> str:
         "끄기": "off",
     }
     return mapping.get(ocr_choice, "auto")
+
+
+def _resolve_ocr_strategy() -> str:
+    mapping = {
+        "밀도 기반(빠름)": "density",
+        "앞/뒤 우선": "front_back",
+        "균등 분할": "uniform",
+    }
+    return mapping.get(ocr_strategy, "density")
+
+
+def _resolve_ocr_budget() -> int:
+    if analysis_mode == "정밀 분석" or ocr_choice == "끄기":
+        return 0
+    return int(ocr_budget)
 
 
 def _save_upload(uploaded_file) -> Optional[Path]:
@@ -177,6 +220,8 @@ def _analyze_document(
             ocr_mode=_resolve_ocr_mode(),
             api_key=user_api_key,
             ocr_model=(ocr_model or OCR_DEFAULT_MODEL).strip(),
+            ocr_page_budget=_resolve_ocr_budget(),
+            ocr_strategy=_resolve_ocr_strategy(),
             progress_callback=ocr_callback,
         )
     except Exception as exc:
@@ -187,7 +232,7 @@ def _analyze_document(
     if on_step:
         on_step(f"{doc_label} 필드/조항 추출 중...")
     fields = extract_fields(segments)
-    clauses = detect_clauses(segments, doc_type)
+    clauses = detect_clauses(segments, doc_type, loaded.get("segment_scores", {}))
 
     return {
         "path": str(path),
@@ -200,6 +245,8 @@ def _analyze_document(
         "page_count": loaded.get("page_count", 0),
         "ocr_used": loaded.get("ocr_used", False),
         "ocr_error": loaded.get("ocr_error", ""),
+        "ocr_pages_used": loaded.get("ocr_pages_used", []),
+        "priority_segments": loaded.get("priority_segments", []),
     }
 
 
@@ -255,7 +302,9 @@ if analyze_clicked:
             if doc.get("ocr_error"):
                 ocr_progress_placeholder.progress(1.0, text=f"텀싯 OCR 실패: {doc.get('ocr_error')}")
             elif doc.get("ocr_used"):
-                ocr_progress_placeholder.progress(1.0, text="텀싯 OCR 완료")
+                ocr_pages = doc.get("ocr_pages_used", [])
+                total_pages = doc.get("page_count", 0)
+                ocr_progress_placeholder.progress(1.0, text=f"텀싯 OCR 완료 ({len(ocr_pages)}/{total_pages}p)")
             else:
                 ocr_progress_placeholder.progress(0.0, text="텀싯 OCR 미사용")
             st.session_state.contract_analysis["term_sheet"] = doc
@@ -271,7 +320,9 @@ if analyze_clicked:
             if doc.get("ocr_error"):
                 ocr_progress_placeholder.progress(1.0, text=f"투자계약서 OCR 실패: {doc.get('ocr_error')}")
             elif doc.get("ocr_used"):
-                ocr_progress_placeholder.progress(1.0, text="투자계약서 OCR 완료")
+                ocr_pages = doc.get("ocr_pages_used", [])
+                total_pages = doc.get("page_count", 0)
+                ocr_progress_placeholder.progress(1.0, text=f"투자계약서 OCR 완료 ({len(ocr_pages)}/{total_pages}p)")
             else:
                 ocr_progress_placeholder.progress(0.0, text="투자계약서 OCR 미사용")
             st.session_state.contract_analysis["investment_agreement"] = doc
@@ -313,9 +364,13 @@ if analysis:
         title = "텀싯" if key == "term_sheet" else "투자계약서"
         display_doc = mask_analysis(doc, replacements) if masking_enabled else doc
         st.markdown(f"### {title}")
-        ocr_status = "OCR: 사용됨" if doc.get("ocr_used") else "OCR: 미사용"
+        ocr_pages = doc.get("ocr_pages_used", [])
         if doc.get("ocr_error"):
             ocr_status = "OCR: 실패"
+        elif doc.get("ocr_used"):
+            ocr_status = f"OCR: {len(ocr_pages)}/{doc.get('page_count', 0)}p"
+        else:
+            ocr_status = "OCR: 미사용"
         st.caption(
             f"파일: {doc.get('name')} · 길이: {doc.get('text_length', 0):,} chars · 세그먼트: {len(doc.get('segments', []))} · {ocr_status}"
         )
@@ -340,10 +395,27 @@ if analysis:
             clause_rows.append({
                 "조항": clause.get("label"),
                 "존재": "O" if clause.get("present") else "X",
+                "가중치": clause.get("weight", 0.0),
                 "근거(소스)": clause.get("source") or "",
                 "근거(스니펫)": clause.get("snippet") or "",
             })
         st.dataframe(clause_rows, use_container_width=True)
+
+        priority_segments = doc.get("priority_segments", [])
+        if priority_segments:
+            st.markdown("**우선 검토 영역 (비지도 가중치 상위)**")
+            rows = []
+            for entry in priority_segments[:8]:
+                snippet = entry.get("snippet", "")
+                if masking_enabled:
+                    snippet = mask_sensitive_text(snippet, replacements)
+                rows.append({
+                    "가중치": entry.get("weight", 0.0),
+                    "섹션": entry.get("section", ""),
+                    "소스": entry.get("source", ""),
+                    "요약": snippet,
+                })
+            st.dataframe(rows, use_container_width=True)
 
     term_sheet = analysis.get("term_sheet")
     investment_agreement = analysis.get("investment_agreement")
@@ -407,6 +479,48 @@ if analysis:
 
     if st.session_state.get("contract_opinion_text"):
         st.markdown(st.session_state.contract_opinion_text)
+
+    st.divider()
+    st.markdown("## 리스크 질문 (멀티턴)")
+    if "contract_chat" not in st.session_state:
+        st.session_state.contract_chat = []
+
+    if st.button("질문 기록 초기화", type="secondary"):
+        st.session_state.contract_chat = []
+
+    for message in st.session_state.contract_chat:
+        st.chat_message(message.get("role", "assistant")).markdown(message.get("content", ""))
+
+    user_query = st.chat_input("궁금한 조항/리스크를 질문하세요. 예: 청산우선권, 희석방지, 투자금액")
+    if user_query:
+        st.session_state.contract_chat.append({"role": "user", "content": user_query})
+
+        responses = []
+        term_hits = []
+        invest_hits = []
+        if term_sheet:
+            term_hits = search_segments(term_sheet.get("segments", []), user_query, max_hits=3)
+        if investment_agreement:
+            invest_hits = search_segments(investment_agreement.get("segments", []), user_query, max_hits=3)
+
+        if masking_enabled:
+            term_hits = mask_search_hits(term_hits, replacements)
+            invest_hits = mask_search_hits(invest_hits, replacements)
+
+        if term_hits or invest_hits:
+            responses.append("관련 스니펫:")
+            for hit in term_hits:
+                responses.append(f"- [텀싯 {hit.get('source')}] {hit.get('snippet')}")
+            for hit in invest_hits:
+                responses.append(f"- [투자계약서 {hit.get('source')}] {hit.get('snippet')}")
+        else:
+            responses.append("관련 텍스트를 찾지 못했습니다. 다른 키워드로 검색하거나 OCR 범위를 늘려보세요.")
+
+        if analysis_mode == "빠른 스캔" and ocr_choice != "끄기":
+            responses.append("빠른 스캔 모드라 일부 페이지만 OCR했습니다. 중요한 조항은 정밀 분석에서 다시 확인하세요.")
+
+        st.session_state.contract_chat.append({"role": "assistant", "content": "\n".join(responses)})
+        st.rerun()
 
     st.divider()
     st.markdown("## 문서 내 검색")
