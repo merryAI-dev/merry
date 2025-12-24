@@ -13,7 +13,7 @@ import pandas as pd
 import altair as alt
 
 # 공통 모듈 임포트
-from shared.config import initialize_session_state, get_avatar_image, initialize_agent, inject_custom_css
+from shared.config import initialize_session_state, get_avatar_image, get_user_avatar_image, initialize_agent, inject_custom_css
 from shared.auth import check_authentication, get_user_email
 from shared.sidebar import render_sidebar
 
@@ -32,6 +32,7 @@ inject_custom_css()
 
 # 아바타 이미지 로드
 avatar_image = get_avatar_image()
+user_avatar_image = get_user_avatar_image()
 
 # 사이드바 렌더링
 render_sidebar(mode="exit")
@@ -223,7 +224,7 @@ with chat_container:
             content = msg.get("content", "")
 
             if role == "user":
-                with st.chat_message("user"):
+                with st.chat_message("user", avatar=user_avatar_image):
                     st.markdown(content)
             elif role == "assistant":
                 with st.chat_message("assistant", avatar=avatar_image):

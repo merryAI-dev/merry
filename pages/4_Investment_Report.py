@@ -11,6 +11,7 @@ import streamlit as st
 from shared.auth import check_authentication
 from shared.config import (
     get_avatar_image,
+    get_user_avatar_image,
     initialize_agent,
     initialize_session_state,
     inject_custom_css,
@@ -37,6 +38,7 @@ initialize_agent()
 inject_custom_css()
 
 avatar_image = get_avatar_image()
+user_avatar_image = get_user_avatar_image()
 render_sidebar(mode="report")
 
 st.markdown("# 투자심사 보고서 작성")
@@ -129,7 +131,7 @@ with chat_container:
             content = msg.get("content", "")
 
             if role == "user":
-                with st.chat_message("user"):
+                with st.chat_message("user", avatar=user_avatar_image):
                     st.markdown(content)
             elif role == "assistant":
                 with st.chat_message("assistant", avatar=avatar_image):

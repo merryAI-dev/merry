@@ -10,6 +10,7 @@ from pathlib import Path
 # 이미지 경로
 HEADER_IMAGE_PATH = "image-removebg-preview-5.png"
 AVATAR_IMAGE_PATH = "image-removebg-preview-6.png"
+USER_AVATAR_IMAGE_PATH = "Unknown.png"
 
 
 def initialize_session_state():
@@ -127,6 +128,13 @@ def get_avatar_image() -> Image.Image:
     avatar_image = avatar_image.convert('RGB')
 
     return avatar_image
+
+
+@st.cache_resource(show_spinner=False)
+def get_user_avatar_image() -> Image.Image:
+    """사용자 아바타 이미지 로드"""
+    with Image.open(USER_AVATAR_IMAGE_PATH) as img:
+        return img.convert("RGB")
 
 
 def inject_custom_css():

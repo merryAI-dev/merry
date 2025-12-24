@@ -12,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 
 # 공통 모듈 임포트
-from shared.config import initialize_session_state, get_avatar_image, initialize_agent, inject_custom_css
+from shared.config import initialize_session_state, get_avatar_image, get_user_avatar_image, initialize_agent, inject_custom_css
 from shared.auth import check_authentication
 from shared.sidebar import render_sidebar
 from shared.file_utils import get_secure_upload_path, cleanup_user_temp_files, validate_upload, ALLOWED_EXTENSIONS_PDF
@@ -32,6 +32,7 @@ inject_custom_css()
 
 # 아바타 이미지 로드
 avatar_image = get_avatar_image()
+user_avatar_image = get_user_avatar_image()
 
 # 사이드바 렌더링
 render_sidebar(mode="peer")
@@ -164,7 +165,7 @@ PDF가 없어도 직접 기업을 지정할 수 있습니다:
             content = msg.get("content", "")
 
             if role == "user":
-                with st.chat_message("user"):
+                with st.chat_message("user", avatar=user_avatar_image):
                     st.markdown(content)
             elif role == "assistant":
                 with st.chat_message("assistant", avatar=avatar_image):
