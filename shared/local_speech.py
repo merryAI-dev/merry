@@ -41,6 +41,9 @@ def local_stt_faster_whisper(
     if not audio_bytes:
         return {"success": False, "text": None, "error": "오디오 데이터가 비어 있습니다."}
 
+    if not model_size_or_path:
+        model_size_or_path = "small"
+
     try:
         model = _get_whisper_model(model_size_or_path, device, compute_type)
     except ImportError as exc:
