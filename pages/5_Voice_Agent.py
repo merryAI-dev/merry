@@ -13,7 +13,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from shared.auth import check_authentication, get_user_id
-from shared.config import initialize_agent, initialize_session_state, inject_custom_css
+from shared.config import get_avatar_image, initialize_agent, initialize_session_state, inject_custom_css
 from shared.clova_speech import clova_credentials_present, clova_stt, clova_tts
 from shared.local_speech import local_stt_faster_whisper, local_tts_mms, local_tts_piper
 try:
@@ -70,6 +70,8 @@ initialize_session_state()
 check_authentication()
 initialize_agent()
 inject_custom_css()
+
+avatar_image = get_avatar_image()
 
 if VOICE_LOGS_IMPORT_ERROR:
     st.error(
@@ -456,7 +458,12 @@ audio_display_count = st.session_state.voice_audio_display_count or 1
 recent_start = max(len(st.session_state.voice_messages) - audio_display_count, 0)
 render_audio = st.session_state.voice_tts_enabled
 for idx, msg in enumerate(st.session_state.voice_messages):
-    with st.chat_message(msg["role"]):
+    role = msg.get("role", "assistant")
+    if role == "assistant":
+        chat_context = st.chat_message("assistant", avatar=avatar_image)
+    else:
+        chat_context = st.chat_message(role)
+    with chat_context:
         if msg.get("raw_transcript"):
             st.caption(f"STT 원문: {msg['raw_transcript']}")
         if msg.get("refined_text"):
