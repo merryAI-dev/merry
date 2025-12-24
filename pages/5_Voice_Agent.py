@@ -36,6 +36,12 @@ check_authentication()
 initialize_agent()
 inject_custom_css()
 
+# Defaults for local STT
+if not st.session_state.whisper_model:
+    st.session_state.whisper_model = "small"
+if not st.session_state.whisper_language:
+    st.session_state.whisper_language = "ko"
+
 
 def _apply_naverc_key_from_sidebar():
     key_id = st.session_state.get("naver_api_key_id", "").strip()
@@ -170,6 +176,14 @@ with st.sidebar:
     st.session_state.voice_speaker = speaker
 
     st.divider()
+    st.checkbox(
+        "음성 입력 정제 (Claude)",
+        value=st.session_state.voice_refine_enabled,
+        key="voice_refine_enabled",
+        help="STT 결과를 Claude로 정제해서 대화 입력에 사용합니다.",
+    )
+
+    st.divider()
     if st.button("대화 초기화", type="secondary", use_container_width=True):
         _reset_voice_session()
         st.rerun()
@@ -217,6 +231,10 @@ checkin_seed = st.button("체크인 시작", type="primary", use_container_width
 # Chat history
 for msg in st.session_state.voice_messages:
     with st.chat_message(msg["role"]):
+        if msg.get("raw_transcript"):
+            st.caption(f"STT 원문: {msg['raw_transcript']}")
+        if msg.get("refined_text"):
+            st.caption("정제 텍스트:")
         st.write(msg["content"])
         if msg.get("audio"):
             st.audio(msg["audio"], format=msg.get("audio_format", "audio/mp3"))
@@ -271,8 +289,21 @@ if send_clicked:
     if not user_text:
         st.warning("입력 또는 음성 녹음이 필요합니다.")
     else:
+        refined_text = None
+        if transcript and st.session_state.voice_refine_enabled:
+            refined_text = st.session_state.agent.refine_voice_input_sync(transcript)
+            if refined_text:
+                user_text = refined_text
+
         st.session_state.voice_last_transcript = transcript or ""
-        st.session_state.voice_messages.append({"role": "user", "content": user_text})
+        st.session_state.voice_messages.append(
+            {
+                "role": "user",
+                "content": user_text,
+                "raw_transcript": transcript or None,
+                "refined_text": refined_text or None,
+            }
+        )
 
         last_checkin_text = checkin_summary_text or checkin_context_text or (
             last_checkin.get("assistant_text") if last_checkin else None

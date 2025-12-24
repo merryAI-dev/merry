@@ -802,6 +802,34 @@ If unknown, use empty string or empty array."""
         parsed.setdefault("next_actions", [])
         return parsed
 
+    def refine_voice_input_sync(self, transcript: str) -> str:
+        """Clean ASR transcript into concise Korean text."""
+        transcript = (transcript or "").strip()
+        if not transcript:
+            return ""
+
+        system_prompt = """You are an ASR transcript cleaner.
+Rules:
+- Output only cleaned Korean text.
+- Do not add new information.
+- Fix spacing and punctuation.
+- Keep numbers as written if unsure.
+- No markdown."""
+
+        response = self.client.messages.create(
+            model=self.model,
+            system=system_prompt,
+            max_tokens=200,
+            messages=[{"role": "user", "content": transcript}],
+        )
+
+        cleaned = ""
+        for block in response.content:
+            if hasattr(block, "text"):
+                cleaned += block.text
+
+        return cleaned.strip() or transcript
+
     # ========================================
     # Utility Methods
     # ========================================
