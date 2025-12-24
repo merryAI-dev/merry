@@ -117,6 +117,26 @@ if st.button("투자심사 보고서 시작", type="primary", use_container_widt
 st.divider()
 
 # ========================================
+# Voice Agent
+# ========================================
+st.markdown("### Voice Agent (체크인/원온원)")
+st.markdown("""
+**음성 기반 체크인 및 원온원 대화**
+
+- Naver CLOVA STT/TTS 기반 음성 대화
+- 데일리 체크인 및 1:1 플로우
+- 어제 로그 기반 학습/감정 요약
+""")
+
+if st.button("Voice Agent 시작", type="primary", use_container_width=True, key="start_voice"):
+    st.switch_page("pages/5_Voice_Agent.py")
+
+if st.button("체크인 기록 보기", type="secondary", use_container_width=True, key="start_checkin_review"):
+    st.switch_page("pages/6_Checkin_Review.py")
+
+st.divider()
+
+# ========================================
 # 사용 가이드
 # ========================================
 st.markdown("## 사용 가이드")
