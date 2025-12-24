@@ -596,49 +596,6 @@ html, body {{
     z-index: 2;
 }}
 
-.graph-zones {{
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    pointer-events: none;
-}}
-
-.graph-zone {{
-    position: absolute;
-    border: 1px dashed rgba(28, 25, 20, 0.2);
-    border-radius: 28px;
-    background: rgba(255, 255, 255, 0.45);
-    backdrop-filter: blur(4px);
-}}
-
-.graph-shell.theme-dark .graph-zone {{
-    border-color: rgba(240, 234, 226, 0.12);
-    background: rgba(24, 21, 18, 0.45);
-}}
-
-.graph-zone span {{
-    position: absolute;
-    top: 12px;
-    left: 16px;
-    font-family: "IBM Plex Mono", monospace;
-    font-size: 11px;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--graph-muted);
-    padding: 4px 10px;
-    border-radius: 999px;
-    border: 1px solid rgba(28, 25, 20, 0.12);
-    background: rgba(247, 242, 234, 0.95);
-}}
-
-.graph-shell.theme-dark .graph-zone span {{
-    border-color: rgba(240, 234, 226, 0.12);
-    background: rgba(26, 23, 19, 0.9);
-}}
-
-.zone-analysis {{ top: 4%; left: 6%; width: 88%; height: 36%; }}
-.zone-hub {{ top: 44%; left: 12%; width: 76%; height: 20%; }}
-.zone-diligence {{ top: 68%; left: 6%; width: 88%; height: 26%; }}
 
 .graph-node {{
     position: absolute;
@@ -873,7 +830,6 @@ html, body {{
 }}
 
 .graph-shell.is-mobile .graph-lines,
-.graph-shell.is-mobile .graph-zones,
 .graph-shell.is-mobile .graph-panel,
 .graph-shell.is-mobile .graph-hint {{
     display: none;
@@ -899,11 +855,6 @@ html, body {{
 <div class="graph-shell" id="graph-shell">
     <canvas class="graph-lines" id="graph-lines"></canvas>
     <div class="graph-stage" id="graph-stage">
-        <div class="graph-zones">
-            <div class="graph-zone zone-analysis"><span>핵심 분석</span></div>
-            <div class="graph-zone zone-hub"><span>인사이트 허브</span></div>
-            <div class="graph-zone zone-diligence"><span>딜리전스</span></div>
-        </div>
         {graph_nodes_markup}
     </div>
     <div class="graph-panel" id="graph-panel">
