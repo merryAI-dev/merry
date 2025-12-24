@@ -96,6 +96,9 @@ def initialize_session_state():
         "contract_masking": True,
         "contract_ocr_mode": "자동(권장)",
         "contract_ocr_model": "claude-opus-4-5-20251101",
+        "contract_llm_opinion": False,
+        "contract_opinion_model": "claude-opus-4-5-20251101",
+        "contract_opinion_text": "",
     }
 
     for key, value in defaults.items():

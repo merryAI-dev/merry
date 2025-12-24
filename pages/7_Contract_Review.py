@@ -21,10 +21,12 @@ from shared.contract_review import (
     FIELD_DEFINITIONS,
     OCR_DEFAULT_MODEL,
     build_mask_replacements,
+    build_review_opinion,
     compare_fields,
     detect_clauses,
     extract_fields,
     load_document,
+    generate_contract_opinion_llm,
     mask_analysis,
     mask_comparisons,
     mask_search_hits,
@@ -239,6 +241,7 @@ if analyze_clicked:
         return _callback
 
     st.session_state.contract_analysis = {}
+    st.session_state.contract_opinion_text = ""
 
     if term_sheet_path:
         doc = _analyze_document(
@@ -344,6 +347,7 @@ if analysis:
 
     term_sheet = analysis.get("term_sheet")
     investment_agreement = analysis.get("investment_agreement")
+    comparisons = []
     if term_sheet and investment_agreement:
         st.divider()
         st.markdown("## 내용 일치 검토")
@@ -352,6 +356,57 @@ if analysis:
         if masking_enabled:
             comparisons = mask_comparisons(comparisons, replacements)
         st.dataframe(comparisons, use_container_width=True)
+
+    st.divider()
+    st.markdown("## 검토 의견")
+    opinion = build_review_opinion(term_sheet, investment_agreement, comparisons)
+    st.markdown("**요약**")
+    for line in opinion.get("summary", []):
+        st.markdown(f"- {line}")
+
+    opinion_items = opinion.get("items", [])
+    if opinion_items:
+        st.markdown("**이슈 리스트**")
+        st.dataframe(opinion_items, use_container_width=True)
+    else:
+        st.caption("표시할 이슈가 없습니다.")
+
+    questions = opinion.get("questions", [])
+    if questions:
+        st.markdown("**확인 질문**")
+        for question in questions:
+            st.markdown(f"- {question}")
+
+    st.markdown("### Claude 종합 의견 (선택)")
+    use_llm_opinion = st.toggle(
+        "Claude로 종합 의견 생성",
+        value=st.session_state.get("contract_llm_opinion", False),
+        key="contract_llm_opinion",
+        help="규칙 기반 이슈를 바탕으로 Claude가 종합 의견을 작성합니다.",
+    )
+    if use_llm_opinion:
+        st.caption("종합 의견 생성 시 요약 데이터가 외부 API로 전송됩니다.")
+    opinion_model = st.text_input(
+        "종합 의견 모델",
+        value=st.session_state.get("contract_opinion_model", OCR_DEFAULT_MODEL),
+        key="contract_opinion_model",
+        help="기본: Claude Opus. 비용/속도에 따라 변경 가능.",
+    )
+    if use_llm_opinion:
+        if st.button("종합 의견 생성", type="secondary"):
+            st.session_state.contract_opinion_text = ""
+            with st.spinner("Claude가 종합 의견을 작성 중입니다..."):
+                try:
+                    st.session_state.contract_opinion_text = generate_contract_opinion_llm(
+                        opinion,
+                        api_key=user_api_key,
+                        model=(opinion_model or OCR_DEFAULT_MODEL).strip(),
+                    )
+                except Exception as exc:
+                    st.error(f"종합 의견 생성 실패: {exc}")
+
+    if st.session_state.get("contract_opinion_text"):
+        st.markdown(st.session_state.contract_opinion_text)
 
     st.divider()
     st.markdown("## 문서 내 검색")
