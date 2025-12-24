@@ -91,13 +91,15 @@ def clova_tts(
         pitch: -5 to +5
         format: mp3 or wav
     """
+    audio_format = "audio/mpeg" if format == "mp3" else f"audio/{format}"
+
     if not text:
-        return {"success": False, "error": "텍스트가 비어 있습니다.", "audio": None}
+        return {"success": False, "error": "텍스트가 비어 있습니다.", "audio": None, "format": audio_format}
 
     try:
         headers = _build_headers()
     except ValueError as exc:
-        return {"success": False, "error": str(exc), "audio": None}
+        return {"success": False, "error": str(exc), "audio": None, "format": audio_format}
 
     payload = {
         "speaker": speaker,
@@ -117,10 +119,9 @@ def clova_tts(
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             audio_bytes = resp.read()
-        return {"success": True, "audio": audio_bytes, "error": None}
+        return {"success": True, "audio": audio_bytes, "error": None, "format": audio_format}
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="ignore")
-        return {"success": False, "error": f"HTTP {exc.code}: {detail}", "audio": None}
+        return {"success": False, "error": f"HTTP {exc.code}: {detail}", "audio": None, "format": audio_format}
     except Exception as exc:
-        return {"success": False, "error": str(exc), "audio": None}
-
+        return {"success": False, "error": str(exc), "audio": None, "format": audio_format}
