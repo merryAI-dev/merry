@@ -50,69 +50,79 @@ st.caption("텀싯/투자계약서를 근거 기반으로 검토합니다. 법�
 
 st.warning("이 도구는 법률 자문이 아닙니다. 최종 판단은 반드시 법무 검토가 필요합니다.")
 
-st.markdown("### 보안/마스킹")
-masking_enabled = st.checkbox(
-    "민감정보 마스킹 (기본 ON)",
-    value=True,
-    key="contract_masking",
-    help="회사명/금액/연락처 등 민감정보를 토큰으로 치환해 표시합니다.",
-)
-st.info("업로드 → 로컬 파싱 → (필요 시 OCR) → 마스킹 → 규칙 기반 검토 → 화면 표시")
+analysis_exists = bool(st.session_state.get("contract_analysis"))
 
-with st.expander("안심 플로우 자세히 보기"):
-    st.markdown(
-        """
-        1. 파일 업로드 (임시 저장)
-        2. PDF/DOCX 파싱
-        3. (선택) 스캔본 OCR
-        4. 민감정보 마스킹 (기본 ON)
-        5. 규칙 기반 필드 추출 및 일치성 검토
-        6. 결과 표시
-        """
+with st.expander("보안/마스킹", expanded=not analysis_exists):
+    masking_enabled = st.checkbox(
+        "민감정보 마스킹 (기본 ON)",
+        value=True,
+        key="contract_masking",
+        help="회사명/금액/연락처 등 민감정보를 토큰으로 치환해 표시합니다.",
     )
+    show_file_names = st.checkbox(
+        "파일명 표시",
+        value=False,
+        key="contract_show_file_names",
+        help="파일명에 회사명이 포함될 수 있어 기본은 숨김입니다.",
+    )
+    if not masking_enabled:
+        st.warning("원문 표시 중입니다. 공유/스크린샷에 주의하세요.")
+    st.info("업로드 → 로컬 파싱 → (필요 시 OCR) → 마스킹 → 규칙 기반 검토 → 화면 표시")
 
-st.markdown("### 스캔본 OCR (Claude)")
-ocr_choice = st.selectbox(
-    "OCR 사용 여부",
-    ["자동(권장)", "강제", "끄기"],
-    index=0,
-    key="contract_ocr_mode",
-    help="스캔본/깨진 텍스트가 있을 때 Claude OCR로 보정합니다.",
-)
-ocr_model = st.text_input(
-    "OCR 모델",
-    value=OCR_DEFAULT_MODEL,
-    key="contract_ocr_model",
-    help="Claude Opus 모델명을 입력하세요.",
-)
-st.caption("OCR 사용 시 페이지 이미지가 외부 API로 전송됩니다. 마스킹은 OCR 이후 표시 단계에서 적용됩니다.")
+    with st.expander("안심 플로우 자세히 보기"):
+        st.markdown(
+            """
+            1. 파일 업로드 (임시 저장)
+            2. PDF/DOCX 파싱
+            3. (선택) 스캔본 OCR
+            4. 민감정보 마스킹 (기본 ON)
+            5. 규칙 기반 필드 추출 및 일치성 검토
+            6. 결과 표시
+            """
+        )
 
-st.markdown("### 분석 모드")
-analysis_mode = st.selectbox(
-    "분석 모드",
-    ["빠른 스캔", "정밀 분석"],
-    index=0,
-    key="contract_analysis_mode",
-    help="빠른 스캔은 OCR 페이지를 제한하고 핵심 리스크를 먼저 보여줍니다.",
-)
-ocr_strategy = st.selectbox(
-    "OCR 페이지 선정",
-    ["밀도 기반(빠름)", "앞/뒤 우선", "균등 분할"],
-    index=0,
-    key="contract_ocr_strategy",
-)
-ocr_budget = st.slider(
-    "OCR 페이지 예산",
-    min_value=2,
-    max_value=40,
-    value=6,
-    step=1,
-    key="contract_ocr_budget",
-    disabled=analysis_mode == "정밀 분석" or ocr_choice == "끄기",
-    help="빠른 스캔에서 OCR할 최대 페이지 수입니다.",
-)
-if analysis_mode == "빠른 스캔":
-    st.caption("빠른 스캔은 선택된 페이지만 OCR해서 속도를 높입니다. 세부 확인은 추가 질문으로 진행하세요.")
+with st.expander("스캔본 OCR (Claude)", expanded=not analysis_exists):
+    ocr_choice = st.selectbox(
+        "OCR 사용 여부",
+        ["자동(권장)", "강제", "끄기"],
+        index=0,
+        key="contract_ocr_mode",
+        help="스캔본/깨진 텍스트가 있을 때 Claude OCR로 보정합니다.",
+    )
+    ocr_model = st.text_input(
+        "OCR 모델",
+        value=OCR_DEFAULT_MODEL,
+        key="contract_ocr_model",
+        help="Claude Opus 모델명을 입력하세요.",
+    )
+    st.caption("OCR 사용 시 페이지 이미지가 외부 API로 전송됩니다. 마스킹은 OCR 이후 표시 단계에서 적용됩니다.")
+
+with st.expander("분석 모드", expanded=not analysis_exists):
+    analysis_mode = st.selectbox(
+        "분석 모드",
+        ["빠른 스캔", "정밀 분석"],
+        index=0,
+        key="contract_analysis_mode",
+        help="빠른 스캔은 OCR 페이지를 제한하고 핵심 리스크를 먼저 보여줍니다.",
+    )
+    ocr_strategy = st.selectbox(
+        "OCR 페이지 선정",
+        ["밀도 기반(빠름)", "앞/뒤 우선", "균등 분할"],
+        index=0,
+        key="contract_ocr_strategy",
+    )
+    ocr_budget = st.slider(
+        "OCR 페이지 예산",
+        min_value=2,
+        max_value=40,
+        value=6,
+        step=1,
+        key="contract_ocr_budget",
+        disabled=analysis_mode == "정밀 분석" or ocr_choice == "끄기",
+        help="빠른 스캔에서 OCR할 최대 페이지 수입니다.",
+    )
+    if analysis_mode == "빠른 스캔":
+        st.caption("빠른 스캔은 선택된 페이지만 OCR해서 속도를 높입니다. 세부 확인은 추가 질문으로 진행하세요.")
 
 user_id = get_user_id()
 user_api_key = get_user_api_key()
@@ -181,7 +191,10 @@ with col1:
     if term_sheet_path:
         st.session_state.contract_term_sheet_path = str(term_sheet_path)
         st.session_state.contract_term_sheet_name = term_sheet_file.name
-        st.success(f"업로드 완료: {term_sheet_file.name}")
+        if show_file_names:
+            st.success(f"업로드 완료: {term_sheet_file.name}")
+        else:
+            st.success("업로드 완료")
 
 with col2:
     st.markdown("### 투자계약서 업로드")
@@ -194,7 +207,10 @@ with col2:
     if investment_path:
         st.session_state.contract_investment_path = str(investment_path)
         st.session_state.contract_investment_name = investment_file.name
-        st.success(f"업로드 완료: {investment_file.name}")
+        if show_file_names:
+            st.success(f"업로드 완료: {investment_file.name}")
+        else:
+            st.success("업로드 완료")
 
 st.divider()
 
@@ -371,8 +387,9 @@ if analysis:
             ocr_status = f"OCR: {len(ocr_pages)}/{doc.get('page_count', 0)}p"
         else:
             ocr_status = "OCR: 미사용"
+        file_label = doc.get("name") if show_file_names else "(숨김)"
         st.caption(
-            f"파일: {doc.get('name')} · 길이: {doc.get('text_length', 0):,} chars · 세그먼트: {len(doc.get('segments', []))} · {ocr_status}"
+            f"파일: {file_label} · 길이: {doc.get('text_length', 0):,} chars · 세그먼트: {len(doc.get('segments', []))} · {ocr_status}"
         )
         if doc.get("ocr_error"):
             st.warning(f"OCR 실패: {doc.get('ocr_error')}")
@@ -546,3 +563,6 @@ if analysis:
                     st.caption(f"{hit.get('source')}: {hit.get('snippet')}")
             else:
                 st.caption("일치하는 결과가 없습니다.")
+else:
+    st.divider()
+    st.info("분석 결과가 아직 없습니다. 문서를 업로드한 뒤 '분석 실행'을 눌러주세요.")
