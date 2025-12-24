@@ -3,6 +3,7 @@ anthropic>=0.75.0  # Claude API
 openpyxl>=3.1.0   # Excel 읽기/쓰기
 python-dotenv>=1.0.0  # 환경변수 관리
 Pillow>=10.0.0  # 이미지 처리
+pytesseract>=0.3.10  # 로컬 OCR
 
 # CLI
 click>=8.1.0
