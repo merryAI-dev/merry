@@ -132,13 +132,64 @@ st.markdown(
         z-index: 0;
     }
 
+    .graph-zones {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 1;
+    }
+
+    .graph-zone {
+        position: absolute;
+        border: 1px dashed rgba(28, 25, 20, 0.18);
+        border-radius: 26px;
+        background: rgba(255, 255, 255, 0.45);
+        backdrop-filter: blur(4px);
+    }
+
+    .graph-zone__label {
+        position: absolute;
+        top: 12px;
+        left: 16px;
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--graph-muted);
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(28, 25, 20, 0.12);
+        background: rgba(247, 242, 234, 0.9);
+    }
+
+    .graph-zone--analysis {
+        top: 2%;
+        left: 5%;
+        width: 90%;
+        height: 42%;
+    }
+
+    .graph-zone--governance {
+        top: 48%;
+        left: 5%;
+        width: 90%;
+        height: 24%;
+    }
+
+    .graph-zone--interaction {
+        top: 75%;
+        left: 12%;
+        width: 76%;
+        height: 20%;
+    }
+
     .graph-lines {
         position: absolute;
         inset: 0;
         width: 100%;
         height: 100%;
         pointer-events: none;
-        z-index: 0;
+        z-index: 2;
         opacity: 0.55;
     }
 
@@ -163,7 +214,7 @@ st.markdown(
         box-shadow: var(--graph-shadow);
         position: relative;
         overflow: hidden;
-        z-index: 2;
+        z-index: 3;
         animation: floatNode 7s ease-in-out infinite;
         will-change: transform;
     }
@@ -346,6 +397,22 @@ st.markdown("<div class='graph-map-title'>Module Graph</div>", unsafe_allow_html
 
 with st.container():
     st.markdown('<div class="graph-canvas-marker"></div>', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <div class="graph-zones">
+            <div class="graph-zone graph-zone--analysis">
+                <span class="graph-zone__label">Core Analysis</span>
+            </div>
+            <div class="graph-zone graph-zone--governance">
+                <span class="graph-zone__label">Governance</span>
+            </div>
+            <div class="graph-zone graph-zone--interaction">
+                <span class="graph-zone__label">Interaction</span>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     st.markdown(
         """
         <svg class="graph-lines" viewBox="0 0 1000 900" preserveAspectRatio="none" aria-hidden="true">
