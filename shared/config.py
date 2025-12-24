@@ -61,6 +61,12 @@ def initialize_session_state():
         "feedback_input_visible": {},
         "feedback_text": {},
 
+        # 홈 안내 챗봇
+        "home_messages": [],
+        "home_route_target": None,
+        "home_route_label": "",
+        "home_router_state": {"candidates": []},
+
         "voice_messages": [],
         "voice_mode": "checkin",
         "voice_last_transcript": "",

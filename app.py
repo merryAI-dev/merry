@@ -4,9 +4,16 @@ VC 투자 분석 에이전트 - 홈페이지
 실행: streamlit run app.py
 """
 
+import re
 import streamlit as st
 
-from shared.config import initialize_session_state, inject_custom_css, get_header_image
+from shared.config import (
+    get_avatar_image,
+    get_header_image,
+    get_user_avatar_image,
+    initialize_session_state,
+    inject_custom_css,
+)
 from shared.auth import check_authentication
 from shared.logging_config import setup_logging
 
@@ -528,6 +535,239 @@ with st.container():
             st.switch_page("pages/6_Checkin_Review.py")
 
 st.divider()
+
+# ========================================
+# 홈 안내 챗봇
+# ========================================
+st.markdown("## 메리 안내 데스크")
+st.caption("필요한 업무를 말하면 해당 모듈로 안내합니다.")
+
+avatar_image = get_avatar_image()
+user_avatar_image = get_user_avatar_image()
+
+ROUTE_DEFS = [
+    {
+        "id": "exit",
+        "label": "Exit 프로젝션",
+        "page": "pages/1_Exit_Projection.py",
+        "summary": "엑셀 기반 Exit/IRR/멀티플 분석 요청에 적합합니다.",
+        "next_step": "투자검토 엑셀을 업로드하고 \"파일 분석해줘\"라고 입력하세요.",
+        "strong_keywords": ["exit", "프로젝션", "irr", "멀티플"],
+        "keywords": [
+            "exit", "프로젝션", "irr", "멀티플", "multiple", "valuation",
+            "safe", "cap", "captable", "투자조건", "엑셀", "excel", "xlsx", "기업가치",
+        ],
+    },
+    {
+        "id": "peer",
+        "label": "Peer PER 분석",
+        "page": "pages/2_Peer_PER_Analysis.py",
+        "summary": "유사 상장기업 PER/벤치마크 비교에 적합합니다.",
+        "next_step": "PDF를 업로드하거나 티커를 바로 입력하세요.",
+        "strong_keywords": ["peer", "per", "유사기업", "비교기업"],
+        "keywords": [
+            "peer", "per", "유사", "비교", "벤치", "상장", "티커", "yahoo",
+            "comparables", "기업소개서", "ir", "pdf",
+        ],
+    },
+    {
+        "id": "diagnosis",
+        "label": "기업현황 진단시트",
+        "page": "pages/3_Company_Diagnosis.py",
+        "summary": "진단시트 기반 컨설턴트 보고서 작성에 적합합니다.",
+        "next_step": "진단시트 엑셀을 업로드하고 \"분석해줘\"라고 입력하세요.",
+        "strong_keywords": ["진단", "기업현황", "체크리스트"],
+        "keywords": [
+            "진단", "기업현황", "체크리스트", "자가진단", "컨설턴트", "diagnosis",
+            "점수", "reportdraft",
+        ],
+    },
+    {
+        "id": "report",
+        "label": "투자심사 보고서",
+        "page": "pages/4_Investment_Report.py",
+        "summary": "시장규모 근거 추출 및 인수인의견 스타일 초안에 적합합니다.",
+        "next_step": "기업 자료(PDF/엑셀)를 업로드하고 근거 정리를 요청하세요.",
+        "strong_keywords": ["투자심사", "인수인의견", "시장규모", "보고서"],
+        "keywords": [
+            "투자심사", "인수인의견", "보고서", "시장규모", "근거", "report",
+            "증거", "시장", "draft",
+        ],
+    },
+    {
+        "id": "voice",
+        "label": "Voice Agent",
+        "page": "pages/5_Voice_Agent.py",
+        "summary": "체크인/원온원 음성 대화에 적합합니다.",
+        "next_step": "모드(체크인/원온원)를 선택하고 시작하세요.",
+        "strong_keywords": ["체크인", "원온원", "음성"],
+        "keywords": [
+            "체크인", "원온원", "음성", "voice", "stt", "tts", "1on1",
+        ],
+    },
+    {
+        "id": "contract",
+        "label": "계약서 리서치",
+        "page": "pages/7_Contract_Review.py",
+        "summary": "텀싯/투자계약서 검토 및 내용 일치 확인에 적합합니다.",
+        "next_step": "텀싯/투자계약서 PDF·DOCX를 업로드하세요.",
+        "strong_keywords": ["계약", "계약서", "텀싯", "투자계약"],
+        "keywords": [
+            "계약", "계약서", "텀싯", "termsheet", "투자계약", "주주간",
+            "청산", "희석", "보호", "조항",
+        ],
+    },
+]
+
+ROUTE_MAP = {}
+for route in ROUTE_DEFS:
+    label_compact = re.sub(r"[\\s\\-_/]+", "", route["label"].lower())
+    route["label_compact"] = label_compact
+    route["keywords_compact"] = [
+        re.sub(r"[\\s\\-_/]+", "", kw.lower()) for kw in route["keywords"] if kw
+    ]
+    route["strong_keywords_compact"] = [
+        re.sub(r"[\\s\\-_/]+", "", kw.lower()) for kw in route.get("strong_keywords", []) if kw
+    ]
+    ROUTE_MAP[route["id"]] = route
+
+
+def _compact_text(text: str) -> str:
+    return re.sub(r"[\\s\\-_/]+", "", (text or "").lower())
+
+
+def _resolve_candidate_choice(compact_text: str, candidate_ids: list[str]):
+    if compact_text.isdigit():
+        idx = int(compact_text) - 1
+        if 0 <= idx < len(candidate_ids):
+            return ROUTE_MAP.get(candidate_ids[idx])
+    for route_id in candidate_ids:
+        route = ROUTE_MAP.get(route_id)
+        if not route:
+            continue
+        if route["label_compact"] in compact_text or route_id in compact_text:
+            return route
+    return None
+
+
+def _score_routes(compact_text: str) -> list[tuple[int, dict]]:
+    scored = []
+    for route in ROUTE_DEFS:
+        score = 0
+        for kw in route.get("strong_keywords_compact", []):
+            if kw and kw in compact_text:
+                score += 2
+        for kw in route.get("keywords_compact", []):
+            if kw and kw in compact_text:
+                score += 1
+        if score:
+            scored.append((score, route))
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return scored
+
+
+def _route_message(user_text: str) -> str:
+    compact_text = _compact_text(user_text)
+    state = st.session_state.home_router_state
+    candidates = state.get("candidates", [])
+
+    if candidates:
+        selection = _resolve_candidate_choice(compact_text, candidates)
+        if selection:
+            state["candidates"] = []
+            st.session_state.home_route_target = selection["page"]
+            st.session_state.home_route_label = selection["label"]
+            return (
+                f"추천 모듈: {selection['label']}\n\n"
+                f"이유: {selection['summary']}\n\n"
+                f"다음: {selection['next_step']}\n\n"
+                "아래 바로 이동 버튼을 눌러주세요."
+            )
+        if any(word in compact_text for word in ["아니", "다른", "none", "no"]):
+            state["candidates"] = []
+            st.session_state.home_route_target = None
+            st.session_state.home_route_label = ""
+            return "원하는 업무를 한 줄로 다시 알려주세요. 예: \"텀싯 검토\", \"PER 비교\", \"투자심사 보고서\""
+
+    if not compact_text:
+        st.session_state.home_route_target = None
+        st.session_state.home_route_label = ""
+        return "원하는 업무를 한 줄로 알려주세요. 예: \"텀싯 검토\", \"PER 비교\", \"투자심사 보고서\""
+
+    scored = _score_routes(compact_text)
+    if not scored:
+        st.session_state.home_route_target = None
+        st.session_state.home_route_label = ""
+        return (
+            "아직 어떤 업무인지 파악하기 어려워요.\n\n"
+            "예시:\n"
+            "- \"투자검토 엑셀 Exit 분석\"\n"
+            "- \"유사기업 PER 비교\"\n"
+            "- \"투자계약서 내용 일치 확인\"\n"
+            "- \"시장규모 근거 정리\""
+        )
+
+    top_score = scored[0][0]
+    top_routes = [route for score, route in scored if score == top_score]
+    if len(top_routes) == 1 or top_score >= 2:
+        selection = top_routes[0]
+        st.session_state.home_route_target = selection["page"]
+        st.session_state.home_route_label = selection["label"]
+        st.session_state.home_router_state["candidates"] = []
+        return (
+            f"추천 모듈: {selection['label']}\n\n"
+            f"이유: {selection['summary']}\n\n"
+            f"다음: {selection['next_step']}\n\n"
+            "아래 바로 이동 버튼을 눌러주세요."
+        )
+
+    candidate_ids = [route["id"] for route in top_routes[:3]]
+    st.session_state.home_router_state["candidates"] = candidate_ids
+    st.session_state.home_route_target = None
+    st.session_state.home_route_label = ""
+    options = "\n".join(
+        [f"{idx + 1}. {ROUTE_MAP[candidate]['label']}" for idx, candidate in enumerate(candidate_ids)]
+    )
+    return (
+        "어떤 업무인지 조금만 더 알려주세요. 아래 중 번호로 선택해 주세요.\n\n"
+        f"{options}"
+    )
+
+
+chat_container = st.container(border=True, height=420)
+with chat_container:
+    chat_area = st.container(height=320)
+    with chat_area:
+        if not st.session_state.home_messages:
+            with st.chat_message("assistant", avatar=avatar_image):
+                st.markdown(
+                    "안녕하세요. 필요한 업무를 말해주시면 적절한 모듈로 안내하겠습니다.\n\n"
+                    "예: \"텀싯 검토\", \"PER 비교\", \"Exit 프로젝션\""
+                )
+
+        for msg in st.session_state.home_messages:
+            role = msg.get("role")
+            content = msg.get("content", "")
+            if role == "user":
+                with st.chat_message("user", avatar=user_avatar_image):
+                    st.markdown(content)
+            else:
+                with st.chat_message("assistant", avatar=avatar_image):
+                    st.markdown(content)
+
+    user_input = st.chat_input("필요한 업무를 한 줄로 알려주세요.", key="home_chat_input")
+
+if user_input:
+    st.session_state.home_messages.append({"role": "user", "content": user_input})
+    response = _route_message(user_input)
+    st.session_state.home_messages.append({"role": "assistant", "content": response})
+    st.rerun()
+
+route_target = st.session_state.get("home_route_target")
+route_label = st.session_state.get("home_route_label")
+if route_target and route_label:
+    if st.button(f"{route_label} 바로 이동", type="primary", use_container_width=True, key="home_route_jump"):
+        st.switch_page(route_target)
 
 # ========================================
 # 사용 가이드
