@@ -10,12 +10,30 @@ import streamlit as st
 
 from shared.auth import check_authentication, get_user_id
 from shared.config import initialize_session_state, inject_custom_css
-from shared.voice_logs import (
-    build_checkin_context_text,
-    build_checkin_summary_text,
-    get_checkin_context,
-    get_checkin_summaries,
-)
+try:
+    from shared.voice_logs import (
+        build_checkin_context_text,
+        build_checkin_summary_text,
+        get_checkin_context,
+        get_checkin_summaries,
+    )
+    VOICE_LOGS_IMPORT_ERROR = None
+except Exception as exc:
+    VOICE_LOGS_IMPORT_ERROR = exc
+
+    def _empty_context(*_args, **_kwargs):
+        return {"start": "", "end": "", "voice_logs": [], "chat_messages": []}
+
+    def _empty_text(*_args, **_kwargs):
+        return ""
+
+    def _empty_list(*_args, **_kwargs):
+        return []
+
+    build_checkin_context_text = _empty_text
+    build_checkin_summary_text = _empty_text
+    get_checkin_context = _empty_context
+    get_checkin_summaries = _empty_list
 
 
 st.set_page_config(
@@ -27,6 +45,14 @@ st.set_page_config(
 initialize_session_state()
 check_authentication()
 inject_custom_css()
+
+if VOICE_LOGS_IMPORT_ERROR:
+    st.error(
+        "voice_logs 로드 실패: "
+        f"{type(VOICE_LOGS_IMPORT_ERROR).__name__}: {VOICE_LOGS_IMPORT_ERROR}"
+    )
+    st.caption("Streamlit Cloud 로그에서 상세 원인을 확인해주세요.")
+    st.stop()
 
 st.markdown("# 체크인 기록")
 st.caption("Supabase에 저장된 체크인 요약과 원본 로그를 확인합니다.")
