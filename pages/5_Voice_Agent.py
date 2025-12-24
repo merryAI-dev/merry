@@ -13,7 +13,7 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 from shared.auth import check_authentication, get_user_id
-from shared.config import get_avatar_image, initialize_agent, initialize_session_state, inject_custom_css
+from shared.config import get_avatar_image, get_user_avatar_image, initialize_agent, initialize_session_state, inject_custom_css
 from shared.clova_speech import clova_credentials_present, clova_stt, clova_tts
 from shared.local_speech import local_stt_faster_whisper, local_tts_mms, local_tts_piper
 try:
@@ -72,6 +72,7 @@ initialize_agent()
 inject_custom_css()
 
 avatar_image = get_avatar_image()
+user_avatar_image = get_user_avatar_image()
 
 if VOICE_LOGS_IMPORT_ERROR:
     st.error(
@@ -461,6 +462,8 @@ for idx, msg in enumerate(st.session_state.voice_messages):
     role = msg.get("role", "assistant")
     if role == "assistant":
         chat_context = st.chat_message("assistant", avatar=avatar_image)
+    elif role == "user":
+        chat_context = st.chat_message("user", avatar=user_avatar_image)
     else:
         chat_context = st.chat_message(role)
     with chat_context:
