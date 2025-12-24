@@ -30,6 +30,7 @@ supabase>=2.0.0  # Supabase Python client
 # Peer PER Analysis
 yfinance>=0.2.30  # Yahoo Finance API
 PyMuPDF>=1.23.0  # PDF 텍스트 추출
+python-docx>=1.1.0  # DOCX 텍스트 추출
 
 # Optional: API server
 # fastapi>=0.104.0

@@ -86,6 +86,13 @@ def initialize_session_state():
         "piper_bin_path": "piper",
         "mms_model_id": "facebook/mms-tts-kss",
         "voice_refine_enabled": True,
+
+        "contract_term_sheet_path": None,
+        "contract_term_sheet_name": "",
+        "contract_investment_path": None,
+        "contract_investment_name": "",
+        "contract_analysis": {},
+        "contract_search_query": "",
     }
 
     for key, value in defaults.items():

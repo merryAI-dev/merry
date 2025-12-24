@@ -137,6 +137,23 @@ if st.button("체크인 기록 보기", type="secondary", use_container_width=Tr
 st.divider()
 
 # ========================================
+# 계약서 리서치
+# ========================================
+st.markdown("### 계약서 리서치 (텀싯/투자계약서)")
+st.markdown("""
+**근거 기반 계약서 검토**
+
+- 텀싯/투자계약서 PDF·DOCX 텍스트 추출
+- 핵심 항목 추출 및 근거 스니펫 제공
+- 문서 간 내용 일치 여부 점검 (회사명/금액 등)
+""")
+
+if st.button("계약서 리서치 시작", type="primary", use_container_width=True, key="start_contract_review"):
+    st.switch_page("pages/7_Contract_Review.py")
+
+st.divider()
+
+# ========================================
 # 사용 가이드
 # ========================================
 st.markdown("## 사용 가이드")
