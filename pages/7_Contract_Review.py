@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -305,6 +307,7 @@ if analyze_clicked:
 
     st.session_state.contract_analysis = {}
     st.session_state.contract_opinion_text = ""
+    st.session_state.contract_opinion_cache_key = ""
 
     if term_sheet_path:
         doc = _analyze_document(
@@ -369,85 +372,16 @@ if analysis:
     if masking_enabled:
         st.caption("마스킹 ON: 회사명/금액/연락처 등 민감정보는 토큰으로 표시됩니다.")
 
-    st.divider()
-    st.markdown("## 문서 요약")
-
-    for key in ["term_sheet", "investment_agreement"]:
-        doc = analysis.get(key)
-        if not doc:
-            continue
-
-        title = "텀싯" if key == "term_sheet" else "투자계약서"
-        display_doc = mask_analysis(doc, replacements) if masking_enabled else doc
-        st.markdown(f"### {title}")
-        ocr_pages = doc.get("ocr_pages_used", [])
-        if doc.get("ocr_error"):
-            ocr_status = "OCR: 실패"
-        elif doc.get("ocr_used"):
-            ocr_status = f"OCR: {len(ocr_pages)}/{doc.get('page_count', 0)}p"
-        else:
-            ocr_status = "OCR: 미사용"
-        file_label = doc.get("name") if show_file_names else "(숨김)"
-        st.caption(
-            f"파일: {file_label} · 길이: {doc.get('text_length', 0):,} chars · 세그먼트: {len(doc.get('segments', []))} · {ocr_status}"
-        )
-        if doc.get("ocr_error"):
-            st.warning(f"OCR 실패: {doc.get('ocr_error')}")
-
-        st.markdown("**핵심 필드 추출**")
-        field_rows = []
-        for field in FIELD_DEFINITIONS:
-            entry = display_doc.get("fields", {}).get(field["name"])
-            field_rows.append({
-                "항목": field["label"],
-                "값": entry.get("value") if entry else "",
-                "근거(소스)": entry.get("source") if entry else "",
-                "근거(스니펫)": entry.get("snippet") if entry else "",
-            })
-        st.dataframe(field_rows, use_container_width=True)
-
-        st.markdown("**조항 체크리스트**")
-        clause_rows = []
-        for clause in display_doc.get("clauses", []):
-            clause_rows.append({
-                "조항": clause.get("label"),
-                "존재": "O" if clause.get("present") else "X",
-                "가중치": clause.get("weight", 0.0),
-                "근거(소스)": clause.get("source") or "",
-                "근거(스니펫)": clause.get("snippet") or "",
-            })
-        st.dataframe(clause_rows, use_container_width=True)
-
-        priority_segments = doc.get("priority_segments", [])
-        if priority_segments:
-            st.markdown("**우선 검토 영역 (비지도 가중치 상위)**")
-            rows = []
-            for entry in priority_segments[:8]:
-                snippet = entry.get("snippet", "")
-                if masking_enabled:
-                    snippet = mask_sensitive_text(snippet, replacements)
-                rows.append({
-                    "가중치": entry.get("weight", 0.0),
-                    "섹션": entry.get("section", ""),
-                    "소스": entry.get("source", ""),
-                    "요약": snippet,
-                })
-            st.dataframe(rows, use_container_width=True)
-
     term_sheet = analysis.get("term_sheet")
     investment_agreement = analysis.get("investment_agreement")
     comparisons = []
     if term_sheet and investment_agreement:
-        st.divider()
-        st.markdown("## 내용 일치 검토")
-        st.caption("핵심 항목이 두 문서에서 일치하는지 확인합니다.")
         comparisons = compare_fields(term_sheet.get("fields", {}), investment_agreement.get("fields", {}))
         if masking_enabled:
             comparisons = mask_comparisons(comparisons, replacements)
-        st.dataframe(comparisons, use_container_width=True)
 
     st.divider()
-    st.markdown("## 검토 의견")
+    st.markdown("## 종합 의견")
     opinion = build_review_opinion(term_sheet, investment_agreement, comparisons)
     st.markdown("**요약**")
     for line in opinion.get("summary", []):
@@ -455,26 +389,33 @@ if analysis:
 
     opinion_items = opinion.get("items", [])
     if opinion_items:
-        st.markdown("**이슈 리스트**")
-        st.dataframe(opinion_items, use_container_width=True)
+        st.markdown("**핵심 이슈**")
+        severity_order = {"높음": 0, "중간": 1, "낮음": 2, "정보": 3}
+        ranked = sorted(opinion_items, key=lambda item: severity_order.get(item.get("severity", ""), 9))
+        rows = []
+        for idx, item in enumerate(ranked, start=1):
+            detail = item.get("detail", "")
+            action = item.get("action", "")
+            detail_text = detail
+            if action:
+                detail_text = f"{detail} → {action}" if detail else action
+            rows.append({
+                "순위": idx,
+                "심각도": item.get("severity", ""),
+                "이슈": item.get("issue", ""),
+                "상세 내용": detail_text,
+            })
+        st.dataframe(rows, use_container_width=True)
     else:
         st.caption("표시할 이슈가 없습니다.")
 
-    questions = opinion.get("questions", [])
-    if questions:
-        st.markdown("**확인 질문**")
-        for question in questions:
-            st.markdown(f"- {question}")
-
-    st.markdown("### Claude 종합 의견 (선택)")
+    st.markdown("### Claude 종합 의견")
     use_llm_opinion = st.toggle(
-        "Claude로 종합 의견 생성",
-        value=st.session_state.get("contract_llm_opinion", False),
+        "Claude 종합 의견 자동 생성",
+        value=st.session_state.get("contract_llm_opinion", True),
         key="contract_llm_opinion",
         help="규칙 기반 이슈를 바탕으로 Claude가 종합 의견을 작성합니다.",
     )
-    if use_llm_opinion:
-        st.caption("종합 의견 생성 시 요약 데이터가 외부 API로 전송됩니다.")
     opinion_model = st.text_input(
         "종합 의견 모델",
         value=st.session_state.get("contract_opinion_model", OCR_DEFAULT_MODEL),
@@ -482,7 +423,12 @@ if analysis:
         help="기본: Claude Opus. 비용/속도에 따라 변경 가능.",
     )
     if use_llm_opinion:
-        if st.button("종합 의견 생성", type="secondary"):
+        st.caption("종합 의견 생성 시 요약 데이터가 외부 API로 전송됩니다.")
+        opinion_payload = json.dumps(opinion, ensure_ascii=False, sort_keys=True)
+        opinion_key = hashlib.sha256(opinion_payload.encode("utf-8")).hexdigest()
+        if not user_api_key:
+            st.warning("Claude 종합 의견을 생성하려면 API 키가 필요합니다.")
+        elif st.session_state.get("contract_opinion_cache_key") != opinion_key:
             st.session_state.contract_opinion_text = ""
             with st.spinner("Claude가 종합 의견을 작성 중입니다..."):
                 try:
@@ -491,11 +437,17 @@ if analysis:
                         api_key=user_api_key,
                         model=(opinion_model or OCR_DEFAULT_MODEL).strip(),
                     )
+                    st.session_state.contract_opinion_cache_key = opinion_key
                 except Exception as exc:
                     st.error(f"종합 의견 생성 실패: {exc}")
+        if st.session_state.get("contract_opinion_text"):
+            st.markdown(st.session_state.contract_opinion_text)
 
-    if st.session_state.get("contract_opinion_text"):
-        st.markdown(st.session_state.contract_opinion_text)
+    questions = opinion.get("questions", [])
+    if questions:
+        st.markdown("**확인 질문**")
+        for question in questions:
+            st.markdown(f"- {question}")
 
     st.divider()
     st.markdown("## 리스크 질문 (멀티턴)")
@@ -539,30 +491,99 @@ if analysis:
         st.session_state.contract_chat.append({"role": "assistant", "content": "\n".join(responses)})
         st.rerun()
 
-    st.divider()
-    st.markdown("## 문서 내 검색")
-    query = st.text_input("검색어", key="contract_search_query", placeholder="예: 투자금액, 준거법, 청산우선권")
-    if query:
-        if term_sheet:
-            st.markdown("**텀싯 검색 결과**")
-            hits = search_segments(term_sheet.get("segments", []), query)
-            if masking_enabled:
-                hits = mask_search_hits(hits, replacements)
-            if hits:
-                for hit in hits:
-                    st.caption(f"{hit.get('source')}: {hit.get('snippet')}")
+    with st.expander("문서 상세 보기", expanded=False):
+        st.markdown("### 문서 요약")
+
+        for key in ["term_sheet", "investment_agreement"]:
+            doc = analysis.get(key)
+            if not doc:
+                continue
+
+            title = "텀싯" if key == "term_sheet" else "투자계약서"
+            display_doc = mask_analysis(doc, replacements) if masking_enabled else doc
+            st.markdown(f"#### {title}")
+            ocr_pages = doc.get("ocr_pages_used", [])
+            if doc.get("ocr_error"):
+                ocr_status = "OCR: 실패"
+            elif doc.get("ocr_used"):
+                ocr_status = f"OCR: {len(ocr_pages)}/{doc.get('page_count', 0)}p"
             else:
-                st.caption("일치하는 결과가 없습니다.")
-        if investment_agreement:
-            st.markdown("**투자계약서 검색 결과**")
-            hits = search_segments(investment_agreement.get("segments", []), query)
-            if masking_enabled:
-                hits = mask_search_hits(hits, replacements)
-            if hits:
-                for hit in hits:
-                    st.caption(f"{hit.get('source')}: {hit.get('snippet')}")
-            else:
-                st.caption("일치하는 결과가 없습니다.")
+                ocr_status = "OCR: 미사용"
+            file_label = doc.get("name") if show_file_names else "(숨김)"
+            st.caption(
+                f"파일: {file_label} · 길이: {doc.get('text_length', 0):,} chars · 세그먼트: {len(doc.get('segments', []))} · {ocr_status}"
+            )
+            if doc.get("ocr_error"):
+                st.warning(f"OCR 실패: {doc.get('ocr_error')}")
+
+            st.markdown("**핵심 필드 추출**")
+            field_rows = []
+            for field in FIELD_DEFINITIONS:
+                entry = display_doc.get("fields", {}).get(field["name"])
+                field_rows.append({
+                    "항목": field["label"],
+                    "값": entry.get("value") if entry else "",
+                    "근거(소스)": entry.get("source") if entry else "",
+                    "근거(스니펫)": entry.get("snippet") if entry else "",
+                })
+            st.dataframe(field_rows, use_container_width=True)
+
+            st.markdown("**조항 체크리스트**")
+            clause_rows = []
+            for clause in display_doc.get("clauses", []):
+                clause_rows.append({
+                    "조항": clause.get("label"),
+                    "존재": "O" if clause.get("present") else "X",
+                    "가중치": clause.get("weight", 0.0),
+                    "근거(소스)": clause.get("source") or "",
+                    "근거(스니펫)": clause.get("snippet") or "",
+                })
+            st.dataframe(clause_rows, use_container_width=True)
+
+            priority_segments = doc.get("priority_segments", [])
+            if priority_segments:
+                st.markdown("**우선 검토 영역 (비지도 가중치 상위)**")
+                rows = []
+                for entry in priority_segments[:8]:
+                    snippet = entry.get("snippet", "")
+                    if masking_enabled:
+                        snippet = mask_sensitive_text(snippet, replacements)
+                    rows.append({
+                        "가중치": entry.get("weight", 0.0),
+                        "섹션": entry.get("section", ""),
+                        "소스": entry.get("source", ""),
+                        "요약": snippet,
+                    })
+                st.dataframe(rows, use_container_width=True)
+
+        if comparisons:
+            st.markdown("### 내용 일치 검토")
+            st.caption("핵심 항목이 두 문서에서 일치하는지 확인합니다.")
+            st.dataframe(comparisons, use_container_width=True)
+
+        st.markdown("### 문서 내 검색")
+        query = st.text_input("검색어", key="contract_search_query", placeholder="예: 투자금액, 준거법, 청산우선권")
+        if query:
+            if term_sheet:
+                st.markdown("**텀싯 검색 결과**")
+                hits = search_segments(term_sheet.get("segments", []), query)
+                if masking_enabled:
+                    hits = mask_search_hits(hits, replacements)
+                if hits:
+                    for hit in hits:
+                        st.caption(f"{hit.get('source')}: {hit.get('snippet')}")
+                else:
+                    st.caption("일치하는 결과가 없습니다.")
+            if investment_agreement:
+                st.markdown("**투자계약서 검색 결과**")
+                hits = search_segments(investment_agreement.get("segments", []), query)
+                if masking_enabled:
+                    hits = mask_search_hits(hits, replacements)
+                if hits:
+                    for hit in hits:
+                        st.caption(f"{hit.get('source')}: {hit.get('snippet')}")
+                else:
+                    st.caption("일치하는 결과가 없습니다.")
 else:
     st.divider()
     st.info("분석 결과가 아직 없습니다. 문서를 업로드한 뒤 '분석 실행'을 눌러주세요.")
