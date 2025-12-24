@@ -29,6 +29,7 @@ from shared.contract_review import (
     extract_fields,
     load_document,
     generate_contract_opinion_llm,
+    local_ocr_available,
     mask_analysis,
     mask_comparisons,
     mask_sensitive_text,
@@ -95,9 +96,27 @@ with st.expander("스캔본 OCR (Claude)", expanded=not analysis_exists):
         "OCR 모델",
         value=OCR_DEFAULT_MODEL,
         key="contract_ocr_model",
-        help="Claude Opus 모델명을 입력하세요.",
+        help="이미지 OCR로 전환될 때 사용됩니다.",
     )
-    st.caption("OCR 사용 시 페이지 이미지가 외부 API로 전송됩니다. 마스킹은 OCR 이후 표시 단계에서 적용됩니다.")
+    ocr_refine = st.checkbox(
+        "Claude 정제 (로컬 OCR 텍스트 후처리)",
+        value=st.session_state.get("contract_ocr_refine", True),
+        key="contract_ocr_refine",
+    )
+    ocr_refine_model = st.text_input(
+        "정제 모델",
+        value=st.session_state.get("contract_ocr_refine_model", OCR_DEFAULT_MODEL),
+        key="contract_ocr_refine_model",
+    )
+    ocr_lang = st.text_input(
+        "로컬 OCR 언어",
+        value=st.session_state.get("contract_ocr_lang", "kor+eng"),
+        key="contract_ocr_lang",
+        help="tesseract 언어 코드 (예: kor+eng)",
+    )
+    local_ocr_status = "사용 가능" if local_ocr_available() else "불가 (이미지 OCR로 대체)"
+    st.caption(f"로컬 OCR 상태: {local_ocr_status}")
+    st.caption("기본은 로컬 OCR → Claude 텍스트 정제입니다. 로컬 OCR 불가 시 이미지 OCR로 전환됩니다.")
 
 with st.expander("분석 모드", expanded=not analysis_exists):
     analysis_mode = st.selectbox(
@@ -157,6 +176,18 @@ def _resolve_ocr_budget() -> int:
     if analysis_mode == "정밀 분석" or ocr_choice == "끄기":
         return 0
     return int(ocr_budget)
+
+
+def _resolve_ocr_refine() -> bool:
+    return bool(ocr_refine)
+
+
+def _resolve_ocr_refine_model() -> str:
+    return (ocr_refine_model or OCR_DEFAULT_MODEL).strip()
+
+
+def _resolve_ocr_lang() -> str:
+    return (ocr_lang or "kor+eng").strip()
 
 
 def _save_upload(uploaded_file) -> Optional[Path]:
@@ -240,6 +271,9 @@ def _analyze_document(
             ocr_model=(ocr_model or OCR_DEFAULT_MODEL).strip(),
             ocr_page_budget=_resolve_ocr_budget(),
             ocr_strategy=_resolve_ocr_strategy(),
+            ocr_refine=_resolve_ocr_refine(),
+            ocr_refine_model=_resolve_ocr_refine_model(),
+            ocr_fast_lang=_resolve_ocr_lang(),
             progress_callback=ocr_callback,
         )
     except Exception as exc:
@@ -264,6 +298,9 @@ def _analyze_document(
         "ocr_used": loaded.get("ocr_used", False),
         "ocr_error": loaded.get("ocr_error", ""),
         "ocr_pages_used": loaded.get("ocr_pages_used", []),
+        "ocr_engine": loaded.get("ocr_engine", ""),
+        "ocr_refined": loaded.get("ocr_refined", False),
+        "ocr_refine_error": loaded.get("ocr_refine_error", ""),
         "priority_segments": loaded.get("priority_segments", []),
     }
 
@@ -323,7 +360,19 @@ if analyze_clicked:
             elif doc.get("ocr_used"):
                 ocr_pages = doc.get("ocr_pages_used", [])
                 total_pages = doc.get("page_count", 0)
-                ocr_progress_placeholder.progress(1.0, text=f"텀싯 OCR 완료 ({len(ocr_pages)}/{total_pages}p)")
+                engine_label = doc.get("ocr_engine", "")
+                engine_text = ""
+                if engine_label == "local+claude":
+                    engine_text = "로컬+정제"
+                elif engine_label == "local":
+                    engine_text = "로컬"
+                elif engine_label == "claude_image":
+                    engine_text = "이미지"
+                suffix = f", {engine_text}" if engine_text else ""
+                ocr_progress_placeholder.progress(
+                    1.0,
+                    text=f"텀싯 OCR 완료 ({len(ocr_pages)}/{total_pages}p{suffix})",
+                )
             else:
                 ocr_progress_placeholder.progress(0.0, text="텀싯 OCR 미사용")
             st.session_state.contract_analysis["term_sheet"] = doc
@@ -341,7 +390,19 @@ if analyze_clicked:
             elif doc.get("ocr_used"):
                 ocr_pages = doc.get("ocr_pages_used", [])
                 total_pages = doc.get("page_count", 0)
-                ocr_progress_placeholder.progress(1.0, text=f"투자계약서 OCR 완료 ({len(ocr_pages)}/{total_pages}p)")
+                engine_label = doc.get("ocr_engine", "")
+                engine_text = ""
+                if engine_label == "local+claude":
+                    engine_text = "로컬+정제"
+                elif engine_label == "local":
+                    engine_text = "로컬"
+                elif engine_label == "claude_image":
+                    engine_text = "이미지"
+                suffix = f", {engine_text}" if engine_text else ""
+                ocr_progress_placeholder.progress(
+                    1.0,
+                    text=f"투자계약서 OCR 완료 ({len(ocr_pages)}/{total_pages}p{suffix})",
+                )
             else:
                 ocr_progress_placeholder.progress(0.0, text="투자계약서 OCR 미사용")
             st.session_state.contract_analysis["investment_agreement"] = doc
@@ -464,6 +525,17 @@ if analysis:
     if user_query:
         st.session_state.contract_chat.append({"role": "user", "content": user_query})
 
+        available_docs = []
+        missing_docs = []
+        if term_sheet:
+            available_docs.append("텀싯")
+        else:
+            missing_docs.append("텀싯")
+        if investment_agreement:
+            available_docs.append("투자계약서")
+        else:
+            missing_docs.append("투자계약서")
+
         responses = []
         term_hits = []
         invest_hits = []
@@ -477,6 +549,8 @@ if analysis:
             invest_hits = mask_search_hits(invest_hits, replacements)
 
         if term_hits or invest_hits:
+            if available_docs:
+                responses.append(f"검색 범위: {', '.join(available_docs)}")
             responses.append("관련 스니펫:")
             for hit in term_hits:
                 responses.append(f"- [텀싯 {hit.get('source')}] {hit.get('snippet')}")
@@ -484,6 +558,10 @@ if analysis:
                 responses.append(f"- [투자계약서 {hit.get('source')}] {hit.get('snippet')}")
         else:
             responses.append("관련 텍스트를 찾지 못했습니다. 다른 키워드로 검색하거나 OCR 범위를 늘려보세요.")
+            if available_docs:
+                responses.append(f"현재 검색 범위: {', '.join(available_docs)}")
+            if missing_docs:
+                responses.append(f"비교/대조를 위해 추가 업로드 필요: {', '.join(missing_docs)}")
 
         if analysis_mode == "빠른 스캔" and ocr_choice != "끄기":
             responses.append("빠른 스캔 모드라 일부 페이지만 OCR했습니다. 중요한 조항은 정밀 분석에서 다시 확인하세요.")
@@ -503,10 +581,19 @@ if analysis:
             display_doc = mask_analysis(doc, replacements) if masking_enabled else doc
             st.markdown(f"#### {title}")
             ocr_pages = doc.get("ocr_pages_used", [])
+            ocr_engine = doc.get("ocr_engine", "")
+            engine_label = ""
+            if ocr_engine == "local+claude":
+                engine_label = "로컬+정제"
+            elif ocr_engine == "local":
+                engine_label = "로컬"
+            elif ocr_engine == "claude_image":
+                engine_label = "이미지"
             if doc.get("ocr_error"):
                 ocr_status = "OCR: 실패"
             elif doc.get("ocr_used"):
-                ocr_status = f"OCR: {len(ocr_pages)}/{doc.get('page_count', 0)}p"
+                suffix = f" ({engine_label})" if engine_label else ""
+                ocr_status = f"OCR: {len(ocr_pages)}/{doc.get('page_count', 0)}p{suffix}"
             else:
                 ocr_status = "OCR: 미사용"
             file_label = doc.get("name") if show_file_names else "(숨김)"
@@ -515,6 +602,8 @@ if analysis:
             )
             if doc.get("ocr_error"):
                 st.warning(f"OCR 실패: {doc.get('ocr_error')}")
+            if doc.get("ocr_refine_error"):
+                st.warning(f"Claude 정제 실패: {doc.get('ocr_refine_error')}")
 
             st.markdown("**핵심 필드 추출**")
             field_rows = []

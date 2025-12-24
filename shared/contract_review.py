@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import base64
+import io
 import json
 import math
 from pathlib import Path
@@ -29,6 +30,16 @@ try:
     from docx import Document
 except Exception:
     Document = None
+
+try:
+    from PIL import Image
+except Exception:
+    Image = None
+
+try:
+    import pytesseract
+except Exception:
+    pytesseract = None
 
 try:
     from anthropic import Anthropic
@@ -166,6 +177,8 @@ MASK_TOKEN_MAP = {
 OCR_DEFAULT_MODEL = "claude-opus-4-5-20251101"
 OCR_DEFAULT_DPI = 200
 OCR_DENSITY_DPI = 36
+OCR_FAST_DPI = 150
+OCR_FAST_LANG = "kor+eng"
 OCR_MIN_CHARS_PER_PAGE = 200
 OCR_SINGLE_HANGUL_RATIO_THRESHOLD = 0.35
 OCR_SYMBOL_RATIO_THRESHOLD = 0.02
@@ -173,6 +186,13 @@ OCR_PROMPT = (
     "You are a precise OCR engine. Extract all visible text from the image. "
     "Preserve reading order. Output plain text only with line breaks. "
     "Do not summarize or add commentary."
+)
+
+OCR_REFINE_PROMPT = (
+    "You are an OCR cleanup engine for Korean legal documents. "
+    "Fix spacing, broken characters, and obvious OCR artifacts while preserving the original meaning. "
+    "Do NOT add, remove, or interpret content. Keep numbers, dates, and clause numbering. "
+    "Return plain text only."
 )
 
 SEVERITY_ORDER = ["높음", "중간", "낮음", "정보"]
@@ -437,7 +457,20 @@ def build_review_opinion(
         }
 
     if not comparisons:
-        _add_item("정보", "문서 간 비교 미수행", "한쪽 문서만 업로드되어 비교할 수 없습니다.", "두 문서를 모두 업로드하세요.")
+        missing = []
+        if not term_sheet:
+            missing.append("텀싯")
+        if not investment_agreement:
+            missing.append("투자계약서")
+        uploaded = []
+        if term_sheet:
+            uploaded.append("텀싯")
+        if investment_agreement:
+            uploaded.append("투자계약서")
+        detail = "한쪽 문서만 업로드되어 비교할 수 없습니다."
+        if missing:
+            detail = f"업로드된 문서: {', '.join(uploaded) if uploaded else '없음'} / 추가 필요: {', '.join(missing)}"
+        _add_item("정보", "문서 간 비교 미수행", detail, "두 문서를 모두 업로드하세요.")
 
     for comp in comparisons:
         status = comp.get("status")
@@ -804,6 +837,49 @@ def _render_pdf_page_to_png(doc: "fitz.Document", page_index: int, dpi: int) -> 
     return pix.tobytes("png")
 
 
+def local_ocr_available() -> bool:
+    if not Image or not pytesseract:
+        return False
+    try:
+        pytesseract.get_tesseract_version()
+    except Exception:
+        return False
+    return True
+
+
+def _local_ocr_from_png(png_bytes: bytes, lang: str) -> str:
+    if not Image or not pytesseract:
+        raise ImportError("로컬 OCR 라이브러리가 필요합니다.")
+    with Image.open(io.BytesIO(png_bytes)) as img:
+        return pytesseract.image_to_string(img, lang=lang, config="--oem 1 --psm 6")
+
+
+def _ocr_pdf_fast_local(
+    path: Path,
+    dpi: int = OCR_FAST_DPI,
+    lang: str = OCR_FAST_LANG,
+    progress_callback: Optional[Callable[[int, int, str], None]] = None,
+    page_indices: Optional[List[int]] = None,
+) -> List[Dict[str, str]]:
+    if not fitz:
+        raise ImportError("PyMuPDF(fitz)가 필요합니다.")
+    if not Image or not pytesseract:
+        raise ImportError("로컬 OCR 라이브러리가 필요합니다.")
+
+    segments: List[Dict[str, str]] = []
+    with fitz.open(path) as doc:
+        pages = page_indices or list(range(doc.page_count))
+        if progress_callback:
+            progress_callback(0, len(pages), "로컬 OCR 시작")
+        for idx, page_index in enumerate(pages, start=1):
+            png_bytes = _render_pdf_page_to_png(doc, page_index, dpi)
+            text = _local_ocr_from_png(png_bytes, lang=lang)
+            segments.append({"source": f"p{page_index + 1}", "text": text})
+            if progress_callback:
+                progress_callback(idx, len(pages), "로컬 OCR 진행 중")
+    return segments
+
+
 def _extract_claude_text(response: object) -> str:
     parts = []
     for block in getattr(response, "content", []) or []:
@@ -811,6 +887,31 @@ def _extract_claude_text(response: object) -> str:
         if text:
             parts.append(text)
     return "\n".join(parts).strip()
+
+
+def _refine_ocr_text_with_claude(
+    text: str,
+    api_key: str,
+    model: str = OCR_DEFAULT_MODEL,
+) -> str:
+    if not Anthropic:
+        raise ImportError("anthropic SDK가 필요합니다.")
+    if not api_key:
+        raise ValueError("Claude API 키가 필요합니다.")
+
+    client = Anthropic(api_key=api_key)
+    response = client.messages.create(
+        model=model,
+        max_tokens=2000,
+        temperature=0,
+        messages=[
+            {
+                "role": "user",
+                "content": f"{OCR_REFINE_PROMPT}\n\n[OCR TEXT]\n{text}",
+            }
+        ],
+    )
+    return _extract_claude_text(response)
 
 
 def _ocr_pdf_with_claude(
@@ -872,6 +973,9 @@ def load_document(
     ocr_model: str = OCR_DEFAULT_MODEL,
     ocr_page_budget: int = 0,
     ocr_strategy: str = "density",
+    ocr_refine: bool = True,
+    ocr_refine_model: str = OCR_DEFAULT_MODEL,
+    ocr_fast_lang: str = OCR_FAST_LANG,
     progress_callback: Optional[Callable[[int, int, str], None]] = None,
 ) -> Dict[str, object]:
     ext = path.suffix.lower()
@@ -879,29 +983,64 @@ def load_document(
     ocr_used = False
     ocr_error = ""
     ocr_pages_used: List[int] = []
+    ocr_engine = ""
+    ocr_refined = False
+    ocr_refine_error = ""
     if ext == ".pdf":
         segments, page_count = _build_segments_from_pdf(path)
         if ocr_mode in ("auto", "force"):
             should_ocr = ocr_mode == "force" or _needs_ocr(segments, page_count)
             if should_ocr:
-                if not api_key:
+                need_api_key = ocr_refine or not local_ocr_available()
+                if need_api_key and not api_key:
                     ocr_error = "Claude API 키가 없습니다."
                 else:
                     try:
                         ocr_pages = _select_ocr_pages(path, ocr_strategy, ocr_page_budget)
-                        ocr_segments = _ocr_pdf_with_claude(
-                            path,
-                            api_key=api_key,
-                            model=ocr_model,
-                            progress_callback=progress_callback,
-                            page_indices=ocr_pages,
-                        )
+                        ocr_segments = []
+                        if local_ocr_available():
+                            ocr_segments = _ocr_pdf_fast_local(
+                                path,
+                                dpi=OCR_FAST_DPI,
+                                lang=ocr_fast_lang,
+                                progress_callback=progress_callback,
+                                page_indices=ocr_pages,
+                            )
+                            ocr_engine = "local"
+                            if ocr_refine:
+                                refined_segments = []
+                                for idx, seg in enumerate(ocr_segments, start=1):
+                                    if progress_callback:
+                                        progress_callback(idx, len(ocr_segments), "Claude 정제 중")
+                                    try:
+                                        refined_text = _refine_ocr_text_with_claude(
+                                            seg.get("text", ""),
+                                            api_key=api_key,
+                                            model=ocr_refine_model,
+                                        )
+                                        refined_segments.append({"source": seg.get("source"), "text": refined_text})
+                                    except Exception as exc:
+                                        ocr_refine_error = str(exc)
+                                        refined_segments.append(seg)
+                                ocr_segments = refined_segments
+                                ocr_refined = True
+                                ocr_engine = "local+claude"
+                        else:
+                            ocr_segments = _ocr_pdf_with_claude(
+                                path,
+                                api_key=api_key,
+                                model=ocr_model,
+                                progress_callback=progress_callback,
+                                page_indices=ocr_pages,
+                            )
+                            ocr_engine = "claude_image"
+
                         segments = _merge_segments_by_source(segments, ocr_segments)
                         ocr_used = True
                         ocr_pages_used = ocr_pages
                     except Exception as exc:
                         ocr_error = str(exc)
-                        logger.warning("Claude OCR 실패: %s", exc)
+                        logger.warning("OCR 실패: %s", exc)
     elif ext in (".docx",):
         segments = _build_segments_from_docx(path)
     else:
@@ -917,6 +1056,9 @@ def load_document(
         "ocr_used": ocr_used,
         "ocr_error": ocr_error,
         "ocr_pages_used": ocr_pages_used,
+        "ocr_engine": ocr_engine,
+        "ocr_refined": ocr_refined,
+        "ocr_refine_error": ocr_refine_error,
         "segment_scores": scoring.get("scores_by_source", {}),
         "priority_segments": scoring.get("ranked", []),
     }
