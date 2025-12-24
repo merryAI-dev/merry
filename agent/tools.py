@@ -14,12 +14,16 @@ from pathlib import Path
 from typing import Any, Dict, List, Callable
 
 from shared.logging_config import get_logger
+from shared.cache_utils import compute_file_hash, compute_payload_hash, get_cache_dir, load_json, save_json
 
 logger = get_logger("tools")
 
 # 프로젝트 루트를 Python 경로에 추가
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+
+CACHE_VERSION = 1
+CACHE_TTL_SECONDS = 60 * 60 * 6
 
 DEFAULT_UNDERWRITER_DATA_PATH = (
     PROJECT_ROOT
@@ -3084,6 +3088,26 @@ def execute_extract_pdf_market_evidence(
 
     doc = None
     try:
+        try:
+            file_hash = compute_file_hash(Path(pdf_path))
+            payload = {
+                "version": CACHE_VERSION,
+                "file_hash": file_hash,
+                "max_pages": max_pages,
+                "max_results": max_results,
+                "keywords": base_keywords,
+                "tool": "extract_pdf_market_evidence",
+            }
+            cache_key = compute_payload_hash(payload)
+            cache_dir = get_cache_dir("market_evidence", "shared")
+            cache_path = cache_dir / f"{cache_key}.json"
+            cached = load_json(cache_path)
+            if cached:
+                cached["cache_hit"] = True
+                return cached
+        except Exception:
+            cache_path = None
+
         doc = fitz.open(pdf_path)
         total_pages = len(doc)
         pages_to_read = min(total_pages, max_pages)
@@ -3128,14 +3152,39 @@ def execute_extract_pdf_market_evidence(
             if len(evidence) >= max_results:
                 break
 
-        return {
+        warnings = []
+        if not evidence:
+            warnings.append("시장규모 근거 문장을 찾지 못했습니다. 키워드나 페이지 범위를 확장하세요.")
+
+        result = {
             "success": True,
             "file_path": pdf_path,
             "total_pages": total_pages,
             "pages_read": pages_to_read,
             "evidence": evidence,
-            "evidence_count": len(evidence)
+            "evidence_count": len(evidence),
+            "warnings": warnings,
+            "cache_hit": False,
+            "cached_at": datetime.utcnow().isoformat()
         }
+        try:
+            file_hash = compute_file_hash(Path(pdf_path))
+            payload = {
+                "version": CACHE_VERSION,
+                "file_hash": file_hash,
+                "max_pages": max_pages,
+                "max_results": max_results,
+                "keywords": base_keywords,
+                "tool": "extract_pdf_market_evidence",
+            }
+            cache_key = compute_payload_hash(payload)
+            cache_dir = get_cache_dir("market_evidence", "shared")
+            cache_path = cache_dir / f"{cache_key}.json"
+            save_json(cache_path, result)
+        except Exception:
+            pass
+
+        return result
     except Exception as e:
         logger.error(f"PDF market evidence extraction failed: {e}", exc_info=True)
         return {"success": False, "error": f"시장규모 근거 추출 실패: {str(e)}"}
@@ -3283,6 +3332,24 @@ def execute_read_pdf_as_text(
         if not os.path.exists(pdf_path):
             return {"success": False, "error": f"파일을 찾을 수 없습니다: {pdf_path}"}
 
+        try:
+            file_hash = compute_file_hash(Path(pdf_path))
+            payload = {
+                "version": CACHE_VERSION,
+                "file_hash": file_hash,
+                "max_pages": max_pages,
+                "tool": "read_pdf_as_text",
+            }
+            cache_key = compute_payload_hash(payload)
+            cache_dir = get_cache_dir("pdf_text", "shared")
+            cache_path = cache_dir / f"{cache_key}.json"
+            cached = load_json(cache_path)
+            if cached:
+                cached["cache_hit"] = True
+                return cached
+        except Exception:
+            cache_path = None
+
         doc = fitz.open(pdf_path)
         total_pages = len(doc)
         pages_to_read = min(total_pages, max_pages)
@@ -3302,14 +3369,19 @@ def execute_read_pdf_as_text(
         full_text = "\n".join(text_content)
 
         logger.info(f"PDF read successfully: {pdf_path} ({pages_to_read}/{total_pages} pages)")
-        return {
+        result = {
             "success": True,
             "file_path": pdf_path,
             "total_pages": total_pages,
             "pages_read": pages_to_read,
             "content": full_text,
-            "char_count": len(full_text)
+            "char_count": len(full_text),
+            "cache_hit": False,
+            "cached_at": datetime.utcnow().isoformat()
         }
+        if cache_path:
+            save_json(cache_path, result)
+        return result
 
     except FileNotFoundError:
         return {"success": False, "error": f"파일을 찾을 수 없습니다: {pdf_path}"}
@@ -3440,6 +3512,25 @@ def execute_analyze_peer_per(
 
     try:
         import statistics
+        now_ts = time.time()
+        try:
+            payload = {
+                "version": CACHE_VERSION,
+                "tickers": tickers,
+                "include_forward_per": include_forward_per,
+                "tool": "analyze_peer_per",
+            }
+            cache_key = compute_payload_hash(payload)
+            cache_dir = get_cache_dir("peer_per", "shared")
+            cache_path = cache_dir / f"{cache_key}.json"
+            cached = load_json(cache_path)
+            if cached:
+                cached_ts = cached.get("cached_at_ts")
+                if isinstance(cached_ts, (int, float)) and now_ts - cached_ts < CACHE_TTL_SECONDS:
+                    cached["cache_hit"] = True
+                    return cached
+        except Exception:
+            cache_path = None
 
         peer_data = []
         failed_tickers = []
@@ -3527,14 +3618,39 @@ def execute_analyze_peer_per(
                 "count": len(operating_margins)
             }
 
-        return {
+        warnings = []
+        outliers = {}
+        trailing_pairs = [(d["ticker"], d["trailing_per"]) for d in peer_data if d["trailing_per"] is not None]
+        if len(trailing_pairs) >= 4:
+            values = [val for _, val in trailing_pairs]
+            q1, q3 = statistics.quantiles(values, n=4)[0], statistics.quantiles(values, n=4)[2]
+            iqr = q3 - q1
+            lower = q1 - 1.5 * iqr
+            upper = q3 + 1.5 * iqr
+            outlier_tickers = [ticker for ticker, val in trailing_pairs if val < lower or val > upper]
+            if outlier_tickers:
+                outliers["trailing_per"] = outlier_tickers
+                warnings.append(f"Trailing PER 이상치 후보: {', '.join(outlier_tickers)}")
+
+        missing_per = [d["ticker"] for d in peer_data if d["trailing_per"] is None]
+        if missing_per:
+            warnings.append(f"Trailing PER 미확인: {', '.join(missing_per)}")
+
+        result = {
             "success": True,
             "peer_count": len(peer_data),
             "peers": peer_data,
             "statistics": stats,
             "failed_tickers": failed_tickers,
-            "summary": _generate_per_summary(stats)
+            "summary": _generate_per_summary(stats),
+            "warnings": warnings,
+            "outliers": outliers,
+            "cache_hit": False,
+            "cached_at_ts": now_ts
         }
+        if cache_path:
+            save_json(cache_path, result)
+        return result
 
     except ImportError:
         return {

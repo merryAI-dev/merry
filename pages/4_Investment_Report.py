@@ -5,6 +5,7 @@
 """
 
 import asyncio
+import pandas as pd
 
 import streamlit as st
 
@@ -40,6 +41,26 @@ inject_custom_css()
 avatar_image = get_avatar_image()
 user_avatar_image = get_user_avatar_image()
 render_sidebar(mode="report")
+
+
+def _sync_report_evidence_from_memory():
+    agent = st.session_state.get("agent")
+    if not agent or not hasattr(agent, "memory"):
+        return
+    messages = agent.memory.session_metadata.get("messages", [])
+    for msg in reversed(messages):
+        if msg.get("role") != "tool":
+            continue
+        meta = msg.get("metadata") or {}
+        if meta.get("tool_name") != "extract_pdf_market_evidence":
+            continue
+        result = meta.get("result")
+        if isinstance(result, dict):
+            st.session_state.report_evidence = result if result.get("success") else None
+        break
+
+
+_sync_report_evidence_from_memory()
 
 st.markdown("# 투자심사 보고서 작성")
 st.markdown("시장규모 근거를 추출하고 인수인의견 스타일 초안을 작성합니다")
@@ -79,6 +100,32 @@ with upload_cols[1]:
             st.success(f"업로드 완료: {report_file.name}")
 
 st.divider()
+
+# 요약 영역
+evidence = st.session_state.get("report_evidence")
+if evidence:
+    st.markdown("### 시장규모 근거 요약")
+    if evidence.get("cache_hit"):
+        st.caption("캐시 사용: 최근 분석 결과를 재사용했습니다.")
+    warnings = evidence.get("warnings") or []
+    if warnings:
+        st.warning("검증/주의 사항")
+        for warning in warnings:
+            st.markdown(f"- {warning}")
+
+    rows = []
+    for item in evidence.get("evidence", [])[:8]:
+        rows.append({
+            "페이지": item.get("page"),
+            "근거": item.get("text"),
+            "숫자": ", ".join(item.get("numbers", [])),
+        })
+    if rows:
+        st.dataframe(rows, use_container_width=True)
+    else:
+        st.caption("표시할 근거가 없습니다.")
+
+    st.divider()
 
 # 빠른 명령어
 if st.session_state.get("report_file_path"):

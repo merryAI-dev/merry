@@ -19,7 +19,15 @@ from shared.file_utils import (
     get_secure_upload_path,
     validate_upload,
 )
-from shared.cache_utils import compute_file_hash, compute_payload_hash, get_cache_dir, load_json, save_json
+from shared.cache_utils import (
+    clear_cache_dir,
+    compute_file_hash,
+    compute_payload_hash,
+    get_cache_dir,
+    load_json,
+    remove_cache_file,
+    save_json,
+)
 from shared.contract_review import (
     FIELD_DEFINITIONS,
     OCR_DEFAULT_MODEL,
@@ -39,7 +47,7 @@ from shared.contract_review import (
 )
 
 CACHE_NAMESPACE = "contract_review"
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 
 
 st.set_page_config(
@@ -52,12 +60,19 @@ initialize_session_state()
 check_authentication()
 inject_custom_css()
 
+user_id = get_user_id()
+user_api_key = get_user_api_key()
+
 st.markdown("# 계약서 리서치 에이전트")
 st.caption("텀싯/투자계약서를 근거 기반으로 검토합니다. 법률 자문이 아니라 리서치 보조 도구입니다.")
 
 st.warning("이 도구는 법률 자문이 아닙니다. 최종 판단은 반드시 법무 검토가 필요합니다.")
 
 analysis_exists = bool(st.session_state.get("contract_analysis"))
+
+if st.session_state.get("contract_cache_version") != CACHE_VERSION:
+    clear_cache_dir(CACHE_NAMESPACE, user_id or "anonymous")
+    st.session_state.contract_cache_version = CACHE_VERSION
 
 with st.expander("보안/마스킹", expanded=not analysis_exists):
     masking_enabled = st.checkbox(
@@ -149,14 +164,6 @@ with st.expander("분석 모드", expanded=not analysis_exists):
     if analysis_mode == "빠른 스캔":
         st.caption("빠른 스캔은 선택된 페이지만 OCR해서 속도를 높입니다. 세부 확인은 추가 질문으로 진행하세요.")
 
-user_id = get_user_id()
-user_api_key = get_user_api_key()
-allowed_extensions = ALLOWED_EXTENSIONS_PDF + [".docx"]
-
-if "contract_analysis" not in st.session_state:
-    st.session_state.contract_analysis = {}
-
-
 
 def _resolve_ocr_mode() -> str:
     mapping = {
@@ -192,6 +199,49 @@ def _resolve_ocr_refine_model() -> str:
 
 def _resolve_ocr_lang() -> str:
     return (ocr_lang or "kor+eng").strip()
+
+with st.expander("캐시 관리", expanded=False):
+    if st.button("계약서 캐시 전체 삭제", type="secondary"):
+        cleared = clear_cache_dir(CACHE_NAMESPACE, user_id or "anonymous")
+        st.success(f"캐시 삭제 완료: {cleared}건")
+    doc_paths = [
+        ("텀싯", st.session_state.get("contract_term_sheet_path"), "term_sheet"),
+        ("투자계약서", st.session_state.get("contract_investment_path"), "investment_agreement"),
+    ]
+    for label, path_str, doc_type in doc_paths:
+        if not path_str:
+            continue
+        if st.button(f"{label} 캐시 삭제", type="secondary"):
+            try:
+                path = Path(path_str)
+                file_hash = compute_file_hash(path)
+                payload = {
+                    "version": CACHE_VERSION,
+                    "doc_type": doc_type,
+                    "file_hash": file_hash,
+                    "ocr_mode": _resolve_ocr_mode(),
+                    "ocr_model": (ocr_model or OCR_DEFAULT_MODEL).strip(),
+                    "ocr_refine": _resolve_ocr_refine(),
+                    "ocr_refine_model": _resolve_ocr_refine_model(),
+                    "ocr_strategy": _resolve_ocr_strategy(),
+                    "ocr_budget": _resolve_ocr_budget(),
+                    "ocr_lang": _resolve_ocr_lang(),
+                }
+                cache_key = compute_payload_hash(payload)
+                cache_dir = get_cache_dir(CACHE_NAMESPACE, user_id)
+                cache_path = cache_dir / f"{cache_key}.json"
+                removed = remove_cache_file(cache_path)
+                if removed:
+                    st.success(f"{label} 캐시 삭제 완료")
+                else:
+                    st.warning(f"{label} 캐시 파일이 없습니다.")
+            except Exception as exc:
+                st.error(f"{label} 캐시 삭제 실패: {exc}")
+
+allowed_extensions = ALLOWED_EXTENSIONS_PDF + [".docx"]
+
+if "contract_analysis" not in st.session_state:
+    st.session_state.contract_analysis = {}
 
 
 def _build_doc_cache_path(path: Path, doc_type: str) -> Path:
