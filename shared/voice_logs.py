@@ -143,13 +143,44 @@ def _get_day_range(day_offset: int = 1) -> tuple[datetime, datetime]:
     return start, end
 
 
+def _get_voice_logs_between_supabase(
+    user_id: str,
+    start: datetime,
+    end: datetime,
+    limit: int,
+) -> List[Dict[str, str]]:
+    if not SUPABASE_AVAILABLE:
+        return []
+
+    client = get_supabase_client()
+    if not client:
+        return []
+
+    try:
+        response = client.table(VOICE_LOG_TABLE).select("*").eq(
+            "user_id", user_id
+        ).gte(
+            "created_at", start.isoformat()
+        ).lt(
+            "created_at", end.isoformat()
+        ).order("created_at", desc=True).limit(limit).execute()
+        rows = response.data or []
+        for row in rows:
+            if "created_at" in row and "timestamp" not in row:
+                row["timestamp"] = row["created_at"]
+        return rows
+    except Exception as exc:
+        logger.warning(f"Supabase voice log range fetch failed: {exc}")
+        return []
+
+
 def _get_voice_logs_between(
     user_id: str,
     start: datetime,
     end: datetime,
     limit: int,
 ) -> List[Dict[str, str]]:
-    entries = _get_recent_voice_logs_supabase(user_id, limit)
+    entries = _get_voice_logs_between_supabase(user_id, start, end, limit)
     if entries:
         return [
             e for e in entries
@@ -204,6 +235,31 @@ def _get_chat_messages_between_supabase(
         return []
 
 
+def _get_recent_chat_messages_supabase(user_id: str, limit: int) -> List[Dict[str, str]]:
+    if not SUPABASE_AVAILABLE:
+        return []
+
+    client = get_supabase_client()
+    if not client:
+        return []
+
+    try:
+        response = client.table("chat_messages").select(
+            "role, content, created_at"
+        ).eq(
+            "user_id", user_id
+        ).order(
+            "created_at", desc=True
+        ).limit(limit).execute()
+        rows = response.data or []
+        for row in rows:
+            row["timestamp"] = row.get("created_at")
+        return rows
+    except Exception as exc:
+        logger.warning(f"Supabase chat_messages fetch failed: {exc}")
+        return []
+
+
 def get_checkin_context(
     user_id: str,
     day_offset: int = 1,
@@ -215,6 +271,37 @@ def get_checkin_context(
     return {
         "start": start.isoformat(),
         "end": end.isoformat(),
+        "voice_logs": voice_logs,
+        "chat_messages": chat_messages,
+    }
+
+
+def get_checkin_context_days(
+    user_id: str,
+    days: int = 7,
+    limit: int = 50,
+) -> Dict[str, List[Dict[str, str]]]:
+    end = datetime.now()
+    start = end - timedelta(days=days)
+    voice_logs = _get_voice_logs_between(user_id, start, end, limit)
+    chat_messages = _get_chat_messages_between_supabase(user_id, start, end, limit)
+    return {
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "voice_logs": voice_logs,
+        "chat_messages": chat_messages,
+    }
+
+
+def get_checkin_context_all(
+    user_id: str,
+    limit: int = 100,
+) -> Dict[str, List[Dict[str, str]]]:
+    voice_logs = get_recent_voice_logs(user_id, limit=limit)
+    chat_messages = _get_recent_chat_messages_supabase(user_id, limit=limit)
+    return {
+        "start": "",
+        "end": "",
         "voice_logs": voice_logs,
         "chat_messages": chat_messages,
     }
@@ -359,6 +446,26 @@ def build_checkin_context_text(context: Dict[str, List[Dict[str, str]]], max_ite
             lines.append(f"- {role}: {content}")
 
     return "\n".join(lines[: max_items * 2]).strip()
+
+
+def build_checkin_summaries_context_text(
+    summaries: List[Dict[str, Any]],
+    max_items: int = 10,
+) -> str:
+    if not summaries:
+        return ""
+
+    lines: List[str] = []
+    for entry in summaries[:max_items]:
+        summary_date = entry.get("summary_date") or ""
+        summary_text = build_checkin_summary_text(entry)
+        if not summary_text:
+            continue
+        label = f"[{summary_date}]" if summary_date else "[체크인]"
+        lines.append(label)
+        lines.append(summary_text)
+
+    return "\n".join(lines)
 
 
 def build_checkin_summary_text(summary: Dict[str, str]) -> str:
