@@ -13,19 +13,47 @@ from shared.auth import check_authentication, get_user_id
 from shared.config import initialize_agent, initialize_session_state, inject_custom_css
 from shared.clova_speech import clova_credentials_present, clova_stt, clova_tts
 from shared.local_speech import local_stt_faster_whisper, local_tts_mms, local_tts_piper
-from shared.voice_logs import (
-    append_checkin_summary,
-    append_voice_log,
-    build_checkin_context_text,
-    build_checkin_summaries_context_text,
-    build_checkin_summary_text,
-    get_checkin_context_all,
-    get_checkin_context_days,
-    get_checkin_context,
-    get_latest_checkin,
-    get_latest_checkin_summary,
-    get_checkin_summaries,
-)
+try:
+    from shared.voice_logs import (
+        append_checkin_summary,
+        append_voice_log,
+        build_checkin_context_text,
+        build_checkin_summaries_context_text,
+        build_checkin_summary_text,
+        get_checkin_context_all,
+        get_checkin_context_days,
+        get_checkin_context,
+        get_latest_checkin,
+        get_latest_checkin_summary,
+        get_checkin_summaries,
+    )
+    VOICE_LOGS_IMPORT_ERROR = None
+except Exception as exc:
+    VOICE_LOGS_IMPORT_ERROR = exc
+
+    def _empty_context(*_args, **_kwargs):
+        return {"start": "", "end": "", "voice_logs": [], "chat_messages": []}
+
+    def _empty_text(*_args, **_kwargs):
+        return ""
+
+    def _empty_list(*_args, **_kwargs):
+        return []
+
+    def _noop(*_args, **_kwargs):
+        return None
+
+    append_checkin_summary = _noop
+    append_voice_log = _noop
+    build_checkin_context_text = _empty_text
+    build_checkin_summaries_context_text = _empty_text
+    build_checkin_summary_text = _empty_text
+    get_checkin_context_all = _empty_context
+    get_checkin_context_days = _empty_context
+    get_checkin_context = _empty_context
+    get_latest_checkin = _noop
+    get_latest_checkin_summary = _noop
+    get_checkin_summaries = _empty_list
 # ========================================
 # Page setup
 # ========================================
@@ -39,6 +67,13 @@ initialize_session_state()
 check_authentication()
 initialize_agent()
 inject_custom_css()
+
+if VOICE_LOGS_IMPORT_ERROR:
+    st.error(
+        "voice_logs 로드 실패: "
+        f"{type(VOICE_LOGS_IMPORT_ERROR).__name__}: {VOICE_LOGS_IMPORT_ERROR}"
+    )
+    st.caption("Streamlit Cloud 로그에서 상세 원인을 확인해주세요.")
 
 # Defaults for local STT
 if not st.session_state.whisper_model:

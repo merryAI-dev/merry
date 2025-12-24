@@ -11,18 +11,19 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from shared.logging_config import get_logger
 
+logger = get_logger("voice_logs")
+
 try:
     from agent.supabase_storage import get_supabase_client
     SUPABASE_AVAILABLE = True
-except Exception:
+except Exception as exc:
     SUPABASE_AVAILABLE = False
+    logger.warning(f"Supabase storage import failed: {exc}")
 
 
 VOICE_LOG_ROOT = Path("chat_history") / "voice"
 VOICE_LOG_TABLE = "voice_logs"
 VOICE_CHECKIN_TABLE = "voice_checkins"
-
-logger = get_logger("voice_logs")
 
 
 def _safe_user_id(user_id: str) -> str:
