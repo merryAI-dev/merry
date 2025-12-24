@@ -102,8 +102,57 @@ st.markdown(
         height: 18px;
     }
 
+    .graph-canvas-marker {
+        display: none;
+    }
+
     .graph-node-marker {
         display: none;
+    }
+
+    div[data-testid="stContainer"]:has(.graph-canvas-marker) {
+        position: relative;
+        padding: 12px 4px 20px 4px;
+        margin-bottom: 12px;
+    }
+
+    div[data-testid="stContainer"]:has(.graph-canvas-marker)::after {
+        content: "";
+        position: absolute;
+        inset: -6% -4%;
+        background-image:
+            radial-gradient(circle, rgba(204, 58, 43, 0.12) 0, rgba(204, 58, 43, 0) 55%),
+            radial-gradient(circle, rgba(208, 138, 46, 0.12) 0, rgba(208, 138, 46, 0) 55%),
+            radial-gradient(circle, rgba(26, 140, 134, 0.16) 0, rgba(26, 140, 134, 0) 60%);
+        background-size: 180px 180px, 220px 220px, 260px 260px;
+        background-position: 10% 20%, 85% 15%, 40% 80%;
+        opacity: 0.7;
+        pointer-events: none;
+        animation: drift 18s linear infinite;
+        z-index: 0;
+    }
+
+    .graph-lines {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: 0;
+        opacity: 0.55;
+    }
+
+    .graph-lines path {
+        stroke: rgba(28, 25, 20, 0.16);
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-dasharray: 6 10;
+    }
+
+    .graph-lines .graph-dot {
+        fill: rgba(28, 25, 20, 0.7);
+        animation: pulse 4s ease-in-out infinite;
+        transform-origin: center;
     }
 
     div[data-testid="stContainer"]:has(.graph-node-marker) {
@@ -114,6 +163,9 @@ st.markdown(
         box-shadow: var(--graph-shadow);
         position: relative;
         overflow: hidden;
+        z-index: 2;
+        animation: floatNode 7s ease-in-out infinite;
+        will-change: transform;
     }
 
     div[data-testid="stContainer"]:has(.graph-node-marker)::after {
@@ -143,6 +195,18 @@ st.markdown(
         height: 14px;
         background: #11100f;
         box-shadow: 0 0 0 8px rgba(17, 16, 15, 0.08);
+    }
+
+    div[data-testid="stContainer"]:has(.graph-node-marker[data-accent="amber"]) {
+        animation-delay: -1.8s;
+    }
+
+    div[data-testid="stContainer"]:has(.graph-node-marker[data-accent="teal"]) {
+        animation-delay: -3.2s;
+    }
+
+    div[data-testid="stContainer"]:has(.graph-node-marker[data-accent="hub"]) {
+        animation-delay: -2.4s;
     }
 
     .graph-node__summary {
@@ -184,6 +248,24 @@ st.markdown(
 
     div[data-testid="stContainer"]:has(.graph-node-marker) .stButton > button:hover {
         background: rgba(28, 25, 20, 0.06) !important;
+    }
+
+    @keyframes floatNode {
+        0% { transform: translateY(0px); }
+        50% { transform: translateY(-8px); }
+        100% { transform: translateY(0px); }
+    }
+
+    @keyframes drift {
+        0% { transform: translate(0, 0); }
+        50% { transform: translate(-30px, 20px); }
+        100% { transform: translate(0, 0); }
+    }
+
+    @keyframes pulse {
+        0% { transform: scale(1); opacity: 0.65; }
+        50% { transform: scale(1.25); opacity: 0.35; }
+        100% { transform: scale(1); opacity: 0.65; }
     }
 
     @media (max-width: 900px) {
@@ -262,93 +344,121 @@ with hero_cols[1]:
 
 st.markdown("<div class='graph-map-title'>Module Graph</div>", unsafe_allow_html=True)
 
-row1 = st.columns([1, 2, 1])
-with row1[1]:
-    _render_graph_node(
-        "Exit 프로젝션",
-        "투자검토 엑셀 기반 Exit 분석.",
-        ["PER 시나리오/IRR/멀티플", "3-Tier 결과 엑셀 생성", "SAFE 전환 시나리오 지원"],
-        ["Excel", "Scenario", "IRR"],
-        "Exit 프로젝션 시작",
-        "pages/1_Exit_Projection.py",
-        "graph_exit",
-        accent="ember",
+with st.container():
+    st.markdown('<div class="graph-canvas-marker"></div>', unsafe_allow_html=True)
+    st.markdown(
+        """
+        <svg class="graph-lines" viewBox="0 0 1000 900" preserveAspectRatio="none" aria-hidden="true">
+            <g>
+                <path d="M500 90 L250 250" />
+                <path d="M500 90 L750 250" />
+                <path d="M250 250 L500 430" />
+                <path d="M750 250 L500 430" />
+                <path d="M500 430 L250 610" />
+                <path d="M500 430 L750 610" />
+                <path d="M500 430 L500 780" />
+            </g>
+            <g>
+                <circle class="graph-dot" cx="500" cy="90" r="6" />
+                <circle class="graph-dot" cx="250" cy="250" r="5" />
+                <circle class="graph-dot" cx="750" cy="250" r="5" />
+                <circle class="graph-dot" cx="500" cy="430" r="7" />
+                <circle class="graph-dot" cx="250" cy="610" r="5" />
+                <circle class="graph-dot" cx="750" cy="610" r="5" />
+                <circle class="graph-dot" cx="500" cy="780" r="5" />
+            </g>
+        </svg>
+        """,
+        unsafe_allow_html=True,
     )
 
-st.markdown("<div class='graph-row-gap'></div>", unsafe_allow_html=True)
+    row1 = st.columns([1, 2, 1])
+    with row1[1]:
+        _render_graph_node(
+            "Exit 프로젝션",
+            "투자검토 엑셀 기반 Exit 분석.",
+            ["PER 시나리오/IRR/멀티플", "3-Tier 결과 엑셀 생성", "SAFE 전환 시나리오 지원"],
+            ["Excel", "Scenario", "IRR"],
+            "Exit 프로젝션 시작",
+            "pages/1_Exit_Projection.py",
+            "graph_exit",
+            accent="ember",
+        )
 
-row2 = st.columns([1, 2, 1])
-with row2[0]:
-    _render_graph_node(
-        "Peer PER 분석",
-        "유사 상장 기업 PER 벤치마킹.",
-        ["PDF 기반 비즈니스 모델 파악", "Yahoo Finance PER 조회", "매출/목표가치 역산"],
-        ["PDF", "Market", "PER"],
-        "Peer PER 분석 시작",
-        "pages/2_Peer_PER_Analysis.py",
-        "graph_peer",
-        accent="amber",
-    )
-with row2[2]:
-    _render_graph_node(
-        "투자심사 보고서",
-        "인수인의견 스타일 초안 생성.",
-        ["시장규모 근거 추출", "보고서 문장 초안", "확인 필요 사항 정리"],
-        ["Report", "Evidence", "Draft"],
-        "투자심사 보고서 시작",
-        "pages/4_Investment_Report.py",
-        "graph_report",
-        accent="teal",
-    )
+    st.markdown("<div class='graph-row-gap'></div>", unsafe_allow_html=True)
 
-st.markdown("<div class='graph-row-gap'></div>", unsafe_allow_html=True)
+    row2 = st.columns([1, 2, 1])
+    with row2[0]:
+        _render_graph_node(
+            "Peer PER 분석",
+            "유사 상장 기업 PER 벤치마킹.",
+            ["PDF 기반 비즈니스 모델 파악", "Yahoo Finance PER 조회", "매출/목표가치 역산"],
+            ["PDF", "Market", "PER"],
+            "Peer PER 분석 시작",
+            "pages/2_Peer_PER_Analysis.py",
+            "graph_peer",
+            accent="amber",
+        )
+    with row2[2]:
+        _render_graph_node(
+            "투자심사 보고서",
+            "인수인의견 스타일 초안 생성.",
+            ["시장규모 근거 추출", "보고서 문장 초안", "확인 필요 사항 정리"],
+            ["Report", "Evidence", "Draft"],
+            "투자심사 보고서 시작",
+            "pages/4_Investment_Report.py",
+            "graph_report",
+            accent="teal",
+        )
 
-row3 = st.columns([1, 2, 1])
-with row3[1]:
-    _render_graph_hub()
+    st.markdown("<div class='graph-row-gap'></div>", unsafe_allow_html=True)
 
-st.markdown("<div class='graph-row-gap'></div>", unsafe_allow_html=True)
+    row3 = st.columns([1, 2, 1])
+    with row3[1]:
+        _render_graph_hub()
 
-row4 = st.columns([1, 2, 1])
-with row4[0]:
-    _render_graph_node(
-        "기업현황 진단시트",
-        "진단시트 기반 컨설턴트 보고서.",
-        ["체크리스트 자동 분석", "점수/리포트 초안", "엑셀에 반영/저장"],
-        ["Checklist", "Scoring"],
-        "기업현황 진단시트 시작",
-        "pages/3_Company_Diagnosis.py",
-        "graph_diagnosis",
-        accent="ember",
-    )
-with row4[2]:
-    _render_graph_node(
-        "계약서 리서치",
-        "텀싯/투자계약서 근거 기반 검토.",
-        ["PDF·DOCX 텍스트 추출", "핵심 항목/근거 스니펫", "문서 간 일치 여부 점검"],
-        ["OCR", "Compare", "Risk"],
-        "계약서 리서치 시작",
-        "pages/7_Contract_Review.py",
-        "graph_contract",
-        accent="amber",
-    )
+    st.markdown("<div class='graph-row-gap'></div>", unsafe_allow_html=True)
 
-st.markdown("<div class='graph-row-gap'></div>", unsafe_allow_html=True)
+    row4 = st.columns([1, 2, 1])
+    with row4[0]:
+        _render_graph_node(
+            "기업현황 진단시트",
+            "진단시트 기반 컨설턴트 보고서.",
+            ["체크리스트 자동 분석", "점수/리포트 초안", "엑셀에 반영/저장"],
+            ["Checklist", "Scoring"],
+            "기업현황 진단시트 시작",
+            "pages/3_Company_Diagnosis.py",
+            "graph_diagnosis",
+            accent="ember",
+        )
+    with row4[2]:
+        _render_graph_node(
+            "계약서 리서치",
+            "텀싯/투자계약서 근거 기반 검토.",
+            ["PDF·DOCX 텍스트 추출", "핵심 항목/근거 스니펫", "문서 간 일치 여부 점검"],
+            ["OCR", "Compare", "Risk"],
+            "계약서 리서치 시작",
+            "pages/7_Contract_Review.py",
+            "graph_contract",
+            accent="amber",
+        )
 
-row5 = st.columns([1, 2, 1])
-with row5[1]:
-    _render_graph_node(
-        "Voice Agent",
-        "체크인/원온원 음성 대화.",
-        ["Naver CLOVA STT/TTS", "어제 로그 기반 요약", "대화형 체크인 플로우"],
-        ["STT/TTS", "Check-in"],
-        "Voice Agent 시작",
-        "pages/5_Voice_Agent.py",
-        "graph_voice",
-        accent="teal",
-    )
-    if st.button("체크인 기록 보기", type="secondary", use_container_width=True, key="start_checkin_review"):
-        st.switch_page("pages/6_Checkin_Review.py")
+    st.markdown("<div class='graph-row-gap'></div>", unsafe_allow_html=True)
+
+    row5 = st.columns([1, 2, 1])
+    with row5[1]:
+        _render_graph_node(
+            "Voice Agent",
+            "체크인/원온원 음성 대화.",
+            ["Naver CLOVA STT/TTS", "어제 로그 기반 요약", "대화형 체크인 플로우"],
+            ["STT/TTS", "Check-in"],
+            "Voice Agent 시작",
+            "pages/5_Voice_Agent.py",
+            "graph_voice",
+            accent="teal",
+        )
+        if st.button("체크인 기록 보기", type="secondary", use_container_width=True, key="start_checkin_review"):
+            st.switch_page("pages/6_Checkin_Review.py")
 
 st.divider()
 
