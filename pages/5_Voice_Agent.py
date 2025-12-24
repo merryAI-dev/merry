@@ -129,6 +129,64 @@ def _reset_voice_session():
         st.session_state.agent.voice_conversation_history = []
 
 
+def _resolve_user_text(
+    text_input: str,
+    audio_bytes: Optional[bytes],
+) -> Tuple[Optional[str], Optional[str]]:
+    """Return (final_text, transcript) where transcript is raw STT output."""
+    if text_input.strip():
+        return text_input.strip(), None
+
+    if not audio_bytes:
+        return None, None
+
+    if st.session_state.voice_stt_provider == "local_whisper":
+        stt_result = local_stt_faster_whisper(
+            audio_bytes,
+            model_size_or_path=(st.session_state.whisper_model or "small").strip(),
+            language=(st.session_state.whisper_language or "ko").strip(),
+            compute_type=st.session_state.whisper_compute_type,
+        )
+    else:
+        stt_result = clova_stt(audio_bytes)
+
+    if not stt_result.get("success"):
+        st.session_state.voice_last_error = stt_result.get("error")
+        return None, None
+
+    transcript = (stt_result.get("text") or "").strip()
+    return transcript, transcript
+
+
+def _render_audio_player(
+    audio_bytes: bytes,
+    audio_format: str,
+    element_id: str,
+    autoplay: bool = False,
+) -> None:
+    if not audio_bytes:
+        return
+
+    mime = audio_format if audio_format and audio_format.startswith("audio/") else "audio/mpeg"
+    audio_base64 = base64.b64encode(audio_bytes).decode("ascii")
+    autoplay_attr = "autoplay" if autoplay else ""
+    autoplay_flag = "true" if autoplay else "false"
+    components.html(
+        f"""
+        <audio id="{element_id}" controls {autoplay_attr} style="width: 100%;">
+            <source src="data:{mime};base64,{audio_base64}" type="{mime}">
+        </audio>
+        <script>
+            const audio = document.getElementById("{element_id}");
+            if (audio && {autoplay_flag}) {{
+                audio.play().catch(() => {{}});
+            }}
+        </script>
+        """,
+        height=60,
+    )
+
+
 # ========================================
 # Sidebar (keys + voice controls)
 # ========================================
@@ -241,6 +299,20 @@ with st.sidebar:
         "음성 자동 재생 (실험적)",
         key="voice_auto_play",
         help="브라우저 정책에 따라 자동 재생이 차단될 수 있습니다.",
+    )
+    if clova_credentials_present():
+        st.checkbox(
+            "CLOVA 우선 사용 (속도 개선)",
+            key="voice_prefer_clova",
+            help="로컬 TTS 대신 CLOVA를 먼저 사용해 응답 속도를 개선합니다.",
+        )
+    st.slider(
+        "오디오 표시 개수",
+        min_value=1,
+        max_value=5,
+        value=st.session_state.voice_audio_display_count or 1,
+        key="voice_audio_display_count",
+        help="최근 응답의 오디오만 표시해 속도를 개선합니다.",
     )
     st.caption("자동 재생이 안 되면 재생 버튼을 눌러주세요.")
     with st.expander("입력 상태", expanded=False):
@@ -364,6 +436,8 @@ st.session_state.voice_mode = mode[0]
 checkin_seed = st.button("체크인 시작", type="primary", use_container_width=False)
 
 # Chat history
+audio_display_count = st.session_state.voice_audio_display_count or 1
+recent_start = max(len(st.session_state.voice_messages) - audio_display_count, 0)
 for idx, msg in enumerate(st.session_state.voice_messages):
     with st.chat_message(msg["role"]):
         if msg.get("raw_transcript"):
@@ -375,7 +449,7 @@ for idx, msg in enumerate(st.session_state.voice_messages):
             st.caption(msg["tts_note"])
         if msg.get("tts_error"):
             st.caption(f"TTS 오류: {msg['tts_error']}")
-        if msg.get("audio"):
+        if idx >= recent_start and msg.get("audio"):
             audio_id = msg.get("audio_id") or f"voice-audio-{idx}"
             auto_index = st.session_state.get("voice_auto_play_index")
             autoplay = st.session_state.voice_auto_play and auto_index == idx
@@ -401,32 +475,6 @@ with col2:
     send_clicked = st.button("전송", type="primary", use_container_width=True)
 
 
-def _resolve_user_text() -> Tuple[Optional[str], Optional[str]]:
-    """Return (final_text, transcript) where transcript is raw STT output."""
-    if text_input.strip():
-        return text_input.strip(), None
-
-    if not audio_bytes:
-        return None, None
-
-    if st.session_state.voice_stt_provider == "local_whisper":
-        stt_result = local_stt_faster_whisper(
-            audio_bytes,
-            model_size_or_path=(st.session_state.whisper_model or "small").strip(),
-            language=(st.session_state.whisper_language or "ko").strip(),
-            compute_type=st.session_state.whisper_compute_type,
-        )
-    else:
-        stt_result = clova_stt(audio_bytes)
-
-    if not stt_result.get("success"):
-        st.session_state.voice_last_error = stt_result.get("error")
-        return None, None
-
-    transcript = (stt_result.get("text") or "").strip()
-    return transcript, transcript
-
-
 def _run_tts_with_fallback(
     text: str,
     speed: int,
@@ -434,8 +482,11 @@ def _run_tts_with_fallback(
     pitch: int,
 ) -> Dict[str, Optional[bytes]]:
     providers = [st.session_state.voice_tts_provider]
-    if st.session_state.voice_tts_provider in ("local_mms", "local_piper") and clova_credentials_present():
-        providers.append("clova")
+    if clova_credentials_present():
+        if st.session_state.voice_prefer_clova and st.session_state.voice_tts_provider != "clova":
+            providers = ["clova", st.session_state.voice_tts_provider]
+        elif st.session_state.voice_tts_provider in ("local_mms", "local_piper"):
+            providers.append("clova")
 
     errors = []
     for provider in providers:
@@ -478,35 +529,6 @@ def _run_tts_with_fallback(
     }
 
 
-def _render_audio_player(
-    audio_bytes: bytes,
-    audio_format: str,
-    element_id: str,
-    autoplay: bool = False,
-) -> None:
-    if not audio_bytes:
-        return
-
-    mime = audio_format if audio_format and audio_format.startswith("audio/") else "audio/mpeg"
-    audio_base64 = base64.b64encode(audio_bytes).decode("ascii")
-    autoplay_attr = "autoplay" if autoplay else ""
-    autoplay_flag = "true" if autoplay else "false"
-    components.html(
-        f"""
-        <audio id="{element_id}" controls {autoplay_attr} style="width: 100%;">
-            <source src="data:{mime};base64,{audio_base64}" type="{mime}">
-        </audio>
-        <script>
-            const audio = document.getElementById("{element_id}");
-            if (audio && {autoplay_flag}) {{
-                audio.play().catch(() => {{}});
-            }}
-        </script>
-        """,
-        height=60,
-    )
-
-
 if checkin_seed:
     seed = "오늘 체크인을 시작합니다. 어제 로그를 반영해 간단히 안부를 묻고, 학습과 감정 상태를 짧게 언급한 뒤, 오늘 목표를 2~4개 질문으로 확인해줘."
     send_clicked = True
@@ -514,7 +536,7 @@ if checkin_seed:
 
 if send_clicked:
     st.session_state.voice_last_error = None
-    user_text, transcript = _resolve_user_text()
+    user_text, transcript = _resolve_user_text(text_input, audio_bytes)
 
     if not user_text:
         st.warning("입력 또는 음성 녹음이 필요합니다.")

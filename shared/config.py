@@ -72,6 +72,8 @@ def initialize_session_state():
         "voice_tts_provider": "local_mms",
         "voice_auto_play": True,
         "voice_auto_play_index": None,
+        "voice_audio_display_count": 1,
+        "voice_prefer_clova": True,
         "whisper_model": "small",
         "whisper_compute_type": "int8",
         "whisper_language": "ko",
