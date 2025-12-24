@@ -19,6 +19,7 @@ from shared.file_utils import (
     get_secure_upload_path,
     validate_upload,
 )
+from shared.cache_utils import compute_file_hash, compute_payload_hash, get_cache_dir, load_json, save_json
 from shared.contract_review import (
     FIELD_DEFINITIONS,
     OCR_DEFAULT_MODEL,
@@ -36,6 +37,9 @@ from shared.contract_review import (
     mask_search_hits,
     search_segments,
 )
+
+CACHE_NAMESPACE = "contract_review"
+CACHE_VERSION = 1
 
 
 st.set_page_config(
@@ -190,6 +194,25 @@ def _resolve_ocr_lang() -> str:
     return (ocr_lang or "kor+eng").strip()
 
 
+def _build_doc_cache_path(path: Path, doc_type: str) -> Path:
+    file_hash = compute_file_hash(path)
+    payload = {
+        "version": CACHE_VERSION,
+        "doc_type": doc_type,
+        "file_hash": file_hash,
+        "ocr_mode": _resolve_ocr_mode(),
+        "ocr_model": (ocr_model or OCR_DEFAULT_MODEL).strip(),
+        "ocr_refine": _resolve_ocr_refine(),
+        "ocr_refine_model": _resolve_ocr_refine_model(),
+        "ocr_strategy": _resolve_ocr_strategy(),
+        "ocr_budget": _resolve_ocr_budget(),
+        "ocr_lang": _resolve_ocr_lang(),
+    }
+    cache_key = compute_payload_hash(payload)
+    cache_dir = get_cache_dir(CACHE_NAMESPACE, user_id)
+    return cache_dir / f"{cache_key}.json"
+
+
 def _save_upload(uploaded_file) -> Optional[Path]:
     if not uploaded_file:
         return None
@@ -262,6 +285,14 @@ def _analyze_document(
 
     path = Path(path_str)
     try:
+        cache_path = _build_doc_cache_path(path, doc_type)
+        cached = load_json(cache_path)
+        if cached:
+            cached["cache_hit"] = True
+            if on_step:
+                on_step(f"{doc_label} 캐시 사용")
+            return cached
+
         if on_step:
             on_step(f"{doc_label} 문서 파싱 중...")
         loaded = load_document(
@@ -286,7 +317,7 @@ def _analyze_document(
     fields = extract_fields(segments)
     clauses = detect_clauses(segments, doc_type, loaded.get("segment_scores", {}))
 
-    return {
+    doc = {
         "path": str(path),
         "name": path.name,
         "doc_type": doc_type,
@@ -302,7 +333,10 @@ def _analyze_document(
         "ocr_refined": loaded.get("ocr_refined", False),
         "ocr_refine_error": loaded.get("ocr_refine_error", ""),
         "priority_segments": loaded.get("priority_segments", []),
+        "cache_hit": False,
     }
+    save_json(cache_path, doc)
+    return doc
 
 
 if analyze_clicked:
@@ -355,26 +389,29 @@ if analyze_clicked:
             ocr_callback=_make_ocr_callback("텀싯"),
         )
         if doc:
-            if doc.get("ocr_error"):
-                ocr_progress_placeholder.progress(1.0, text=f"텀싯 OCR 실패: {doc.get('ocr_error')}")
-            elif doc.get("ocr_used"):
-                ocr_pages = doc.get("ocr_pages_used", [])
-                total_pages = doc.get("page_count", 0)
-                engine_label = doc.get("ocr_engine", "")
-                engine_text = ""
-                if engine_label == "local+claude":
-                    engine_text = "로컬+정제"
-                elif engine_label == "local":
-                    engine_text = "로컬"
-                elif engine_label == "claude_image":
-                    engine_text = "이미지"
-                suffix = f", {engine_text}" if engine_text else ""
-                ocr_progress_placeholder.progress(
-                    1.0,
-                    text=f"텀싯 OCR 완료 ({len(ocr_pages)}/{total_pages}p{suffix})",
-                )
+            if doc.get("cache_hit"):
+                ocr_progress_placeholder.progress(1.0, text="텀싯 캐시 사용")
             else:
-                ocr_progress_placeholder.progress(0.0, text="텀싯 OCR 미사용")
+                if doc.get("ocr_error"):
+                    ocr_progress_placeholder.progress(1.0, text=f"텀싯 OCR 실패: {doc.get('ocr_error')}")
+                elif doc.get("ocr_used"):
+                    ocr_pages = doc.get("ocr_pages_used", [])
+                    total_pages = doc.get("page_count", 0)
+                    engine_label = doc.get("ocr_engine", "")
+                    engine_text = ""
+                    if engine_label == "local+claude":
+                        engine_text = "로컬+정제"
+                    elif engine_label == "local":
+                        engine_text = "로컬"
+                    elif engine_label == "claude_image":
+                        engine_text = "이미지"
+                    suffix = f", {engine_text}" if engine_text else ""
+                    ocr_progress_placeholder.progress(
+                        1.0,
+                        text=f"텀싯 OCR 완료 ({len(ocr_pages)}/{total_pages}p{suffix})",
+                    )
+                else:
+                    ocr_progress_placeholder.progress(0.0, text="텀싯 OCR 미사용")
             st.session_state.contract_analysis["term_sheet"] = doc
     if investment_path:
         doc = _analyze_document(
@@ -385,26 +422,29 @@ if analyze_clicked:
             ocr_callback=_make_ocr_callback("투자계약서"),
         )
         if doc:
-            if doc.get("ocr_error"):
-                ocr_progress_placeholder.progress(1.0, text=f"투자계약서 OCR 실패: {doc.get('ocr_error')}")
-            elif doc.get("ocr_used"):
-                ocr_pages = doc.get("ocr_pages_used", [])
-                total_pages = doc.get("page_count", 0)
-                engine_label = doc.get("ocr_engine", "")
-                engine_text = ""
-                if engine_label == "local+claude":
-                    engine_text = "로컬+정제"
-                elif engine_label == "local":
-                    engine_text = "로컬"
-                elif engine_label == "claude_image":
-                    engine_text = "이미지"
-                suffix = f", {engine_text}" if engine_text else ""
-                ocr_progress_placeholder.progress(
-                    1.0,
-                    text=f"투자계약서 OCR 완료 ({len(ocr_pages)}/{total_pages}p{suffix})",
-                )
+            if doc.get("cache_hit"):
+                ocr_progress_placeholder.progress(1.0, text="투자계약서 캐시 사용")
             else:
-                ocr_progress_placeholder.progress(0.0, text="투자계약서 OCR 미사용")
+                if doc.get("ocr_error"):
+                    ocr_progress_placeholder.progress(1.0, text=f"투자계약서 OCR 실패: {doc.get('ocr_error')}")
+                elif doc.get("ocr_used"):
+                    ocr_pages = doc.get("ocr_pages_used", [])
+                    total_pages = doc.get("page_count", 0)
+                    engine_label = doc.get("ocr_engine", "")
+                    engine_text = ""
+                    if engine_label == "local+claude":
+                        engine_text = "로컬+정제"
+                    elif engine_label == "local":
+                        engine_text = "로컬"
+                    elif engine_label == "claude_image":
+                        engine_text = "이미지"
+                    suffix = f", {engine_text}" if engine_text else ""
+                    ocr_progress_placeholder.progress(
+                        1.0,
+                        text=f"투자계약서 OCR 완료 ({len(ocr_pages)}/{total_pages}p{suffix})",
+                    )
+                else:
+                    ocr_progress_placeholder.progress(0.0, text="투자계약서 OCR 미사용")
             st.session_state.contract_analysis["investment_agreement"] = doc
 
     if not st.session_state.contract_analysis:
@@ -596,6 +636,8 @@ if analysis:
                 ocr_status = f"OCR: {len(ocr_pages)}/{doc.get('page_count', 0)}p{suffix}"
             else:
                 ocr_status = "OCR: 미사용"
+            if doc.get("cache_hit"):
+                ocr_status = f"{ocr_status} · 캐시"
             file_label = doc.get("name") if show_file_names else "(숨김)"
             st.caption(
                 f"파일: {file_label} · 길이: {doc.get('text_length', 0):,} chars · 세그먼트: {len(doc.get('segments', []))} · {ocr_status}"
