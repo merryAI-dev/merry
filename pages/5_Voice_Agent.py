@@ -221,18 +221,30 @@ with st.sidebar:
         index=0 if st.session_state.voice_stt_provider == "local_whisper" else 1,
         key="voice_stt_provider",
     )
-    st.selectbox(
-        "TTS Provider",
-        options=["local_mms", "local_piper", "clova"],
-        index=0
-        if st.session_state.voice_tts_provider == "local_mms"
-        else 1
-        if st.session_state.voice_tts_provider == "local_piper"
-        else 2,
-        key="voice_tts_provider",
+    st.checkbox(
+        "TTS 사용",
+        key="voice_tts_enabled",
+        help="끄면 응답을 텍스트로만 표시해 속도를 최대로 올립니다.",
     )
-    if clova_credentials_present() and st.session_state.voice_tts_provider != "clova":
-        st.caption("Streamlit 배포에서는 CLOVA TTS가 안정적입니다.")
+
+    speaker = st.session_state.get("voice_speaker", "nara")
+    speed = 0
+    pitch = 0
+    volume = 0
+
+    if st.session_state.voice_tts_enabled:
+        st.selectbox(
+            "TTS Provider",
+            options=["local_mms", "local_piper", "clova"],
+            index=0
+            if st.session_state.voice_tts_provider == "local_mms"
+            else 1
+            if st.session_state.voice_tts_provider == "local_piper"
+            else 2,
+            key="voice_tts_provider",
+        )
+        if clova_credentials_present() and st.session_state.voice_tts_provider != "clova":
+            st.caption("Streamlit 배포에서는 CLOVA TTS가 안정적입니다.")
 
     if st.session_state.voice_stt_provider == "local_whisper":
         st.text_input(
@@ -253,40 +265,43 @@ with st.sidebar:
         )
         st.caption("faster-whisper와 ffmpeg 필요")
 
-    if st.session_state.voice_tts_provider == "local_mms":
-        st.text_input(
-            "MMS Model ID",
-            key="mms_model_id",
-            placeholder="facebook/mms-tts-kss",
-        )
-        st.caption("transformers + torch + soundfile 필요")
+    if st.session_state.voice_tts_enabled:
+        if st.session_state.voice_tts_provider == "local_mms":
+            st.text_input(
+                "MMS Model ID",
+                key="mms_model_id",
+                placeholder="facebook/mms-tts-kss",
+            )
+            st.caption("transformers + torch + soundfile 필요")
 
-    if st.session_state.voice_tts_provider == "local_piper":
-        st.text_input(
-            "Piper Model Path (.onnx)",
-            key="piper_model_path",
-            placeholder="/path/to/ko_KR.onnx",
-        )
-        st.text_input(
-            "Piper Config Path (.json, optional)",
-            key="piper_config_path",
-            placeholder="/path/to/ko_KR.json",
-        )
-        st.text_input(
-            "Piper Binary",
-            key="piper_bin_path",
-            placeholder="piper",
-        )
-        st.caption("piper 바이너리 필요")
+        if st.session_state.voice_tts_provider == "local_piper":
+            st.text_input(
+                "Piper Model Path (.onnx)",
+                key="piper_model_path",
+                placeholder="/path/to/ko_KR.onnx",
+            )
+            st.text_input(
+                "Piper Config Path (.json, optional)",
+                key="piper_config_path",
+                placeholder="/path/to/ko_KR.json",
+            )
+            st.text_input(
+                "Piper Binary",
+                key="piper_bin_path",
+                placeholder="piper",
+            )
+            st.caption("piper 바이너리 필요")
 
-    st.divider()
-    st.markdown("### TTS 설정")
-    speaker = st.text_input("Speaker", value=st.session_state.get("voice_speaker", "nara"))
-    speed = st.slider("Speed", min_value=-5, max_value=5, value=0)
-    pitch = st.slider("Pitch", min_value=-5, max_value=5, value=0)
-    volume = st.slider("Volume", min_value=-5, max_value=5, value=0)
+        st.divider()
+        st.markdown("### TTS 설정")
+        speaker = st.text_input("Speaker", value=st.session_state.get("voice_speaker", "nara"))
+        speed = st.slider("Speed", min_value=-5, max_value=5, value=0)
+        pitch = st.slider("Pitch", min_value=-5, max_value=5, value=0)
+        volume = st.slider("Volume", min_value=-5, max_value=5, value=0)
 
-    st.session_state.voice_speaker = speaker
+        st.session_state.voice_speaker = speaker
+    else:
+        st.caption("TTS 비활성화: 응답은 텍스트로만 표시됩니다.")
 
     st.divider()
     st.checkbox(
@@ -295,26 +310,27 @@ with st.sidebar:
         key="voice_refine_enabled",
         help="STT 결과를 Claude로 정제해서 대화 입력에 사용합니다.",
     )
-    st.checkbox(
-        "음성 자동 재생 (실험적)",
-        key="voice_auto_play",
-        help="브라우저 정책에 따라 자동 재생이 차단될 수 있습니다.",
-    )
-    if clova_credentials_present():
+    if st.session_state.voice_tts_enabled:
         st.checkbox(
-            "CLOVA 우선 사용 (속도 개선)",
-            key="voice_prefer_clova",
-            help="로컬 TTS 대신 CLOVA를 먼저 사용해 응답 속도를 개선합니다.",
+            "음성 자동 재생 (실험적)",
+            key="voice_auto_play",
+            help="브라우저 정책에 따라 자동 재생이 차단될 수 있습니다.",
         )
-    st.slider(
-        "오디오 표시 개수",
-        min_value=1,
-        max_value=5,
-        value=st.session_state.voice_audio_display_count or 1,
-        key="voice_audio_display_count",
-        help="최근 응답의 오디오만 표시해 속도를 개선합니다.",
-    )
-    st.caption("자동 재생이 안 되면 재생 버튼을 눌러주세요.")
+        if clova_credentials_present():
+            st.checkbox(
+                "CLOVA 우선 사용 (속도 개선)",
+                key="voice_prefer_clova",
+                help="로컬 TTS 대신 CLOVA를 먼저 사용해 응답 속도를 개선합니다.",
+            )
+        st.slider(
+            "오디오 표시 개수",
+            min_value=1,
+            max_value=5,
+            value=st.session_state.voice_audio_display_count or 1,
+            key="voice_audio_display_count",
+            help="최근 응답의 오디오만 표시해 속도를 개선합니다.",
+        )
+        st.caption("자동 재생이 안 되면 재생 버튼을 눌러주세요.")
     with st.expander("입력 상태", expanded=False):
         last_audio_size = st.session_state.get("voice_last_audio_size")
         if last_audio_size:
@@ -438,6 +454,7 @@ checkin_seed = st.button("체크인 시작", type="primary", use_container_width
 # Chat history
 audio_display_count = st.session_state.voice_audio_display_count or 1
 recent_start = max(len(st.session_state.voice_messages) - audio_display_count, 0)
+render_audio = st.session_state.voice_tts_enabled
 for idx, msg in enumerate(st.session_state.voice_messages):
     with st.chat_message(msg["role"]):
         if msg.get("raw_transcript"):
@@ -449,7 +466,7 @@ for idx, msg in enumerate(st.session_state.voice_messages):
             st.caption(msg["tts_note"])
         if msg.get("tts_error"):
             st.caption(f"TTS 오류: {msg['tts_error']}")
-        if idx >= recent_start and msg.get("audio"):
+        if render_audio and idx >= recent_start and msg.get("audio"):
             audio_id = msg.get("audio_id") or f"voice-audio-{idx}"
             auto_index = st.session_state.get("voice_auto_play_index")
             autoplay = st.session_state.voice_auto_play and auto_index == idx
@@ -568,23 +585,26 @@ if send_clicked:
             context_text=last_checkin_text,
         )
 
-        tts_result = _run_tts_with_fallback(
-            response,
-            speed=speed,
-            volume=volume,
-            pitch=pitch,
-        )
-        selected_provider = st.session_state.voice_tts_provider
-        used_provider = tts_result.get("provider", selected_provider)
-        audio_out = tts_result.get("audio") if tts_result.get("success") else None
-        audio_format = tts_result.get("format") or ("audio/mpeg" if used_provider == "clova" else "audio/wav")
+        audio_out = None
+        audio_format = None
         tts_note = None
         tts_error = None
-        if not tts_result.get("success"):
-            tts_error = tts_result.get("error")
-            st.session_state.voice_last_error = tts_error
-        elif used_provider != selected_provider:
-            tts_note = f"TTS 자동 전환: {selected_provider} → {used_provider}"
+        if st.session_state.voice_tts_enabled:
+            tts_result = _run_tts_with_fallback(
+                response,
+                speed=speed,
+                volume=volume,
+                pitch=pitch,
+            )
+            selected_provider = st.session_state.voice_tts_provider
+            used_provider = tts_result.get("provider", selected_provider)
+            audio_out = tts_result.get("audio") if tts_result.get("success") else None
+            audio_format = tts_result.get("format") or ("audio/mpeg" if used_provider == "clova" else "audio/wav")
+            if not tts_result.get("success"):
+                tts_error = tts_result.get("error")
+                st.session_state.voice_last_error = tts_error
+            elif used_provider != selected_provider:
+                tts_note = f"TTS 자동 전환: {selected_provider} → {used_provider}"
 
         st.session_state.voice_messages.append(
             {
@@ -597,7 +617,7 @@ if send_clicked:
                 "tts_error": tts_error,
             }
         )
-        if st.session_state.voice_auto_play and audio_out:
+        if st.session_state.voice_tts_enabled and st.session_state.voice_auto_play and audio_out:
             st.session_state.voice_auto_play_index = len(st.session_state.voice_messages) - 1
 
         session_id = st.session_state.agent.memory.session_id
