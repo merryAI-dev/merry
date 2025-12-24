@@ -17,10 +17,14 @@ from shared.voice_logs import (
     append_checkin_summary,
     append_voice_log,
     build_checkin_context_text,
+    build_checkin_summaries_context_text,
     build_checkin_summary_text,
+    get_checkin_context_all,
+    get_checkin_context_days,
     get_checkin_context,
     get_latest_checkin,
     get_latest_checkin_summary,
+    get_checkin_summaries,
 )
 # ========================================
 # Page setup
@@ -197,12 +201,35 @@ st.caption("로컬 STT/TTS 또는 Naver CLOVA로 음성 대화를 제공합니�
 
 user_id = get_user_id()
 last_checkin = get_latest_checkin(user_id)
-checkin_context = get_checkin_context(user_id, day_offset=1, limit=20)
-checkin_context_text = build_checkin_context_text(checkin_context, max_items=6)
+context_scope = st.selectbox(
+    "컨텍스트 범위",
+    options=["어제", "최근 7일", "전체 로그"],
+    index=2,
+)
+context_limit = st.slider("컨텍스트 최대 항목", min_value=10, max_value=200, value=60, step=10)
+
+if context_scope == "어제":
+    checkin_context = get_checkin_context(user_id, day_offset=1, limit=context_limit)
+elif context_scope == "최근 7일":
+    checkin_context = get_checkin_context_days(user_id, days=7, limit=context_limit)
+else:
+    checkin_context = get_checkin_context_all(user_id, limit=context_limit)
+
+checkin_context_text = build_checkin_context_text(checkin_context, max_items=8)
 checkin_summary = get_latest_checkin_summary(user_id, day_offset=1)
 checkin_summary_text = build_checkin_summary_text(checkin_summary) if checkin_summary else ""
+checkin_summaries = get_checkin_summaries(user_id, limit=15)
+checkin_summaries_text = build_checkin_summaries_context_text(checkin_summaries, max_items=8)
 
-if checkin_summary_text:
+context_payload = ""
+if context_scope == "전체 로그" and checkin_summaries_text:
+    context_payload = f"[최근 체크인 요약]\n{checkin_summaries_text}\n\n[최근 로그]\n{checkin_context_text}"
+else:
+    context_payload = checkin_summary_text or checkin_context_text
+
+if context_payload:
+    st.info(f"컨텍스트 요약:\n\n{context_payload}")
+elif checkin_summary_text:
     st.info(f"어제 체크인 요약 (Supabase):\n\n{checkin_summary_text}")
 elif checkin_context_text:
     st.info(f"어제 기록 요약 (Supabase):\n\n{checkin_context_text}")
@@ -305,7 +332,7 @@ if send_clicked:
             }
         )
 
-        last_checkin_text = checkin_summary_text or checkin_context_text or (
+        last_checkin_text = context_payload or checkin_summary_text or checkin_context_text or (
             last_checkin.get("assistant_text") if last_checkin else None
         )
         voice_mode = f"voice_{st.session_state.voice_mode}"
@@ -355,7 +382,7 @@ if send_clicked:
         if st.session_state.voice_mode in ("checkin", "1on1"):
             summary = st.session_state.agent.summarize_checkin_sync(
                 mode=st.session_state.voice_mode,
-                context_text=checkin_context_text or "",
+                context_text=context_payload or "",
             )
             append_checkin_summary(
                 user_id,
