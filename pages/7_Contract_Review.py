@@ -19,15 +19,42 @@ from shared.file_utils import (
     get_secure_upload_path,
     validate_upload,
 )
-from shared.cache_utils import (
-    clear_cache_dir,
-    compute_file_hash,
-    compute_payload_hash,
-    get_cache_dir,
-    load_json,
-    remove_cache_file,
-    save_json,
-)
+try:
+    from shared.cache_utils import (
+        clear_cache_dir,
+        compute_file_hash,
+        compute_payload_hash,
+        get_cache_dir,
+        load_json,
+        remove_cache_file,
+        save_json,
+    )
+    _CACHE_UTILS_AVAILABLE = True
+    _CACHE_UTILS_ERROR = None
+except Exception as exc:
+    _CACHE_UTILS_AVAILABLE = False
+    _CACHE_UTILS_ERROR = exc
+
+    def clear_cache_dir(namespace: str, user_id: str) -> int:
+        return 0
+
+    def compute_file_hash(path: Path, chunk_size: int = 1024 * 1024) -> str:
+        return "nocache"
+
+    def compute_payload_hash(payload: Dict[str, object]) -> str:
+        return "nocache"
+
+    def get_cache_dir(namespace: str, user_id: str) -> Path:
+        return Path("temp") / "cache" / "disabled"
+
+    def load_json(path: Path) -> Optional[Dict[str, object]]:
+        return None
+
+    def remove_cache_file(path: Path) -> bool:
+        return False
+
+    def save_json(path: Path, data: Dict[str, object]) -> None:
+        return None
 from shared.contract_review import (
     FIELD_DEFINITIONS,
     OCR_DEFAULT_MODEL,
@@ -69,6 +96,11 @@ st.caption("텀싯/투자계약서를 근거 기반으로 검토합니다. 법�
 st.warning("이 도구는 법률 자문이 아닙니다. 최종 판단은 반드시 법무 검토가 필요합니다.")
 
 analysis_exists = bool(st.session_state.get("contract_analysis"))
+
+if not _CACHE_UTILS_AVAILABLE:
+    st.warning("캐시 모듈을 로드하지 못했습니다. 캐시 기능이 비활성화됩니다.")
+    if _CACHE_UTILS_ERROR:
+        st.caption(f"세부 오류: {_CACHE_UTILS_ERROR}")
 
 if st.session_state.get("contract_cache_version") != CACHE_VERSION:
     clear_cache_dir(CACHE_NAMESPACE, user_id or "anonymous")
