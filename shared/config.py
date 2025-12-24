@@ -93,6 +93,9 @@ def initialize_session_state():
         "contract_investment_name": "",
         "contract_analysis": {},
         "contract_search_query": "",
+        "contract_masking": True,
+        "contract_ocr_mode": "자동(권장)",
+        "contract_ocr_model": "claude-opus-4-5-20251101",
     }
 
     for key, value in defaults.items():

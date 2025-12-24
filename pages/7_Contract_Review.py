@@ -9,7 +9,7 @@ from typing import Dict, Optional
 
 import streamlit as st
 
-from shared.auth import check_authentication, get_user_id
+from shared.auth import check_authentication, get_user_api_key, get_user_id
 from shared.config import initialize_session_state, inject_custom_css
 from shared.file_utils import (
     ALLOWED_EXTENSIONS_PDF,
@@ -19,10 +19,15 @@ from shared.file_utils import (
 )
 from shared.contract_review import (
     FIELD_DEFINITIONS,
+    OCR_DEFAULT_MODEL,
+    build_mask_replacements,
     compare_fields,
     detect_clauses,
     extract_fields,
     load_document,
+    mask_analysis,
+    mask_comparisons,
+    mask_search_hits,
     search_segments,
 )
 
@@ -42,12 +47,59 @@ st.caption("텀싯/투자계약서를 근거 기반으로 검토합니다. 법�
 
 st.warning("이 도구는 법률 자문이 아닙니다. 최종 판단은 반드시 법무 검토가 필요합니다.")
 
+st.markdown("### 보안/마스킹")
+masking_enabled = st.checkbox(
+    "민감정보 마스킹 (기본 ON)",
+    value=True,
+    key="contract_masking",
+    help="회사명/금액/연락처 등 민감정보를 토큰으로 치환해 표시합니다.",
+)
+st.info("업로드 → 로컬 파싱 → (필요 시 OCR) → 마스킹 → 규칙 기반 검토 → 화면 표시")
+
+with st.expander("안심 플로우 자세히 보기"):
+    st.markdown(
+        """
+        1. 파일 업로드 (임시 저장)
+        2. PDF/DOCX 파싱
+        3. (선택) 스캔본 OCR
+        4. 민감정보 마스킹 (기본 ON)
+        5. 규칙 기반 필드 추출 및 일치성 검토
+        6. 결과 표시
+        """
+    )
+
+st.markdown("### 스캔본 OCR (Claude)")
+ocr_choice = st.selectbox(
+    "OCR 사용 여부",
+    ["자동(권장)", "강제", "끄기"],
+    index=0,
+    key="contract_ocr_mode",
+    help="스캔본/깨진 텍스트가 있을 때 Claude OCR로 보정합니다.",
+)
+ocr_model = st.text_input(
+    "OCR 모델",
+    value=OCR_DEFAULT_MODEL,
+    key="contract_ocr_model",
+    help="Claude Opus 모델명을 입력하세요.",
+)
+st.caption("OCR 사용 시 페이지 이미지가 외부 API로 전송됩니다. 마스킹은 OCR 이후 표시 단계에서 적용됩니다.")
+
 user_id = get_user_id()
+user_api_key = get_user_api_key()
 allowed_extensions = ALLOWED_EXTENSIONS_PDF + [".docx"]
 
 if "contract_analysis" not in st.session_state:
     st.session_state.contract_analysis = {}
 
+
+
+def _resolve_ocr_mode() -> str:
+    mapping = {
+        "자동(권장)": "auto",
+        "강제": "force",
+        "끄기": "off",
+    }
+    return mapping.get(ocr_choice, "auto")
 
 
 def _save_upload(uploaded_file) -> Optional[Path]:
@@ -110,7 +162,12 @@ def _analyze_document(path_str: str, doc_type: str) -> Optional[Dict[str, object
 
     path = Path(path_str)
     try:
-        loaded = load_document(path)
+        loaded = load_document(
+            path,
+            ocr_mode=_resolve_ocr_mode(),
+            api_key=user_api_key,
+            ocr_model=(ocr_model or OCR_DEFAULT_MODEL).strip(),
+        )
     except Exception as exc:
         st.error(f"문서 파싱 실패: {path.name} ({exc})")
         return None
@@ -127,6 +184,7 @@ def _analyze_document(path_str: str, doc_type: str) -> Optional[Dict[str, object
         "fields": fields,
         "clauses": clauses,
         "text_length": len(loaded.get("text", "")),
+        "page_count": loaded.get("page_count", 0),
     }
 
 
@@ -150,6 +208,18 @@ if analyze_clicked:
 analysis = st.session_state.contract_analysis
 
 if analysis:
+    replacements = {}
+    if masking_enabled:
+        field_sets = []
+        for key in ["term_sheet", "investment_agreement"]:
+            doc = analysis.get(key)
+            if doc:
+                field_sets.append(doc.get("fields", {}))
+        replacements = build_mask_replacements(field_sets)
+
+    if masking_enabled:
+        st.caption("마스킹 ON: 회사명/금액/연락처 등 민감정보는 토큰으로 표시됩니다.")
+
     st.divider()
     st.markdown("## 문서 요약")
 
@@ -159,13 +229,16 @@ if analysis:
             continue
 
         title = "텀싯" if key == "term_sheet" else "투자계약서"
+        display_doc = mask_analysis(doc, replacements) if masking_enabled else doc
         st.markdown(f"### {title}")
-        st.caption(f"파일: {doc.get('name')} · 길이: {doc.get('text_length', 0):,} chars · 세그먼트: {len(doc.get('segments', []))}")
+        st.caption(
+            f"파일: {doc.get('name')} · 길이: {doc.get('text_length', 0):,} chars · 세그먼트: {len(doc.get('segments', []))}"
+        )
 
         st.markdown("**핵심 필드 추출**")
         field_rows = []
         for field in FIELD_DEFINITIONS:
-            entry = doc.get("fields", {}).get(field["name"])
+            entry = display_doc.get("fields", {}).get(field["name"])
             field_rows.append({
                 "항목": field["label"],
                 "값": entry.get("value") if entry else "",
@@ -176,7 +249,7 @@ if analysis:
 
         st.markdown("**조항 체크리스트**")
         clause_rows = []
-        for clause in doc.get("clauses", []):
+        for clause in display_doc.get("clauses", []):
             clause_rows.append({
                 "조항": clause.get("label"),
                 "존재": "O" if clause.get("present") else "X",
@@ -192,6 +265,8 @@ if analysis:
         st.markdown("## 내용 일치 검토")
         st.caption("핵심 항목이 두 문서에서 일치하는지 확인합니다.")
         comparisons = compare_fields(term_sheet.get("fields", {}), investment_agreement.get("fields", {}))
+        if masking_enabled:
+            comparisons = mask_comparisons(comparisons, replacements)
         st.dataframe(comparisons, use_container_width=True)
 
     st.divider()
@@ -201,6 +276,8 @@ if analysis:
         if term_sheet:
             st.markdown("**텀싯 검색 결과**")
             hits = search_segments(term_sheet.get("segments", []), query)
+            if masking_enabled:
+                hits = mask_search_hits(hits, replacements)
             if hits:
                 for hit in hits:
                     st.caption(f"{hit.get('source')}: {hit.get('snippet')}")
@@ -209,6 +286,8 @@ if analysis:
         if investment_agreement:
             st.markdown("**투자계약서 검색 결과**")
             hits = search_segments(investment_agreement.get("segments", []), query)
+            if masking_enabled:
+                hits = mask_search_hits(hits, replacements)
             if hits:
                 for hit in hits:
                     st.caption(f"{hit.get('source')}: {hit.get('snippet')}")
