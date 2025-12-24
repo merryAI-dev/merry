@@ -9,12 +9,75 @@ import os
 import shutil
 import subprocess
 import tempfile
+import wave
+from array import array
 from functools import lru_cache
 from typing import Dict, Optional
 
 
 def _normalize_text(text: str) -> str:
     return " ".join(text.strip().split())
+
+
+def _audio_to_pcm16_bytes(audio) -> bytes:
+    if hasattr(audio, "detach"):
+        audio = audio.detach().cpu().numpy()
+
+    try:
+        import numpy as np
+    except Exception:
+        np = None
+
+    if np is not None:
+        audio_np = np.asarray(audio)
+        if audio_np.dtype.kind in ("i", "u"):
+            pcm = audio_np.astype(np.int16, copy=False)
+        else:
+            audio_np = np.clip(audio_np.astype(np.float32), -1.0, 1.0)
+            pcm = (audio_np * 32767.0).astype(np.int16)
+        return pcm.tobytes()
+
+    if hasattr(audio, "tolist"):
+        audio_list = audio.tolist()
+    else:
+        audio_list = list(audio)
+
+    max_abs = 0.0
+    for value in audio_list:
+        try:
+            abs_value = abs(float(value))
+        except Exception:
+            abs_value = 0.0
+        if abs_value > max_abs:
+            max_abs = abs_value
+
+    if max_abs > 1.5:
+        pcm = array("h", [max(-32768, min(32767, int(value))) for value in audio_list])
+        return pcm.tobytes()
+
+    pcm = array(
+        "h",
+        [max(-32768, min(32767, int(float(value) * 32767.0))) for value in audio_list],
+    )
+    return pcm.tobytes()
+
+
+def _write_wav_bytes(audio, sample_rate: int) -> Dict[str, Optional[bytes]]:
+    try:
+        pcm_bytes = _audio_to_pcm16_bytes(audio)
+    except Exception as exc:
+        return {"success": False, "audio": None, "error": f"WAV 변환 실패: {exc}", "format": "audio/wav"}
+
+    buffer = io.BytesIO()
+    try:
+        with wave.open(buffer, "wb") as wav_file:
+            wav_file.setnchannels(1)
+            wav_file.setsampwidth(2)
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(pcm_bytes)
+        return {"success": True, "audio": buffer.getvalue(), "error": None, "format": "audio/wav"}
+    except Exception as exc:
+        return {"success": False, "audio": None, "error": f"WAV 저장 실패: {exc}", "format": "audio/wav"}
 
 
 @lru_cache(maxsize=2)
@@ -180,11 +243,20 @@ def local_tts_mms(
 
         try:
             import soundfile as sf
-        except ImportError as exc:
-            return {"success": False, "audio": None, "error": "soundfile이 필요합니다.", "format": "audio/wav"}
+        except ImportError:
+            sf = None
 
-        buffer = io.BytesIO()
-        sf.write(buffer, audio, sample_rate, format="WAV")
-        return {"success": True, "audio": buffer.getvalue(), "error": None, "format": "audio/wav"}
+        if sf is not None:
+            try:
+                buffer = io.BytesIO()
+                sf.write(buffer, audio, sample_rate, format="WAV")
+                return {"success": True, "audio": buffer.getvalue(), "error": None, "format": "audio/wav"}
+            except Exception:
+                pass
+
+        fallback = _write_wav_bytes(audio, sample_rate)
+        if fallback.get("success"):
+            return fallback
+        return fallback
     except Exception as exc:
         return {"success": False, "audio": None, "error": f"TTS 실패: {exc}", "format": "audio/wav"}
