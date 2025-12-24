@@ -9,6 +9,7 @@ Contract review helpers for Term Sheet / Investment Agreement (KR)
 from __future__ import annotations
 
 import re
+import base64
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -25,6 +26,11 @@ try:
     from docx import Document
 except Exception:
     Document = None
+
+try:
+    from anthropic import Anthropic
+except Exception:
+    Anthropic = None
 
 
 FIELD_DEFINITIONS = [
@@ -140,6 +146,45 @@ CLAUSE_TAXONOMY = {
     ],
 }
 
+MASK_TOKEN_MAP = {
+    "company_name": "[COMPANY]",
+    "investor_name": "[INVESTOR]",
+    "investment_amount": "[AMOUNT]",
+    "pre_money": "[AMOUNT]",
+    "post_money": "[AMOUNT]",
+    "share_price": "[AMOUNT]",
+    "share_count": "[COUNT]",
+    "closing_date": "[DATE]",
+    "governing_law": "[MASKED]",
+}
+
+OCR_DEFAULT_MODEL = "claude-opus-4-5-20251101"
+OCR_DEFAULT_DPI = 200
+OCR_MIN_CHARS_PER_PAGE = 200
+OCR_SINGLE_HANGUL_RATIO_THRESHOLD = 0.35
+OCR_SYMBOL_RATIO_THRESHOLD = 0.02
+OCR_PROMPT = (
+    "You are a precise OCR engine. Extract all visible text from the image. "
+    "Preserve reading order. Output plain text only with line breaks. "
+    "Do not summarize or add commentary."
+)
+
+SENSITIVE_PATTERNS = [
+    (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"), "[EMAIL]"),
+    (re.compile(r"\\b(01[016789])[-.\\s]?\\d{3,4}[-.\\s]?\\d{4}\\b"), "[PHONE]"),
+    (re.compile(r"\\b0\\d{1,2}[-.\\s]?\\d{3,4}[-.\\s]?\\d{4}\\b"), "[PHONE]"),
+    (re.compile(r"\\b\\d{6}-\\d{7}\\b"), "[ID]"),
+    (re.compile(r"\\b\\d{3}-\\d{2}-\\d{5}\\b"), "[BIZ_ID]"),
+    (re.compile(r"\\b\\d{13}\\b"), "[ID]"),
+    (re.compile(r"\\b\\d{2,6}-\\d{2,6}-\\d{2,6}\\b"), "[ACCOUNT]"),
+    (re.compile(r"\\b\\d{4}[./-]\\d{1,2}[./-]\\d{1,2}\\b"), "[DATE]"),
+    (re.compile(r"\\d{4}\\s*년\\s*\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일"), "[DATE]"),
+    (re.compile(r"[0-9][0-9,\\.]*\\s*(원|억원|만원|천만원|십억원|KRW|USD|US\\$|\\$)"), "[AMOUNT]"),
+]
+
+ADDRESS_LABEL_PATTERN = re.compile(r"(주소|Address)\\s*[:：]?\\s*([^\\n\\r]+)", re.IGNORECASE)
+PERSON_LABEL_PATTERN = re.compile(r"(대표이사|대표|담당자|성명)\\s*[:：]?\\s*([^\\n\\r]+)")
+
 
 def _normalize_whitespace(text: str) -> str:
     return " ".join(text.strip().split())
@@ -152,6 +197,157 @@ def _normalize_company_name(text: str) -> str:
     text = text.replace("주식회사", "").replace("유한회사", "")
     text = text.replace("(주)", "").replace("㈜", "")
     return text
+
+
+def _count_symbol_ratio(text: str) -> float:
+    if not text:
+        return 1.0
+    symbols = text.count("●") + text.count("■") + text.count("□") + text.count("�")
+    return symbols / max(1, len(text))
+
+
+def _single_hangul_ratio(text: str) -> float:
+    tokens = [t for t in re.split(r"\s+", text) if t]
+    if not tokens:
+        return 1.0
+    hangul_tokens = [t for t in tokens if re.search(r"[가-힣]", t)]
+    if not hangul_tokens:
+        return 0.0
+    single_hangul = sum(1 for t in hangul_tokens if len(t) == 1 and re.match(r"[가-힣]", t))
+    return single_hangul / max(1, len(hangul_tokens))
+
+
+def _needs_ocr(segments: List[Dict[str, str]], page_count: int) -> bool:
+    if page_count <= 0:
+        return False
+    full_text = "\n".join(seg.get("text", "") for seg in segments if seg.get("text"))
+    if not full_text.strip():
+        return True
+    if len(full_text.strip()) < OCR_MIN_CHARS_PER_PAGE * page_count:
+        return True
+    if _single_hangul_ratio(full_text) >= OCR_SINGLE_HANGUL_RATIO_THRESHOLD:
+        return True
+    if _count_symbol_ratio(full_text) >= OCR_SYMBOL_RATIO_THRESHOLD:
+        return True
+    return False
+
+
+def _token_label(token: str) -> str:
+    label = token.strip("[]")
+    return label or "MASKED"
+
+
+def build_mask_replacements(field_sets: List[Dict[str, Dict[str, object]]]) -> Dict[str, str]:
+    replacements: Dict[str, str] = {}
+    counters: Dict[str, int] = {}
+
+    for fields in field_sets:
+        if not fields:
+            continue
+        for field in FIELD_DEFINITIONS:
+            entry = fields.get(field["name"])
+            if not entry:
+                continue
+            value = entry.get("value")
+            if value is None:
+                continue
+            normalized = _normalize_whitespace(str(value))
+            if not normalized or normalized in replacements:
+                continue
+            base_token = MASK_TOKEN_MAP.get(field["name"], "[MASKED]")
+            label = _token_label(base_token)
+            counters[label] = counters.get(label, 0) + 1
+            replacements[normalized] = f"[{label}_{counters[label]}]"
+
+    return replacements
+
+
+def _mask_label_value(text: str, pattern: re.Pattern[str], token: str) -> str:
+    def _repl(match: re.Match[str]) -> str:
+        label = match.group(1).strip()
+        return f"{label}: {token}"
+
+    return pattern.sub(_repl, text)
+
+
+def mask_sensitive_text(text: str, replacements: Optional[Dict[str, str]] = None) -> str:
+    if not text:
+        return ""
+
+    masked = text
+    if replacements:
+        for original in sorted(replacements, key=len, reverse=True):
+            if original:
+                masked = masked.replace(original, replacements[original])
+
+    masked = _mask_label_value(masked, ADDRESS_LABEL_PATTERN, "[ADDRESS]")
+    masked = _mask_label_value(masked, PERSON_LABEL_PATTERN, "[PERSON]")
+
+    for pattern, token in SENSITIVE_PATTERNS:
+        masked = pattern.sub(token, masked)
+
+    return masked
+
+
+def mask_field_value(value: Optional[str], replacements: Optional[Dict[str, str]] = None) -> str:
+    if value is None:
+        return ""
+    normalized = _normalize_whitespace(str(value))
+    return mask_sensitive_text(normalized, replacements)
+
+
+def mask_analysis(doc: Dict[str, object], replacements: Dict[str, str]) -> Dict[str, object]:
+    if not doc:
+        return {}
+
+    masked_doc = dict(doc)
+    fields = doc.get("fields", {}) if isinstance(doc.get("fields"), dict) else {}
+    masked_fields: Dict[str, Dict[str, object]] = {}
+    for name, entry in fields.items():
+        if not isinstance(entry, dict):
+            continue
+        masked_entry = dict(entry)
+        masked_entry["value"] = mask_field_value(entry.get("value"), replacements)
+        masked_entry["snippet"] = mask_sensitive_text(entry.get("snippet", ""), replacements)
+        masked_fields[name] = masked_entry
+    masked_doc["fields"] = masked_fields
+
+    clauses = doc.get("clauses", []) if isinstance(doc.get("clauses"), list) else []
+    masked_clauses = []
+    for clause in clauses:
+        if not isinstance(clause, dict):
+            continue
+        masked_clause = dict(clause)
+        masked_clause["snippet"] = mask_sensitive_text(clause.get("snippet", ""), replacements)
+        masked_clauses.append(masked_clause)
+    masked_doc["clauses"] = masked_clauses
+
+    return masked_doc
+
+
+def mask_comparisons(comparisons: List[Dict[str, object]], replacements: Dict[str, str]) -> List[Dict[str, object]]:
+    masked = []
+    for entry in comparisons:
+        if not isinstance(entry, dict):
+            continue
+        masked_entry = dict(entry)
+        masked_entry["term_sheet"] = mask_field_value(entry.get("term_sheet"), replacements)
+        masked_entry["investment_agreement"] = mask_field_value(entry.get("investment_agreement"), replacements)
+        masked_entry["note"] = mask_sensitive_text(entry.get("note", ""), replacements)
+        masked.append(masked_entry)
+    return masked
+
+
+def mask_search_hits(hits: List[Dict[str, str]], replacements: Dict[str, str]) -> List[Dict[str, str]]:
+    masked_hits = []
+    for hit in hits:
+        if not isinstance(hit, dict):
+            continue
+        masked_hits.append({
+            "source": hit.get("source"),
+            "snippet": mask_sensitive_text(hit.get("snippet", ""), replacements),
+        })
+    return masked_hits
 
 
 def _parse_korean_amount(text: str) -> Optional[int]:
@@ -203,19 +399,20 @@ def _build_snippet(segment_text: str, match_start: int, match_end: int, window: 
     return _normalize_whitespace(snippet)
 
 
-def _build_segments_from_pdf(path: Path) -> List[Dict[str, str]]:
+def _build_segments_from_pdf(path: Path) -> tuple[List[Dict[str, str]], int]:
     if not fitz:
         raise ImportError("PyMuPDF(fitz)가 필요합니다.")
 
     segments: List[Dict[str, str]] = []
     with fitz.open(path) as doc:
+        page_count = doc.page_count
         for page_index in range(doc.page_count):
             page = doc.load_page(page_index)
             text = page.get_text("text")
             if not text:
                 continue
             segments.append({"source": f"p{page_index + 1}", "text": text})
-    return segments
+    return segments, page_count
 
 
 def _build_segments_from_docx(path: Path) -> List[Dict[str, str]]:
@@ -232,10 +429,85 @@ def _build_segments_from_docx(path: Path) -> List[Dict[str, str]]:
     return segments
 
 
-def load_document(path: Path) -> Dict[str, object]:
+def _render_pdf_page_to_png(doc: "fitz.Document", page_index: int, dpi: int) -> bytes:
+    zoom = dpi / 72
+    mat = fitz.Matrix(zoom, zoom)
+    page = doc.load_page(page_index)
+    pix = page.get_pixmap(matrix=mat, alpha=False)
+    return pix.tobytes("png")
+
+
+def _extract_claude_text(response: object) -> str:
+    parts = []
+    for block in getattr(response, "content", []) or []:
+        text = getattr(block, "text", "")
+        if text:
+            parts.append(text)
+    return "\n".join(parts).strip()
+
+
+def _ocr_pdf_with_claude(
+    path: Path,
+    api_key: str,
+    model: str = OCR_DEFAULT_MODEL,
+    dpi: int = OCR_DEFAULT_DPI,
+) -> List[Dict[str, str]]:
+    if not fitz:
+        raise ImportError("PyMuPDF(fitz)가 필요합니다.")
+    if not Anthropic:
+        raise ImportError("anthropic SDK가 필요합니다.")
+    if not api_key:
+        raise ValueError("Claude API 키가 필요합니다.")
+
+    client = Anthropic(api_key=api_key)
+    segments: List[Dict[str, str]] = []
+    with fitz.open(path) as doc:
+        for page_index in range(doc.page_count):
+            png_bytes = _render_pdf_page_to_png(doc, page_index, dpi)
+            encoded = base64.b64encode(png_bytes).decode("ascii")
+            response = client.messages.create(
+                model=model,
+                max_tokens=4000,
+                temperature=0,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": OCR_PROMPT},
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/png",
+                                    "data": encoded,
+                                },
+                            },
+                        ],
+                    }
+                ],
+            )
+            text = _extract_claude_text(response)
+            segments.append({"source": f"p{page_index + 1}", "text": text})
+    return segments
+
+
+def load_document(
+    path: Path,
+    ocr_mode: str = "off",
+    api_key: str = "",
+    ocr_model: str = OCR_DEFAULT_MODEL,
+) -> Dict[str, object]:
     ext = path.suffix.lower()
+    page_count = 0
     if ext == ".pdf":
-        segments = _build_segments_from_pdf(path)
+        segments, page_count = _build_segments_from_pdf(path)
+        if ocr_mode in ("auto", "force"):
+            should_ocr = ocr_mode == "force" or _needs_ocr(segments, page_count)
+            if should_ocr:
+                try:
+                    segments = _ocr_pdf_with_claude(path, api_key=api_key, model=ocr_model)
+                except Exception as exc:
+                    logger.warning("Claude OCR 실패: %s", exc)
     elif ext in (".docx",):
         segments = _build_segments_from_docx(path)
     else:
@@ -243,7 +515,7 @@ def load_document(path: Path) -> Dict[str, object]:
         segments = [{"source": "text", "text": text}] if text else []
 
     full_text = "\n".join(seg["text"] for seg in segments if seg.get("text"))
-    return {"segments": segments, "text": full_text}
+    return {"segments": segments, "text": full_text, "page_count": page_count}
 
 
 def extract_fields(segments: List[Dict[str, str]]) -> Dict[str, Dict[str, object]]:
