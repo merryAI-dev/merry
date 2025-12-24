@@ -4,10 +4,12 @@ Voice Agent Page (Naver CLOVA STT/TTS)
 
 from __future__ import annotations
 
+import base64
 import os
 from typing import Dict, Optional, Tuple
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from shared.auth import check_authentication, get_user_id
 from shared.config import initialize_agent, initialize_session_state, inject_custom_css
@@ -120,6 +122,8 @@ def _reset_voice_session():
     st.session_state.voice_messages = []
     st.session_state.voice_last_transcript = ""
     st.session_state.voice_last_error = None
+    st.session_state.voice_last_audio_size = 0
+    st.session_state.voice_auto_play_index = None
     if st.session_state.agent:
         st.session_state.agent.voice_conversation_history = []
 
@@ -232,7 +236,12 @@ with st.sidebar:
         key="voice_refine_enabled",
         help="STT 결과를 Claude로 정제해서 대화 입력에 사용합니다.",
     )
-    st.caption("브라우저에서 재생 버튼을 눌러야 음성이 출력됩니다.")
+    st.checkbox(
+        "음성 자동 재생 (실험적)",
+        key="voice_auto_play",
+        help="브라우저 정책에 따라 자동 재생이 차단될 수 있습니다.",
+    )
+    st.caption("자동 재생이 안 되면 재생 버튼을 눌러주세요.")
     with st.expander("입력 상태", expanded=False):
         last_audio_size = st.session_state.get("voice_last_audio_size")
         if last_audio_size:
@@ -354,7 +363,7 @@ st.session_state.voice_mode = mode[0]
 checkin_seed = st.button("체크인 시작", type="primary", use_container_width=False)
 
 # Chat history
-for msg in st.session_state.voice_messages:
+for idx, msg in enumerate(st.session_state.voice_messages):
     with st.chat_message(msg["role"]):
         if msg.get("raw_transcript"):
             st.caption(f"STT 원문: {msg['raw_transcript']}")
@@ -366,7 +375,24 @@ for msg in st.session_state.voice_messages:
         if msg.get("tts_error"):
             st.caption(f"TTS 오류: {msg['tts_error']}")
         if msg.get("audio"):
-            st.audio(msg["audio"], format=msg.get("audio_format", "audio/mp3"))
+            st.audio(
+                msg["audio"],
+                format=msg.get("audio_format", "audio/mpeg"),
+                key=f"voice_audio_{idx}",
+            )
+
+auto_index = st.session_state.get("voice_auto_play_index")
+if st.session_state.voice_auto_play and auto_index is not None:
+    target = None
+    if 0 <= auto_index < len(st.session_state.voice_messages):
+        target = st.session_state.voice_messages[auto_index]
+    if target and target.get("audio"):
+        _render_autoplay_audio(
+            target["audio"],
+            target.get("audio_format", "audio/mpeg"),
+            element_id=f"auto-play-{auto_index}",
+        )
+    st.session_state.voice_auto_play_index = None
 
 st.divider()
 
@@ -457,6 +483,28 @@ def _run_tts_with_fallback(
     }
 
 
+def _render_autoplay_audio(audio_bytes: bytes, audio_format: str, element_id: str) -> None:
+    if not audio_bytes:
+        return
+
+    mime = audio_format if audio_format and audio_format.startswith("audio/") else "audio/mpeg"
+    audio_base64 = base64.b64encode(audio_bytes).decode("ascii")
+    components.html(
+        f"""
+        <audio id="{element_id}" autoplay>
+            <source src="data:{mime};base64,{audio_base64}" type="{mime}">
+        </audio>
+        <script>
+            const audio = document.getElementById("{element_id}");
+            if (audio) {{
+                audio.play().catch(() => {{}});
+            }}
+        </script>
+        """,
+        height=0,
+    )
+
+
 if checkin_seed:
     seed = "오늘 체크인을 시작합니다. 어제 로그를 반영해 간단히 안부를 묻고, 학습과 감정 상태를 짧게 언급한 뒤, 오늘 목표를 2~4개 질문으로 확인해줘."
     send_clicked = True
@@ -524,6 +572,8 @@ if send_clicked:
                 "tts_error": tts_error,
             }
         )
+        if st.session_state.voice_auto_play and audio_out:
+            st.session_state.voice_auto_play_index = len(st.session_state.voice_messages) - 1
 
         session_id = st.session_state.agent.memory.session_id
         if st.session_state.voice_mode in ("checkin", "1on1"):
