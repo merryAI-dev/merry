@@ -477,9 +477,9 @@ for node in GRAPH_NODES:
     chip_html = "".join([f"<span class='node-chip'>{chip}</span>" for chip in node.get("chips", [])])
     cta_label = node.get("cta", "시작")
     cta_html = (
-        f"<button class='node-cta'>{cta_label}</button>"
+        f"<button class='node-cta' data-page='{node['page']}'>{cta_label}</button>"
         if node.get("page")
-        else f"<div class='node-cta hub'>{cta_label}</div>"
+        else f"<div class='node-cta is-disabled'>{cta_label}</div>"
     )
     nodes_html.append(
         f"""
@@ -496,6 +496,19 @@ for node in GRAPH_NODES:
 
 graph_nodes_markup = "\n".join(nodes_html)
 page_slugs = [node["page"] for node in GRAPH_NODES if node.get("page")]
+graph_data = {
+    node["id"]: {
+        "title": node["title"],
+        "summary": node["summary"],
+        "bullets": node.get("bullets", []),
+        "chips": node.get("chips", []),
+        "page": node.get("page", ""),
+        "cta": node.get("cta", ""),
+        "accent": node.get("accent", "ember"),
+    }
+    for node in GRAPH_NODES
+}
+graph_data_json = json.dumps(graph_data, ensure_ascii=False)
 
 graph_html = f"""
 <!DOCTYPE html>
@@ -505,7 +518,14 @@ graph_html = f"""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
-:root {{
+html, body {{
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    font-family: "Space Grotesk", "Noto Sans KR", sans-serif;
+}}
+
+.graph-shell {{
     --graph-bg: #f7f2ea;
     --graph-ink: #1c1914;
     --graph-muted: #5f554b;
@@ -515,22 +535,26 @@ graph_html = f"""
     --accent-ember: #cc3a2b;
     --accent-amber: #d08a2e;
     --accent-teal: #1a8c86;
-}}
-
-html, body {{
-    margin: 0;
-    padding: 0;
-    background: transparent;
-    font-family: "Space Grotesk", "Noto Sans KR", sans-serif;
-}}
-
-.graph-shell {{
     position: relative;
-    height: 760px;
+    height: 780px;
     border-radius: 32px;
     background: var(--graph-bg);
     overflow: hidden;
     box-shadow: 0 30px 60px rgba(25, 18, 9, 0.08);
+    cursor: grab;
+}}
+
+.graph-shell.is-dragging {{
+    cursor: grabbing;
+}}
+
+.graph-shell.theme-dark {{
+    --graph-bg: #141210;
+    --graph-ink: #f5f2ec;
+    --graph-muted: #b2aaa0;
+    --graph-node-bg: rgba(30, 27, 22, 0.95);
+    --graph-border: rgba(240, 234, 226, 0.12);
+    --graph-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
 }}
 
 .graph-shell::before {{
@@ -547,18 +571,35 @@ html, body {{
     z-index: 0;
 }}
 
+.graph-shell.theme-dark::before {{
+    background-image:
+        radial-gradient(circle at 15% 10%, rgba(46, 40, 34, 0.9), rgba(46, 40, 34, 0) 40%),
+        radial-gradient(circle at 85% 20%, rgba(40, 32, 27, 0.8), rgba(40, 32, 27, 0) 35%),
+        repeating-linear-gradient(0deg, rgba(240, 234, 226, 0.08), rgba(240, 234, 226, 0.08) 1px, transparent 1px, transparent 28px),
+        repeating-linear-gradient(90deg, rgba(240, 234, 226, 0.08), rgba(240, 234, 226, 0.08) 1px, transparent 1px, transparent 28px);
+    opacity: 0.75;
+}}
+
 .graph-lines {{
     position: absolute;
     inset: 0;
     width: 100%;
     height: 100%;
     z-index: 1;
+    pointer-events: none;
+}}
+
+.graph-stage {{
+    position: absolute;
+    inset: 0;
+    transform-origin: top left;
+    z-index: 2;
 }}
 
 .graph-zones {{
     position: absolute;
     inset: 0;
-    z-index: 2;
+    z-index: 1;
     pointer-events: none;
 }}
 
@@ -568,6 +609,11 @@ html, body {{
     border-radius: 28px;
     background: rgba(255, 255, 255, 0.45);
     backdrop-filter: blur(4px);
+}}
+
+.graph-shell.theme-dark .graph-zone {{
+    border-color: rgba(240, 234, 226, 0.12);
+    background: rgba(24, 21, 18, 0.45);
 }}
 
 .graph-zone span {{
@@ -583,6 +629,11 @@ html, body {{
     border-radius: 999px;
     border: 1px solid rgba(28, 25, 20, 0.12);
     background: rgba(247, 242, 234, 0.95);
+}}
+
+.graph-shell.theme-dark .graph-zone span {{
+    border-color: rgba(240, 234, 226, 0.12);
+    background: rgba(26, 23, 19, 0.9);
 }}
 
 .zone-analysis {{ top: 4%; left: 6%; width: 88%; height: 36%; }}
@@ -604,12 +655,18 @@ html, body {{
     box-shadow: var(--graph-shadow);
     z-index: 3;
     cursor: pointer;
-    transition: border 0.2s ease, box-shadow 0.2s ease;
+    transition: border 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
 }}
 
 .graph-node:hover {{
     border-color: rgba(28, 25, 20, 0.35);
     box-shadow: 0 26px 50px rgba(25, 18, 9, 0.18);
+    transform: translate(-50%, -50%) translateY(-4px);
+}}
+
+.graph-node.is-active {{
+    border-color: rgba(26, 140, 134, 0.55);
+    box-shadow: 0 24px 60px rgba(26, 140, 134, 0.18);
 }}
 
 .graph-node::after {{
@@ -649,6 +706,7 @@ html, body {{
     font-size: 18px;
     font-weight: 600;
     margin-bottom: 6px;
+    color: var(--graph-ink);
 }}
 
 .node-summary {{
@@ -662,6 +720,7 @@ html, body {{
     margin: 0 0 10px 0;
     font-size: 12.5px;
     line-height: 1.6;
+    color: var(--graph-ink);
 }}
 
 .node-chips {{
@@ -678,6 +737,7 @@ html, body {{
     border-radius: 999px;
     border: 1px solid rgba(28, 25, 20, 0.12);
     background: rgba(255, 255, 255, 0.8);
+    color: var(--graph-ink);
 }}
 
 .node-cta {{
@@ -694,34 +754,128 @@ html, body {{
     color: var(--graph-ink);
 }}
 
-.graph-node .node-cta {{
+.node-cta.is-disabled {{
+    opacity: 0.7;
+}}
+
+.graph-controls {{
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    display: flex;
+    gap: 8px;
+    z-index: 5;
+}}
+
+.graph-btn {{
+    border-radius: 999px;
+    border: 1px solid rgba(28, 25, 20, 0.2);
+    background: rgba(255, 255, 255, 0.8);
+    color: var(--graph-ink);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 12px;
     cursor: pointer;
 }}
 
-.graph-node.accent-ember .node-cta {{
-    background: rgba(204, 58, 43, 0.12);
+.graph-panel {{
+    position: absolute;
+    right: 24px;
+    bottom: 24px;
+    width: min(280px, 32vw);
+    background: rgba(255, 255, 255, 0.92);
+    border: 1px solid rgba(28, 25, 20, 0.12);
+    border-radius: 20px;
+    padding: 14px;
+    box-shadow: 0 16px 36px rgba(25, 18, 9, 0.12);
+    z-index: 4;
 }}
 
-.graph-node.accent-amber .node-cta {{
-    background: rgba(208, 138, 46, 0.12);
+.graph-shell.theme-dark .graph-panel {{
+    background: rgba(24, 21, 18, 0.92);
+    border-color: rgba(240, 234, 226, 0.12);
 }}
 
-.graph-node.accent-teal .node-cta {{
-    background: rgba(26, 140, 134, 0.12);
+.panel-kicker {{
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--graph-muted);
 }}
 
-.graph-node.accent-hub .node-cta {{
-    background: rgba(17, 16, 15, 0.08);
+.panel-title {{
+    font-size: 16px;
+    font-weight: 600;
+    margin: 6px 0;
+    color: var(--graph-ink);
+}}
+
+.panel-summary {{
+    font-size: 12.5px;
+    color: var(--graph-muted);
+    margin-bottom: 10px;
+}}
+
+.panel-list {{
+    padding-left: 18px;
+    margin: 0 0 10px 0;
+    font-size: 12px;
+    line-height: 1.6;
+    color: var(--graph-ink);
+}}
+
+.panel-chips {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+}}
+
+.panel-chip {{
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(28, 25, 20, 0.12);
+    background: rgba(255, 255, 255, 0.8);
+}}
+
+.panel-cta {{
+    width: 100%;
+    border-radius: 999px;
+    border: 1px solid rgba(28, 25, 20, 0.2);
+    padding: 8px 10px;
+    font-size: 12.5px;
+    font-weight: 600;
+    background: rgba(28, 25, 20, 0.08);
+    cursor: pointer;
+}}
+
+.panel-cta:disabled {{
     cursor: default;
+    opacity: 0.6;
+}}
+
+.graph-hint {{
+    position: absolute;
+    left: 24px;
+    bottom: 24px;
+    font-size: 11px;
+    color: var(--graph-muted);
+    z-index: 4;
 }}
 
 .graph-shell.is-mobile {{
     height: auto;
-    padding: 16px 12px 24px 12px;
+    padding: 16px 12px 80px 12px;
+    cursor: default;
 }}
 
 .graph-shell.is-mobile .graph-lines,
-.graph-shell.is-mobile .graph-zones {{
+.graph-shell.is-mobile .graph-zones,
+.graph-shell.is-mobile .graph-panel,
+.graph-shell.is-mobile .graph-hint {{
     display: none;
 }}
 
@@ -744,20 +898,44 @@ html, body {{
 <body>
 <div class="graph-shell" id="graph-shell">
     <canvas class="graph-lines" id="graph-lines"></canvas>
-    <div class="graph-zones">
-        <div class="graph-zone zone-analysis"><span>핵심 분석</span></div>
-        <div class="graph-zone zone-hub"><span>인사이트 허브</span></div>
-        <div class="graph-zone zone-diligence"><span>딜리전스</span></div>
+    <div class="graph-stage" id="graph-stage">
+        <div class="graph-zones">
+            <div class="graph-zone zone-analysis"><span>핵심 분석</span></div>
+            <div class="graph-zone zone-hub"><span>인사이트 허브</span></div>
+            <div class="graph-zone zone-diligence"><span>딜리전스</span></div>
+        </div>
+        {graph_nodes_markup}
     </div>
-    {graph_nodes_markup}
+    <div class="graph-panel" id="graph-panel">
+        <div class="panel-kicker">Module Preview</div>
+        <div class="panel-title" id="panel-title"></div>
+        <div class="panel-summary" id="panel-summary"></div>
+        <ul class="panel-list" id="panel-list"></ul>
+        <div class="panel-chips" id="panel-chips"></div>
+        <button class="panel-cta" id="panel-cta">이동</button>
+    </div>
+    <div class="graph-controls">
+        <button class="graph-btn" id="reset-view">Reset</button>
+        <button class="graph-btn" id="theme-toggle">Dark</button>
+    </div>
+    <div class="graph-hint">Drag to pan · Scroll to zoom · Double click to center</div>
 </div>
 <script>
 const graph = document.getElementById("graph-shell");
+const stage = document.getElementById("graph-stage");
 const canvas = document.getElementById("graph-lines");
 const ctx = canvas.getContext("2d");
 const nodes = Array.from(document.querySelectorAll(".graph-node"));
-const nodeMap = {{}};
+const panelTitle = document.getElementById("panel-title");
+const panelSummary = document.getElementById("panel-summary");
+const panelList = document.getElementById("panel-list");
+const panelChips = document.getElementById("panel-chips");
+const panelCta = document.getElementById("panel-cta");
+const resetBtn = document.getElementById("reset-view");
+const themeToggle = document.getElementById("theme-toggle");
+const nodeData = {graph_data_json};
 const pageSlugs = {json.dumps(page_slugs, ensure_ascii=False)};
+const nodeMap = {{}};
 nodes.forEach((node) => {{
     nodeMap[node.dataset.node] = node;
 }});
@@ -771,7 +949,51 @@ const edges = [
     ["hub", "contract"],
 ];
 
-let activeNode = null;
+const state = {{ panX: 0, panY: 0, zoom: 1 }};
+let hoverNodeId = null;
+let activeNodeId = "hub";
+let draggingNode = null;
+let draggingGraph = false;
+let dragMoved = false;
+let dragOffset = {{ x: 0, y: 0 }};
+let dragPointer = {{ x: 0, y: 0 }};
+
+function clamp(value, min, max) {{
+    return Math.min(Math.max(value, min), max);
+}}
+
+function updateTheme() {{
+    const current = graph.classList.contains("theme-dark");
+    themeToggle.textContent = current ? "Light" : "Dark";
+}}
+
+function setTheme(mode) {{
+    graph.classList.toggle("theme-dark", mode === "dark");
+    localStorage.setItem("graphTheme", mode);
+    updateTheme();
+}}
+
+const storedTheme = localStorage.getItem("graphTheme") || "light";
+setTheme(storedTheme);
+
+themeToggle.addEventListener("click", () => {{
+    const next = graph.classList.contains("theme-dark") ? "light" : "dark";
+    setTheme(next);
+}});
+
+function applyTransform() {{
+    stage.style.transform = `translate(${{state.panX}}px, ${{state.panY}}px) scale(${{state.zoom}})`;
+}}
+
+function resetView() {{
+    state.panX = 0;
+    state.panY = 0;
+    state.zoom = 1;
+    applyTransform();
+}}
+
+resetBtn.addEventListener("click", resetView);
+graph.addEventListener("dblclick", resetView);
 
 function resizeCanvas() {{
     const rect = graph.getBoundingClientRect();
@@ -789,45 +1011,173 @@ function getCenter(node) {{
     }};
 }}
 
-function navigate(page) {{
-    if (!page) return;
+function toGraphPoint(clientX, clientY) {{
+    const rect = graph.getBoundingClientRect();
+    return {{
+        x: (clientX - rect.left - state.panX) / state.zoom,
+        y: (clientY - rect.top - state.panY) / state.zoom,
+    }};
+}}
+
+function buildTarget(page) {{
     const url = new URL(window.location.href);
-    if (url.searchParams.has("page")) {{
-        url.searchParams.set("page", page);
-        window.location.href = url.toString();
-        return;
-    }}
     const segments = url.pathname.split("/").filter(Boolean);
     const last = segments.length ? segments[segments.length - 1] : "";
     const baseSegments = pageSlugs.includes(last) ? segments.slice(0, -1) : segments;
     const basePath = baseSegments.length ? `/${{baseSegments.join("/")}}` : "";
-    window.location.href = `${{url.origin}}${{basePath}}/${{page}}`;
+    return `${{url.origin}}${{basePath}}/?page=${{page}}`;
 }}
 
-nodes.forEach((node) => {{
-    const page = node.dataset.page;
-    if (!page) {{
-        node.style.cursor = "default";
-    }} else {{
-        node.addEventListener("click", () => navigate(page));
+function navigate(page) {{
+    if (!page) return;
+    const target = buildTarget(page);
+    const attempts = [
+        () => window.top.location.assign(target),
+        () => window.parent.location.assign(target),
+        () => window.open(target, "_top"),
+        () => window.open(target, "_self"),
+    ];
+    for (const attempt of attempts) {{
+        try {{
+            attempt();
+            return;
+        }} catch (err) {{
+            continue;
+        }}
     }}
+    window.location.href = target;
+}}
+
+function renderPanel(nodeId) {{
+    const data = nodeData[nodeId] || nodeData.hub;
+    panelTitle.textContent = data.title || "";
+    panelSummary.textContent = data.summary || "";
+    panelList.innerHTML = (data.bullets || []).map((item) => `<li>${{item}}</li>`).join("");
+    panelChips.innerHTML = (data.chips || []).map((item) => `<span class="panel-chip">${{item}}</span>`).join("");
+    panelCta.textContent = data.page ? (data.cta || "이동") : "그래프 허브";
+    panelCta.disabled = !data.page;
+    panelCta.dataset.page = data.page || "";
+    nodes.forEach((node) => {{
+        node.classList.toggle("is-active", node.dataset.node === nodeId);
+    }});
+}}
+
+panelCta.addEventListener("click", (event) => {{
+    const page = event.currentTarget.dataset.page;
+    if (page) {{
+        navigate(page);
+    }}
+}});
+
+nodes.forEach((node, index) => {{
+    const nodeId = node.dataset.node;
+    const page = node.dataset.page;
+    const cta = node.querySelector(".node-cta");
+
     node.addEventListener("mouseenter", () => {{
-        activeNode = node.dataset.node;
+        hoverNodeId = nodeId;
+        renderPanel(nodeId);
     }});
     node.addEventListener("mouseleave", () => {{
-        activeNode = null;
+        hoverNodeId = null;
+    }});
+    node.addEventListener("click", (event) => {{
+        if (node.dataset.dragging === "true") {{
+            node.dataset.dragging = "false";
+            return;
+        }}
+        activeNodeId = nodeId;
+        renderPanel(nodeId);
+    }});
+    node.addEventListener("dblclick", () => {{
+        if (page) {{
+            navigate(page);
+        }}
+    }});
+    if (cta) {{
+        cta.addEventListener("click", (event) => {{
+            event.stopPropagation();
+            if (page) {{
+                navigate(page);
+            }}
+        }});
+    }}
+
+    node.addEventListener("pointerdown", (event) => {{
+        if (event.target.closest(".node-cta")) {{
+            return;
+        }}
+        draggingNode = node;
+        dragMoved = false;
+        node.dataset.dragging = "false";
+        node.setPointerCapture(event.pointerId);
+        dragPointer = toGraphPoint(event.clientX, event.clientY);
+        const rect = graph.getBoundingClientRect();
+        const nodeX = parseFloat(node.style.getPropertyValue("--x") || node.dataset.x || 50) / 100 * rect.width;
+        const nodeY = parseFloat(node.style.getPropertyValue("--y") || node.dataset.y || 50) / 100 * rect.height;
+        dragOffset = {{ x: dragPointer.x - nodeX, y: dragPointer.y - nodeY }};
     }});
 }});
 
-function updateLayout() {{
-    const isMobile = graph.clientWidth < 900;
-    graph.classList.toggle("is-mobile", isMobile);
-    resizeCanvas();
-}}
+graph.addEventListener("pointerdown", (event) => {{
+    if (event.target.closest(".graph-node") || event.target.closest(".graph-panel") || event.target.closest(".graph-controls")) {{
+        return;
+    }}
+    draggingGraph = true;
+    graph.classList.add("is-dragging");
+    dragPointer = {{ x: event.clientX - state.panX, y: event.clientY - state.panY }};
+}});
+
+graph.addEventListener("pointermove", (event) => {{
+    if (draggingNode) {{
+        const rect = graph.getBoundingClientRect();
+        const point = toGraphPoint(event.clientX, event.clientY);
+        const newX = clamp(((point.x - dragOffset.x) / rect.width) * 100, 8, 92);
+        const newY = clamp(((point.y - dragOffset.y) / rect.height) * 100, 8, 92);
+        draggingNode.style.setProperty("--x", newX.toFixed(2));
+        draggingNode.style.setProperty("--y", newY.toFixed(2));
+        draggingNode.dataset.dragging = "true";
+        dragMoved = true;
+        return;
+    }}
+    if (draggingGraph) {{
+        state.panX = event.clientX - dragPointer.x;
+        state.panY = event.clientY - dragPointer.y;
+        applyTransform();
+    }}
+}});
+
+graph.addEventListener("pointerup", () => {{
+    draggingNode = null;
+    draggingGraph = false;
+    graph.classList.remove("is-dragging");
+}});
+
+graph.addEventListener("pointerleave", () => {{
+    draggingNode = null;
+    draggingGraph = false;
+    graph.classList.remove("is-dragging");
+}});
+
+graph.addEventListener("wheel", (event) => {{
+    event.preventDefault();
+    const rect = graph.getBoundingClientRect();
+    const pointerX = event.clientX - rect.left;
+    const pointerY = event.clientY - rect.top;
+    const worldX = (pointerX - state.panX) / state.zoom;
+    const worldY = (pointerY - state.panY) / state.zoom;
+    const zoomFactor = event.deltaY < 0 ? 1.08 : 0.92;
+    const nextZoom = clamp(state.zoom * zoomFactor, 0.7, 1.6);
+    state.panX = pointerX - worldX * nextZoom;
+    state.panY = pointerY - worldY * nextZoom;
+    state.zoom = nextZoom;
+    applyTransform();
+}}, {{ passive: false }});
 
 function drawLines(time) {{
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    const dashOffset = -time * 0.05;
+    const dashOffset = -time * 0.06;
+    const highlight = hoverNodeId || activeNodeId;
 
     edges.forEach(([from, to]) => {{
         const startNode = nodeMap[from];
@@ -835,11 +1185,11 @@ function drawLines(time) {{
         if (!startNode || !endNode) return;
         const start = getCenter(startNode);
         const end = getCenter(endNode);
-        const isActive = activeNode && (activeNode === from || activeNode === to);
+        const isActive = highlight && (highlight === from || highlight === to);
         ctx.beginPath();
         ctx.setLineDash([10, 12]);
         ctx.lineDashOffset = dashOffset;
-        ctx.strokeStyle = isActive ? "rgba(26, 140, 134, 0.65)" : "rgba(28, 25, 20, 0.28)";
+        ctx.strokeStyle = isActive ? "rgba(26, 140, 134, 0.65)" : "rgba(28, 25, 20, 0.3)";
         ctx.lineWidth = isActive ? 2.4 : 2.0;
         ctx.moveTo(start.x, start.y);
         ctx.lineTo(end.x, end.y);
@@ -859,8 +1209,11 @@ function drawLines(time) {{
 function animate(time) {{
     if (!graph.classList.contains("is-mobile")) {{
         nodes.forEach((node, idx) => {{
-            const dx = Math.sin(time * 0.001 + idx) * 6;
-            const dy = Math.cos(time * 0.0012 + idx) * 5;
+            if (node === draggingNode) {{
+                return;
+            }}
+            const dx = Math.sin(time * 0.001 + idx) * 5;
+            const dy = Math.cos(time * 0.0012 + idx) * 4;
             node.style.transform = `translate(-50%, -50%) translate(${{dx}}px, ${{dy}}px)`;
         }});
     }} else {{
@@ -872,8 +1225,16 @@ function animate(time) {{
     requestAnimationFrame(animate);
 }}
 
+function updateLayout() {{
+    const isMobile = graph.clientWidth < 900;
+    graph.classList.toggle("is-mobile", isMobile);
+    resizeCanvas();
+}}
+
 window.addEventListener("resize", updateLayout);
 updateLayout();
+renderPanel(activeNodeId);
+applyTransform();
 requestAnimationFrame(animate);
 </script>
 </body>
