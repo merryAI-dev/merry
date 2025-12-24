@@ -26,130 +26,329 @@ check_authentication()
 inject_custom_css()
 
 # ========================================
-# 헤더
+# 홈 그래프 스타일 (Obsidian 스타일)
 # ========================================
-st.image(get_header_image(), width=300)
-st.markdown("# VC 투자 분석 에이전트")
-st.markdown("Exit 프로젝션, PER 분석, IRR 계산을 메리와 대화하면서 수행하세요")
+st.markdown(
+    """
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
-st.divider()
+    :root {
+        --graph-bg: #f7f2ea;
+        --graph-ink: #1c1914;
+        --graph-muted: #60554b;
+        --graph-node-bg: rgba(255, 255, 255, 0.9);
+        --graph-node-border: rgba(28, 25, 20, 0.14);
+        --graph-grid: rgba(28, 25, 20, 0.06);
+        --graph-accent: #cc3a2b;
+        --graph-accent-amber: #d08a2e;
+        --graph-accent-teal: #1a8c86;
+        --graph-shadow: 0 18px 40px rgba(25, 18, 9, 0.12);
+    }
 
-# ========================================
-# 기능 선택
-# ========================================
-col1, col2 = st.columns(2)
+    .stApp {
+        background-color: var(--graph-bg);
+        background-image:
+            radial-gradient(circle at 15% 10%, rgba(255, 247, 236, 0.9), rgba(255, 247, 236, 0) 40%),
+            radial-gradient(circle at 85% 20%, rgba(255, 232, 218, 0.7), rgba(255, 232, 218, 0) 35%),
+            repeating-linear-gradient(0deg, var(--graph-grid), var(--graph-grid) 1px, transparent 1px, transparent 28px),
+            repeating-linear-gradient(90deg, var(--graph-grid), var(--graph-grid) 1px, transparent 1px, transparent 28px);
+        background-attachment: fixed;
+    }
 
-with col1:
-    st.markdown("### Exit 프로젝션")
-    st.markdown("""
-**투자검토 엑셀 파일 기반 Exit 분석**
+    html, body, [class*="css"] {
+        font-family: "Space Grotesk", "Noto Sans KR", sans-serif;
+        color: var(--graph-ink);
+    }
 
-- 투자검토 엑셀 파일 파싱
-- PER 기반 시나리오 분석
-- IRR 및 멀티플 계산
-- Exit 프로젝션 엑셀 생성
-- 기본/고급/완전판 3-Tier 분석
+    .graph-hero {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 18px 8px 6px 8px;
+    }
 
-**사용 예시:**
-- "파일을 분석해줘"
-- "2030년 PER 10,20,30배로 Exit 프로젝션 생성해줘"
-- "SAFE 전환 시나리오 분석해줘"
-    """)
+    .graph-hero__kicker {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 12px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--graph-muted);
+    }
 
-    if st.button("Exit 프로젝션 시작", type="primary", use_container_width=True, key="start_exit"):
-        st.switch_page("pages/1_Exit_Projection.py")
+    .graph-hero__title {
+        font-size: 36px;
+        font-weight: 700;
+        margin: 0;
+    }
 
-with col2:
-    st.markdown("### Peer PER 분석")
-    st.markdown("""
-**유사 상장 기업 PER 조회 및 밸류에이션**
+    .graph-hero__desc {
+        font-size: 16px;
+        color: var(--graph-muted);
+        max-width: 560px;
+        margin: 0;
+    }
 
-- 기업 소개서 PDF 분석
-- 비즈니스 모델 기반 Peer 검색
-- Yahoo Finance PER 조회
-- Peer 벤치마킹 비교표
-- 매출 프로젝션 지원
+    .graph-map-title {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.2em;
+        color: var(--graph-muted);
+        margin: 24px 0 12px 0;
+    }
 
-**사용 예시:**
-- "PDF 분석해줘"
-- "Salesforce, ServiceNow PER 비교해줘"
-- "목표 기업가치 500억이면 필요 매출은?"
-    """)
+    .graph-row-gap {
+        height: 18px;
+    }
 
-    if st.button("Peer PER 분석 시작", type="primary", use_container_width=True, key="start_peer"):
-        st.switch_page("pages/2_Peer_PER_Analysis.py")
+    .graph-node-marker {
+        display: none;
+    }
 
-st.divider()
+    div[data-testid="stContainer"]:has(.graph-node-marker) {
+        background: var(--graph-node-bg);
+        border: 1px solid var(--graph-node-border);
+        border-radius: 18px;
+        padding: 18px 18px 12px 18px;
+        box-shadow: var(--graph-shadow);
+        position: relative;
+        overflow: hidden;
+    }
 
-# ========================================
-# 기업현황 진단시트
-# ========================================
-st.markdown("### 기업현황 진단시트")
-st.markdown("""
-**기업현황 진단시트 기반 컨설턴트 보고서 작성**
+    div[data-testid="stContainer"]:has(.graph-node-marker)::after {
+        content: "";
+        position: absolute;
+        width: 10px;
+        height: 10px;
+        border-radius: 999px;
+        background: var(--graph-accent);
+        top: 16px;
+        right: 16px;
+        box-shadow: 0 0 0 6px rgba(204, 58, 43, 0.12);
+    }
 
-- 기업정보/체크리스트 자동 분석
-- 항목별 점수(자가진단 기반) 산출
-- 컨설턴트용 분석보고서 초안 생성
-- 대화로 수정 후 엑셀에 반영 및 저장
-""")
+    div[data-testid="stContainer"]:has(.graph-node-marker[data-accent="amber"])::after {
+        background: var(--graph-accent-amber);
+        box-shadow: 0 0 0 6px rgba(208, 138, 46, 0.14);
+    }
 
-if st.button("기업현황 진단시트 시작", type="primary", use_container_width=True, key="start_diagnosis"):
-    st.switch_page("pages/3_Company_Diagnosis.py")
+    div[data-testid="stContainer"]:has(.graph-node-marker[data-accent="teal"])::after {
+        background: var(--graph-accent-teal);
+        box-shadow: 0 0 0 6px rgba(26, 140, 134, 0.14);
+    }
 
-st.divider()
+    div[data-testid="stContainer"]:has(.graph-node-marker[data-accent="hub"])::after {
+        width: 14px;
+        height: 14px;
+        background: #11100f;
+        box-shadow: 0 0 0 8px rgba(17, 16, 15, 0.08);
+    }
 
-# ========================================
-# 투자심사 보고서
-# ========================================
-st.markdown("### 투자심사 보고서")
-st.markdown("""
-**인수인의견 스타일 보고서 초안 작성**
+    .graph-node__summary {
+        font-size: 14px;
+        color: var(--graph-muted);
+        margin-bottom: 8px;
+    }
 
-- 기업 자료(PDF/엑셀)에서 시장규모 근거 추출
-- 인수인의견 패턴을 일반화해 문장 초안 생성
-- 확인 필요 사항 정리
-""")
+    .graph-node__list {
+        padding-left: 18px;
+        margin: 0 0 12px 0;
+        color: var(--graph-ink);
+        font-size: 13px;
+        line-height: 1.6;
+    }
 
-if st.button("투자심사 보고서 시작", type="primary", use_container_width=True, key="start_report"):
-    st.switch_page("pages/4_Investment_Report.py")
+    .graph-node__chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 12px;
+    }
 
-st.divider()
+    .graph-node__chip {
+        font-family: "IBM Plex Mono", monospace;
+        font-size: 11px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        border: 1px solid rgba(28, 25, 20, 0.12);
+        background: rgba(255, 255, 255, 0.7);
+    }
 
-# ========================================
-# Voice Agent
-# ========================================
-st.markdown("### Voice Agent (체크인/원온원)")
-st.markdown("""
-**음성 기반 체크인 및 원온원 대화**
+    div[data-testid="stContainer"]:has(.graph-node-marker) .stButton > button {
+        border-radius: 999px !important;
+        border-color: var(--graph-ink) !important;
+        color: var(--graph-ink) !important;
+        background: transparent !important;
+    }
 
-- Naver CLOVA STT/TTS 기반 음성 대화
-- 데일리 체크인 및 1:1 플로우
-- 어제 로그 기반 학습/감정 요약
-""")
+    div[data-testid="stContainer"]:has(.graph-node-marker) .stButton > button:hover {
+        background: rgba(28, 25, 20, 0.06) !important;
+    }
 
-if st.button("Voice Agent 시작", type="primary", use_container_width=True, key="start_voice"):
-    st.switch_page("pages/5_Voice_Agent.py")
+    @media (max-width: 900px) {
+        .graph-hero__title {
+            font-size: 28px;
+        }
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-if st.button("체크인 기록 보기", type="secondary", use_container_width=True, key="start_checkin_review"):
-    st.switch_page("pages/6_Checkin_Review.py")
 
-st.divider()
+def _render_graph_node(
+    title: str,
+    summary: str,
+    bullets: list[str],
+    chips: list[str],
+    button_label: str,
+    page_path: str,
+    key: str,
+    accent: str = "ember",
+) -> None:
+    with st.container():
+        st.markdown(f'<div class="graph-node-marker" data-accent="{accent}"></div>', unsafe_allow_html=True)
+        st.markdown(f"#### {title}")
+        st.markdown(f"<p class='graph-node__summary'>{summary}</p>", unsafe_allow_html=True)
+        if bullets:
+            items = "".join([f"<li>{item}</li>" for item in bullets])
+            st.markdown(f"<ul class='graph-node__list'>{items}</ul>", unsafe_allow_html=True)
+        if chips:
+            chip_html = "".join([f"<span class='graph-node__chip'>{chip}</span>" for chip in chips])
+            st.markdown(f"<div class='graph-node__chips'>{chip_html}</div>", unsafe_allow_html=True)
+        if st.button(button_label, use_container_width=True, key=key):
+            st.switch_page(page_path)
 
-# ========================================
-# 계약서 리서치
-# ========================================
-st.markdown("### 계약서 리서치 (텀싯/투자계약서)")
-st.markdown("""
-**근거 기반 계약서 검토**
 
-- 텀싯/투자계약서 PDF·DOCX 텍스트 추출
-- 핵심 항목 추출 및 근거 스니펫 제공
-- 문서 간 내용 일치 여부 점검 (회사명/금액 등)
-""")
+def _render_graph_hub() -> None:
+    with st.container():
+        st.markdown('<div class="graph-node-marker" data-accent="hub"></div>', unsafe_allow_html=True)
+        st.markdown("#### VC 투자 분석 그래프")
+        st.markdown(
+            "<p class='graph-node__summary'>메리와 대화하며 각 모듈을 연결합니다. "
+            "필요한 분석을 선택해 바로 시작하세요.</p>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            "<div class='graph-node__chips'>"
+            "<span class='graph-node__chip'>Exit</span>"
+            "<span class='graph-node__chip'>Peer</span>"
+            "<span class='graph-node__chip'>Report</span>"
+            "<span class='graph-node__chip'>Contract</span>"
+            "<span class='graph-node__chip'>Voice</span>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
 
-if st.button("계약서 리서치 시작", type="primary", use_container_width=True, key="start_contract_review"):
-    st.switch_page("pages/7_Contract_Review.py")
+
+hero_cols = st.columns([1, 4, 1])
+with hero_cols[0]:
+    st.image(get_header_image(), width=140)
+with hero_cols[1]:
+    st.markdown(
+        """
+        <div class="graph-hero">
+            <div class="graph-hero__kicker">VC Intelligence Graph</div>
+            <h1 class="graph-hero__title">VC 투자 분석 에이전트</h1>
+            <p class="graph-hero__desc">
+                Exit 프로젝션, PER 분석, IRR 계산을 메리와 대화하면서 수행하세요.
+                각 모듈은 그래프처럼 연결되어 있고, 클릭 한 번으로 이동합니다.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+st.markdown("<div class='graph-map-title'>Module Graph</div>", unsafe_allow_html=True)
+
+row1 = st.columns([1, 2, 1])
+with row1[1]:
+    _render_graph_node(
+        "Exit 프로젝션",
+        "투자검토 엑셀 기반 Exit 분석.",
+        ["PER 시나리오/IRR/멀티플", "3-Tier 결과 엑셀 생성", "SAFE 전환 시나리오 지원"],
+        ["Excel", "Scenario", "IRR"],
+        "Exit 프로젝션 시작",
+        "pages/1_Exit_Projection.py",
+        "graph_exit",
+        accent="ember",
+    )
+
+st.markdown("<div class='graph-row-gap'></div>", unsafe_allow_html=True)
+
+row2 = st.columns([1, 2, 1])
+with row2[0]:
+    _render_graph_node(
+        "Peer PER 분석",
+        "유사 상장 기업 PER 벤치마킹.",
+        ["PDF 기반 비즈니스 모델 파악", "Yahoo Finance PER 조회", "매출/목표가치 역산"],
+        ["PDF", "Market", "PER"],
+        "Peer PER 분석 시작",
+        "pages/2_Peer_PER_Analysis.py",
+        "graph_peer",
+        accent="amber",
+    )
+with row2[2]:
+    _render_graph_node(
+        "투자심사 보고서",
+        "인수인의견 스타일 초안 생성.",
+        ["시장규모 근거 추출", "보고서 문장 초안", "확인 필요 사항 정리"],
+        ["Report", "Evidence", "Draft"],
+        "투자심사 보고서 시작",
+        "pages/4_Investment_Report.py",
+        "graph_report",
+        accent="teal",
+    )
+
+st.markdown("<div class='graph-row-gap'></div>", unsafe_allow_html=True)
+
+row3 = st.columns([1, 2, 1])
+with row3[1]:
+    _render_graph_hub()
+
+st.markdown("<div class='graph-row-gap'></div>", unsafe_allow_html=True)
+
+row4 = st.columns([1, 2, 1])
+with row4[0]:
+    _render_graph_node(
+        "기업현황 진단시트",
+        "진단시트 기반 컨설턴트 보고서.",
+        ["체크리스트 자동 분석", "점수/리포트 초안", "엑셀에 반영/저장"],
+        ["Checklist", "Scoring"],
+        "기업현황 진단시트 시작",
+        "pages/3_Company_Diagnosis.py",
+        "graph_diagnosis",
+        accent="ember",
+    )
+with row4[2]:
+    _render_graph_node(
+        "계약서 리서치",
+        "텀싯/투자계약서 근거 기반 검토.",
+        ["PDF·DOCX 텍스트 추출", "핵심 항목/근거 스니펫", "문서 간 일치 여부 점검"],
+        ["OCR", "Compare", "Risk"],
+        "계약서 리서치 시작",
+        "pages/7_Contract_Review.py",
+        "graph_contract",
+        accent="amber",
+    )
+
+st.markdown("<div class='graph-row-gap'></div>", unsafe_allow_html=True)
+
+row5 = st.columns([1, 2, 1])
+with row5[1]:
+    _render_graph_node(
+        "Voice Agent",
+        "체크인/원온원 음성 대화.",
+        ["Naver CLOVA STT/TTS", "어제 로그 기반 요약", "대화형 체크인 플로우"],
+        ["STT/TTS", "Check-in"],
+        "Voice Agent 시작",
+        "pages/5_Voice_Agent.py",
+        "graph_voice",
+        accent="teal",
+    )
+    if st.button("체크인 기록 보기", type="secondary", use_container_width=True, key="start_checkin_review"):
+        st.switch_page("pages/6_Checkin_Review.py")
 
 st.divider()
 
