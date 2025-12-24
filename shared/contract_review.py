@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 import base64
+import json
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
@@ -146,6 +147,8 @@ CLAUSE_TAXONOMY = {
     ],
 }
 
+FIELD_LABEL_TO_NAME = {field["label"]: field["name"] for field in FIELD_DEFINITIONS}
+
 MASK_TOKEN_MAP = {
     "company_name": "[COMPANY]",
     "investor_name": "[INVESTOR]",
@@ -168,6 +171,47 @@ OCR_PROMPT = (
     "Preserve reading order. Output plain text only with line breaks. "
     "Do not summarize or add commentary."
 )
+
+SEVERITY_ORDER = ["높음", "중간", "낮음", "정보"]
+
+FIELD_SEVERITY = {
+    "company_name": "높음",
+    "investor_name": "중간",
+    "investment_amount": "높음",
+    "pre_money": "중간",
+    "post_money": "중간",
+    "share_price": "중간",
+    "share_count": "중간",
+    "closing_date": "낮음",
+    "governing_law": "낮음",
+}
+
+CLAUSE_SEVERITY = {
+    "term_sheet": {
+        "investment_amount": "높음",
+        "valuation": "중간",
+        "price": "중간",
+        "liquidation": "중간",
+        "anti_dilution": "중간",
+        "board": "낮음",
+        "info_rights": "낮음",
+        "governing_law": "낮음",
+        "non_binding": "중간",
+    },
+    "investment_agreement": {
+        "representations": "높음",
+        "conditions": "중간",
+        "covenants": "중간",
+        "indemnification": "중간",
+        "transfer_restriction": "중간",
+        "protective": "중간",
+        "liquidation": "중간",
+        "anti_dilution": "중간",
+        "board": "낮음",
+        "info_rights": "낮음",
+        "governing_law": "낮음",
+    },
+}
 
 SENSITIVE_PATTERNS = [
     (re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"), "[EMAIL]"),
@@ -348,6 +392,157 @@ def mask_search_hits(hits: List[Dict[str, str]], replacements: Dict[str, str]) -
             "snippet": mask_sensitive_text(hit.get("snippet", ""), replacements),
         })
     return masked_hits
+
+
+def _clause_label_map(doc_type: str) -> Dict[str, str]:
+    taxonomy = CLAUSE_TAXONOMY.get(doc_type, [])
+    return {entry["id"]: entry["label"] for entry in taxonomy}
+
+
+def build_review_opinion(
+    term_sheet: Optional[Dict[str, object]],
+    investment_agreement: Optional[Dict[str, object]],
+    comparisons: List[Dict[str, object]],
+) -> Dict[str, object]:
+    items: List[Dict[str, str]] = []
+    questions: List[str] = []
+
+    def _add_item(severity: str, issue: str, detail: str = "", action: str = "") -> None:
+        items.append({
+            "severity": severity,
+            "issue": issue,
+            "detail": detail,
+            "action": action,
+        })
+
+    if not term_sheet and not investment_agreement:
+        return {
+            "summary": ["업로드된 문서가 없습니다."],
+            "items": [],
+            "questions": [],
+        }
+
+    if not comparisons:
+        _add_item("정보", "문서 간 비교 미수행", "한쪽 문서만 업로드되어 비교할 수 없습니다.", "두 문서를 모두 업로드하세요.")
+
+    for comp in comparisons:
+        status = comp.get("status")
+        if status in ("일치", "-"):
+            continue
+        label = comp.get("field", "")
+        field_name = FIELD_LABEL_TO_NAME.get(label, "")
+        severity = FIELD_SEVERITY.get(field_name, "중간")
+        if status == "불일치":
+            _add_item(
+                "높음" if severity == "높음" else "중간",
+                f"{label} 불일치",
+                f"텀싯: {comp.get('term_sheet', '')} / 투자계약서: {comp.get('investment_agreement', '')}",
+                "두 문서의 기준값을 합의해 일치시키세요.",
+            )
+            questions.append(f"{label}의 최종 확정 값은 무엇인가요?")
+        elif status == "누락":
+            _add_item(
+                severity,
+                f"{label} 누락",
+                "한쪽 문서에만 기재됨",
+                "누락된 문서에도 동일 조건을 반영하세요.",
+            )
+            questions.append(f"{label}이(가) 누락된 문서에 동일 조건을 반영할까요?")
+        elif status == "검토 필요":
+            _add_item(
+                "중간",
+                f"{label} 파싱 실패",
+                comp.get("note", "파싱 오류"),
+                "원문을 직접 확인하세요.",
+            )
+            questions.append(f"{label} 표기가 원문에서 어떻게 되어 있나요?")
+
+    for doc, doc_type, label in (
+        (term_sheet, "term_sheet", "텀싯"),
+        (investment_agreement, "investment_agreement", "투자계약서"),
+    ):
+        if not doc:
+            continue
+        clause_map = _clause_label_map(doc_type)
+        present_map = {entry.get("id"): entry.get("present") for entry in doc.get("clauses", []) if isinstance(entry, dict)}
+        for clause_id, severity in CLAUSE_SEVERITY.get(doc_type, {}).items():
+            if not present_map.get(clause_id):
+                clause_label = clause_map.get(clause_id, clause_id)
+                _add_item(
+                    severity,
+                    f"{label}에서 {clause_label} 조항 미확인",
+                    "조항 존재 여부 확인 필요",
+                    "해당 조항이 실제로 포함되어 있는지 확인하세요.",
+                )
+                questions.append(f"{label}의 {clause_label} 조항은 포함되어 있나요?")
+
+        if doc.get("ocr_error"):
+            _add_item(
+                "중간",
+                f"{label} OCR 실패",
+                doc.get("ocr_error", ""),
+                "OCR 재시도 또는 텍스트 원본 업로드를 권장합니다.",
+            )
+        elif doc.get("ocr_used"):
+            _add_item(
+                "정보",
+                f"{label} OCR 사용됨",
+                "스캔본 처리로 일부 인식 오류 가능",
+                "핵심 항목은 원문과 대조하세요.",
+            )
+
+    summary_counts = {severity: 0 for severity in SEVERITY_ORDER}
+    for item in items:
+        summary_counts[item["severity"]] = summary_counts.get(item["severity"], 0) + 1
+
+    summary_lines = []
+    for severity in SEVERITY_ORDER:
+        count = summary_counts.get(severity, 0)
+        if count:
+            summary_lines.append(f"{severity} {count}건")
+    if not summary_lines:
+        summary_lines.append("중대한 이슈가 감지되지 않았습니다.")
+
+    return {
+        "summary": summary_lines,
+        "items": items,
+        "questions": questions[:6],
+    }
+
+
+def generate_contract_opinion_llm(
+    opinion: Dict[str, object],
+    api_key: str,
+    model: str = OCR_DEFAULT_MODEL,
+) -> str:
+    if not Anthropic:
+        raise ImportError("anthropic SDK가 필요합니다.")
+    if not api_key:
+        raise ValueError("Claude API 키가 필요합니다.")
+
+    client = Anthropic(api_key=api_key)
+    payload = json.dumps(opinion, ensure_ascii=False, indent=2)
+    response = client.messages.create(
+        model=model,
+        max_tokens=900,
+        temperature=0.2,
+        messages=[
+            {
+                "role": "user",
+                "content": (
+                    "You are a legal review assistant for KR venture investment contracts. "
+                    "Think step-by-step internally but only output the final answer. "
+                    "Use ONLY the provided issues; do not invent. "
+                    "Return output in Korean with the following sections:\n"
+                    "1) 종합 의견 (2~4문장)\n"
+                    "2) 핵심 리스크/이슈 (최대 5개, 심각도 포함)\n"
+                    "3) 확인 질문 (최대 5개)\n\n"
+                    f"입력 데이터(JSON):\n{payload}"
+                ),
+            }
+        ],
+    )
+    return _extract_claude_text(response)
 
 
 def _parse_korean_amount(text: str) -> Optional[int]:
