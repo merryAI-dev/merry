@@ -383,11 +383,11 @@ with hero_cols[1]:
     st.markdown(
         """
         <div class="graph-hero">
-            <div class="graph-hero__kicker">VC Intelligence Graph</div>
+            <div class="graph-hero__kicker">Merry VC Desk</div>
             <h1 class="graph-hero__title">VC 투자 분석 에이전트</h1>
             <p class="graph-hero__desc">
-                Exit 프로젝션, PER 분석, IRR 계산을 메리와 대화하면서 수행하세요.
-                각 모듈은 그래프처럼 연결되어 있고, 클릭 한 번으로 이동합니다.
+                안녕하세요 사내기업가님. 투자를 도와드리는 메리입니다. 무엇을 도와드릴까요?
+                아래 모듈을 살펴보고 혹시 궁금하시면 아래 안내데스크에 문의해주세요!
             </p>
         </div>
         """,
