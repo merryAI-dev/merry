@@ -383,7 +383,7 @@ with hero_cols[1]:
     st.markdown(
         """
         <div class="graph-hero">
-            <div class="graph-hero__kicker">Merry VC Desk</div>
+            <div class="graph-hero__kicker">메리 안내 데스크</div>
             <h1 class="graph-hero__title">VC 투자 분석 에이전트</h1>
             <p class="graph-hero__desc">
                 안녕하세요 사내기업가님. 투자를 도와드리는 메리입니다. 무엇을 도와드릴까요?
