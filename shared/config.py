@@ -52,6 +52,9 @@ def initialize_session_state():
         "report_show_welcome": True,
         "report_quick_command": None,
         "report_evidence": None,
+        "report_deep_analysis": None,
+        "report_deep_step": 0,
+        "report_deep_error": None,
 
         # 파일 관리
         "uploaded_file_path": None,

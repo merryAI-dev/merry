@@ -9,6 +9,7 @@ import pandas as pd
 
 import streamlit as st
 
+from shared.deep_opinion import build_evidence_context, generate_deep_investment_opinion
 from shared.auth import check_authentication
 from shared.config import (
     get_avatar_image,
@@ -149,6 +150,160 @@ if st.session_state.get("report_file_path"):
                 f"{file_name} 파일을 분석하고 시장규모 근거를 추출한 뒤 "
                 "인수인의견 스타일로 보고서 초안을 작성해줘."
             )
+
+st.divider()
+
+# ========================================
+# 심화 투자 의견 (Opus)
+# ========================================
+st.markdown("## 심화 투자 의견 (Opus)")
+st.caption("근거 기반 다중 관점 검토 + 할루시네이션 검증 + 임팩트(탄소/IRIS+) 분석")
+
+deep_cols = st.columns([1.2, 1.2, 1])
+with deep_cols[0]:
+    if st.button("심화 의견 생성", type="primary", use_container_width=True, key="report_deep_generate"):
+        st.session_state.report_deep_error = None
+        st.session_state.report_deep_step = 0
+
+        evidence_context = build_evidence_context(st.session_state.get("report_evidence"))
+        last_user_msgs = [
+            msg.get("content", "")
+            for msg in st.session_state.report_messages
+            if msg.get("role") == "user"
+        ]
+        extra_context = "최근 사용자 요청:\n" + "\n".join(last_user_msgs[-3:]) if last_user_msgs else ""
+
+        with st.spinner("Opus로 심화 의견 생성 중..."):
+            try:
+                api_key = st.session_state.get("user_api_key", "")
+                result = generate_deep_investment_opinion(
+                    api_key=api_key,
+                    evidence_context=evidence_context,
+                    extra_context=extra_context,
+                )
+                st.session_state.report_deep_analysis = result
+            except Exception as exc:
+                st.session_state.report_deep_error = str(exc)
+                st.session_state.report_deep_analysis = None
+
+with deep_cols[1]:
+    if st.button("처음부터 다시", use_container_width=True, key="report_deep_reset"):
+        st.session_state.report_deep_step = 0
+
+with deep_cols[2]:
+    if st.button("초기화", use_container_width=True, key="report_deep_clear"):
+        st.session_state.report_deep_analysis = None
+        st.session_state.report_deep_step = 0
+        st.session_state.report_deep_error = None
+
+if st.session_state.report_deep_error:
+    st.error(f"심화 의견 생성 실패: {st.session_state.report_deep_error}")
+
+deep_analysis = st.session_state.get("report_deep_analysis")
+if deep_analysis:
+    steps = [
+        ("결론", "conclusion"),
+        ("Core Case", "core_case"),
+        ("Dissent Case", "dissent_case"),
+        ("Top Risks", "top_risks"),
+        ("Hallucination Check", "hallucination_check"),
+        ("Impact Analysis", "impact_analysis"),
+        ("데이터 공백", "data_gaps"),
+        ("딜 브레이커/GO 조건", "deal_breakers"),
+        ("다음 액션", "next_actions"),
+    ]
+    current_step = st.session_state.get("report_deep_step", 0)
+    current_step = max(0, min(current_step, len(steps) - 1))
+    st.session_state.report_deep_step = current_step
+
+    st.progress((current_step + 1) / len(steps))
+    step_title, step_key = steps[current_step]
+    st.markdown(f"### {step_title}")
+
+    if step_key == "conclusion":
+        paragraphs = deep_analysis.get("conclusion", {}).get("paragraphs", [])
+        for paragraph in paragraphs:
+            st.markdown(paragraph)
+    elif step_key in ("core_case", "dissent_case"):
+        section = deep_analysis.get(step_key, {})
+        summary = section.get("summary")
+        if summary:
+            st.markdown(summary)
+        points = section.get("points", [])
+        for item in points:
+            point = item.get("point", "")
+            evidence = ", ".join(item.get("evidence", []) or [])
+            suffix = f" (근거: {evidence})" if evidence else " (근거: 없음)"
+            st.markdown(f"- {point}{suffix}")
+    elif step_key == "top_risks":
+        for risk in deep_analysis.get("top_risks", []):
+            evidence = ", ".join(risk.get("evidence", []) or [])
+            severity = risk.get("severity", "medium")
+            verification = risk.get("verification", "")
+            label = f"[{severity}] {risk.get('risk', '')}"
+            suffix = f" · 검증: {verification}" if verification else ""
+            if evidence:
+                suffix += f" · 근거: {evidence}"
+            st.markdown(f"- {label}{suffix}")
+    elif step_key == "hallucination_check":
+        hc = deep_analysis.get("hallucination_check", {})
+        st.markdown("**미검증 주장**")
+        for item in hc.get("unverified_claims", []):
+            st.markdown(f"- {item.get('claim', '')} (사유: {item.get('reason', '')})")
+        st.markdown("**수치 충돌**")
+        for item in hc.get("numeric_conflicts", []):
+            st.markdown(f"- {item}")
+        st.markdown("**근거 공백**")
+        for item in hc.get("evidence_gaps", []):
+            st.markdown(f"- {item}")
+    elif step_key == "impact_analysis":
+        impact = deep_analysis.get("impact_analysis", {})
+        carbon = impact.get("carbon", {})
+        st.markdown("**탄소 분석**")
+        pathways = ", ".join(carbon.get("pathways", []) or [])
+        if pathways:
+            st.markdown(f"- 경로: {pathways}")
+        for metric in carbon.get("metrics", []):
+            evidence = ", ".join(metric.get("evidence", []) or [])
+            suffix = f" (근거: {evidence})" if evidence else ""
+            st.markdown(f"- {metric.get('metric', '')}: {metric.get('method', '')}{suffix}")
+        for gap in carbon.get("gaps", []):
+            st.markdown(f"- 공백: {gap}")
+        st.markdown("**IRIS+ 매핑**")
+        for item in impact.get("iris_plus", []):
+            evidence = ", ".join(item.get("evidence", []) or [])
+            suffix = f" (근거: {evidence})" if evidence else ""
+            st.markdown(
+                f"- {item.get('code', 'IRIS+')}: {item.get('name', '')} · {item.get('why', '')} "
+                f"· {item.get('measurement', '')}{suffix}"
+            )
+    elif step_key == "data_gaps":
+        for item in deep_analysis.get("data_gaps", []):
+            st.markdown(f"- {item}")
+    elif step_key == "deal_breakers":
+        st.markdown("**딜 브레이커**")
+        for item in deep_analysis.get("deal_breakers", []):
+            st.markdown(f"- {item}")
+        st.markdown("**GO 조건**")
+        for item in deep_analysis.get("go_conditions", []):
+            st.markdown(f"- {item}")
+    elif step_key == "next_actions":
+        for item in deep_analysis.get("next_actions", []):
+            st.markdown(f"- {item.get('priority', 'P1')}: {item.get('action', '')}")
+
+    nav_cols = st.columns([1, 1, 2])
+    with nav_cols[0]:
+        if st.button("이전", disabled=current_step == 0, use_container_width=True, key="report_deep_prev"):
+            st.session_state.report_deep_step = current_step - 1
+            st.rerun()
+    with nav_cols[1]:
+        if st.button("다음", disabled=current_step >= len(steps) - 1, use_container_width=True, key="report_deep_next"):
+            st.session_state.report_deep_step = current_step + 1
+            st.rerun()
+    with nav_cols[2]:
+        if st.button("전체 펼치기", use_container_width=True, key="report_deep_expand"):
+            st.session_state.report_deep_step = len(steps) - 1
+            st.rerun()
 
     st.divider()
 
