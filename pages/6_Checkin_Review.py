@@ -10,6 +10,7 @@ import streamlit as st
 
 from shared.auth import check_authentication, get_user_id
 from shared.config import initialize_session_state, inject_custom_css
+from shared.team_tasks import TeamTaskStore, STATUS_LABELS, format_remaining_kst, normalize_status
 try:
     from shared.voice_logs import (
         build_checkin_context_text,
@@ -58,6 +59,41 @@ st.markdown("# 체크인 기록")
 st.caption("Supabase에 저장된 체크인 요약과 원본 로그를 확인합니다.")
 
 user_id = get_user_id()
+team_id = st.session_state.get("team_id") or user_id
+task_store = TeamTaskStore(team_id=team_id)
+team_tasks = task_store.list_tasks(include_done=True, limit=12)
+
+if team_tasks:
+    st.markdown("## 팀 과업 요약")
+    status_groups = {"todo": [], "in_progress": [], "done": []}
+    for task in team_tasks:
+        status_key = normalize_status(task.get("status", "todo"))
+        status_groups.setdefault(status_key, []).append(task)
+
+    cols = st.columns(3)
+    for col, key in zip(cols, ["todo", "in_progress", "done"]):
+        with col:
+            st.markdown(f"### {STATUS_LABELS.get(key, key)}")
+            tasks = status_groups.get(key, [])
+            if not tasks:
+                st.caption("비어 있음")
+            else:
+                for task in tasks[:4]:
+                    title = task.get("title", "")
+                    owner = task.get("owner") or "담당 미정"
+                    due_date = task.get("due_date", "")
+                    remaining = format_remaining_kst(due_date)
+                    with st.container(border=True):
+                        st.markdown(f"**{title}**")
+                        st.caption(f"담당: {owner}")
+                        if due_date:
+                            if remaining:
+                                st.caption(f"마감: {due_date} · {remaining}")
+                            else:
+                                st.caption(f"마감: {due_date}")
+                        else:
+                            st.caption("마감: 미설정")
+    st.divider()
 summaries = get_checkin_summaries(user_id, limit=30)
 
 if not summaries:

@@ -5,11 +5,20 @@
 """
 
 import asyncio
+import os
 import pandas as pd
 
 import streamlit as st
 
-from shared.deep_opinion import build_evidence_context, generate_deep_investment_opinion
+from agent.tools import _resolve_underwriter_data_path, execute_fetch_underwriter_opinion_data
+from shared.deep_opinion import (
+    build_evidence_context,
+    cross_examine_and_score,
+    generate_hallucination_check,
+    generate_impact_analysis,
+    generate_lens_group,
+    synthesize_deep_opinion,
+)
 from shared.auth import check_authentication
 from shared.config import (
     get_avatar_image,
@@ -26,6 +35,7 @@ from shared.file_utils import (
     validate_upload,
 )
 from shared.sidebar import render_sidebar
+from shared.team_tasks import TeamTaskStore, STATUS_LABELS, format_remaining_kst, normalize_status
 
 
 st.set_page_config(
@@ -42,6 +52,12 @@ inject_custom_css()
 avatar_image = get_avatar_image()
 user_avatar_image = get_user_avatar_image()
 render_sidebar(mode="report")
+
+
+def _append_deep_log(logs, message, status_container=None):
+    logs.append(message)
+    if status_container is not None:
+        status_container.write(message)
 
 
 def _sync_report_evidence_from_memory():
@@ -66,6 +82,42 @@ _sync_report_evidence_from_memory()
 st.markdown("# 투자심사 보고서 작성")
 st.markdown("시장규모 근거를 추출하고 인수인의견 스타일 초안을 작성합니다")
 st.divider()
+
+# 팀 과업 요약
+team_id = st.session_state.get("team_id") or st.session_state.get("user_id")
+task_store = TeamTaskStore(team_id=team_id)
+team_tasks = task_store.list_tasks(include_done=True, limit=12)
+if team_tasks:
+    st.markdown("## 팀 과업 요약")
+    status_groups = {"todo": [], "in_progress": [], "done": []}
+    for task in team_tasks:
+        status_key = normalize_status(task.get("status", "todo"))
+        status_groups.setdefault(status_key, []).append(task)
+
+    cols = st.columns(3)
+    for col, key in zip(cols, ["todo", "in_progress", "done"]):
+        with col:
+            st.markdown(f"### {STATUS_LABELS.get(key, key)}")
+            tasks = status_groups.get(key, [])
+            if not tasks:
+                st.caption("비어 있음")
+            else:
+                for task in tasks[:4]:
+                    title = task.get("title", "")
+                    owner = task.get("owner") or "담당 미정"
+                    due_date = task.get("due_date", "")
+                    remaining = format_remaining_kst(due_date)
+                    with st.container(border=True):
+                        st.markdown(f"**{title}**")
+                        st.caption(f"담당: {owner}")
+                        if due_date:
+                            if remaining:
+                                st.caption(f"마감: {due_date} · {remaining}")
+                            else:
+                                st.caption(f"마감: {due_date}")
+                        else:
+                            st.caption("마감: 미설정")
+    st.divider()
 
 # 업로드 영역
 st.markdown("### 기업 자료 업로드")
@@ -99,6 +151,42 @@ with upload_cols[1]:
             st.session_state.report_file_path = str(secure_path)
             st.session_state.report_file_name = report_file.name
             st.success(f"업로드 완료: {report_file.name}")
+
+st.divider()
+
+# DART 인수인의견 데이터 설정
+st.markdown("### DART 인수인의견 데이터")
+dart_cols = st.columns([2, 1])
+with dart_cols[0]:
+    dart_api_key = st.text_input(
+        "DART API Key",
+        type="password",
+        placeholder="DART API 키를 입력하세요",
+        value=st.session_state.get("dart_api_key", ""),
+    )
+    if dart_api_key:
+        st.session_state.dart_api_key = dart_api_key
+        os.environ["DART_API_KEY"] = dart_api_key
+
+    data_path, data_error = _resolve_underwriter_data_path(None)
+    if data_error:
+        st.warning("DART 인수인의견 데이터셋을 찾을 수 없습니다.")
+        st.caption(data_error)
+    else:
+        st.success("DART 인수인의견 데이터셋이 준비되어 있습니다.")
+        st.caption(f"경로: {data_path}")
+
+with dart_cols[1]:
+    if st.button("DART 데이터 수집", use_container_width=True, key="report_dart_fetch"):
+        if not dart_api_key:
+            st.error("DART API 키를 입력해 주세요.")
+        else:
+            with st.spinner("DART 데이터를 수집하는 중..."):
+                result = execute_fetch_underwriter_opinion_data(api_key=dart_api_key)
+            if result.get("success"):
+                st.success(f"수집 완료: {result.get('output_file')}")
+            else:
+                st.error(f"수집 실패: {result.get('error')}")
 
 st.divider()
 
@@ -164,6 +252,12 @@ with deep_cols[0]:
     if st.button("심화 의견 생성", type="primary", use_container_width=True, key="report_deep_generate"):
         st.session_state.report_deep_error = None
         st.session_state.report_deep_step = 0
+        st.session_state.report_deep_analysis = None
+        st.session_state.report_deep_lens = None
+        st.session_state.report_deep_scoring = None
+        st.session_state.report_deep_hallucination = None
+        st.session_state.report_deep_impact = None
+        st.session_state.report_deep_logs = []
 
         evidence_context = build_evidence_context(st.session_state.get("report_evidence"))
         last_user_msgs = [
@@ -173,18 +267,74 @@ with deep_cols[0]:
         ]
         extra_context = "최근 사용자 요청:\n" + "\n".join(last_user_msgs[-3:]) if last_user_msgs else ""
 
-        with st.spinner("Opus로 심화 의견 생성 중..."):
-            try:
-                api_key = st.session_state.get("user_api_key", "")
-                result = generate_deep_investment_opinion(
-                    api_key=api_key,
-                    evidence_context=evidence_context,
-                    extra_context=extra_context,
-                )
-                st.session_state.report_deep_analysis = result
-            except Exception as exc:
-                st.session_state.report_deep_error = str(exc)
-                st.session_state.report_deep_analysis = None
+        logs: list[str] = []
+        progress = st.progress(0.0)
+        status = st.status("Opus 심화 의견 생성 중...", expanded=True)
+        try:
+            api_key = st.session_state.get("user_api_key", "")
+            if not api_key:
+                raise ValueError("API 키를 입력해 주세요.")
+
+            _append_deep_log(logs, "1/5 다중 관점 생성 시작", status)
+            lens_outputs = generate_lens_group(
+                api_key=api_key,
+                evidence_context=evidence_context,
+                extra_context=extra_context,
+            )
+            st.session_state.report_deep_lens = lens_outputs
+            progress.progress(0.2)
+            _append_deep_log(logs, "1/5 다중 관점 생성 완료", status)
+
+            _append_deep_log(logs, "2/5 교차 검토 및 점수화 시작", status)
+            scoring = cross_examine_and_score(
+                api_key=api_key,
+                evidence_context=evidence_context,
+                lens_outputs=lens_outputs,
+            )
+            st.session_state.report_deep_scoring = scoring
+            progress.progress(0.4)
+            _append_deep_log(logs, "2/5 교차 검토 및 점수화 완료", status)
+
+            _append_deep_log(logs, "3/5 할루시네이션 검증 시작", status)
+            hallucination = generate_hallucination_check(
+                api_key=api_key,
+                evidence_context=evidence_context,
+                lens_outputs=lens_outputs,
+            )
+            st.session_state.report_deep_hallucination = hallucination
+            progress.progress(0.6)
+            _append_deep_log(logs, "3/5 할루시네이션 검증 완료", status)
+
+            _append_deep_log(logs, "4/5 임팩트 분석 시작", status)
+            impact = generate_impact_analysis(
+                api_key=api_key,
+                evidence_context=evidence_context,
+                lens_outputs=lens_outputs,
+            )
+            st.session_state.report_deep_impact = impact
+            progress.progress(0.8)
+            _append_deep_log(logs, "4/5 임팩트 분석 완료", status)
+
+            _append_deep_log(logs, "5/5 최종 종합 시작", status)
+            final_result = synthesize_deep_opinion(
+                api_key=api_key,
+                evidence_context=evidence_context,
+                lens_outputs=lens_outputs,
+                scoring=scoring,
+                hallucination=hallucination,
+                impact=impact,
+            )
+            st.session_state.report_deep_analysis = final_result
+            progress.progress(1.0)
+            _append_deep_log(logs, "5/5 최종 종합 완료", status)
+
+            status.update(label="심화 의견 생성 완료", state="complete", expanded=False)
+        except Exception as exc:
+            st.session_state.report_deep_error = str(exc)
+            st.session_state.report_deep_analysis = None
+            status.update(label="심화 의견 생성 실패", state="error", expanded=True)
+        finally:
+            st.session_state.report_deep_logs = logs
 
 with deep_cols[1]:
     if st.button("처음부터 다시", use_container_width=True, key="report_deep_reset"):
@@ -193,11 +343,22 @@ with deep_cols[1]:
 with deep_cols[2]:
     if st.button("초기화", use_container_width=True, key="report_deep_clear"):
         st.session_state.report_deep_analysis = None
+        st.session_state.report_deep_lens = None
+        st.session_state.report_deep_scoring = None
+        st.session_state.report_deep_hallucination = None
+        st.session_state.report_deep_impact = None
         st.session_state.report_deep_step = 0
         st.session_state.report_deep_error = None
+        st.session_state.report_deep_logs = []
 
 if st.session_state.report_deep_error:
     st.error(f"심화 의견 생성 실패: {st.session_state.report_deep_error}")
+
+deep_logs = st.session_state.get("report_deep_logs") or []
+if deep_logs:
+    with st.expander("심화 의견 생성 로그", expanded=False):
+        for line in deep_logs:
+            st.caption(line)
 
 deep_analysis = st.session_state.get("report_deep_analysis")
 if deep_analysis:
