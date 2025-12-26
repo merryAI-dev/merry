@@ -537,6 +537,10 @@ def build_checkin_summary_text(summary: Dict[str, str]) -> str:
             lines.append(f"- 학습: {', '.join(items[:3])}")
     if summary_json.get("emotion_state"):
         lines.append(f"- 감정: {summary_json.get('emotion_state')}")
+    if summary_json.get("team_tasks"):
+        items = summary_json.get("team_tasks")
+        if isinstance(items, list) and items:
+            lines.append(f"- 팀 과업: {', '.join(items[:3])}")
     if summary_json.get("today_priorities"):
         items = summary_json.get("today_priorities")
         if isinstance(items, list) and items:

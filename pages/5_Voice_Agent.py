@@ -7,6 +7,7 @@ from __future__ import annotations
 import base64
 import os
 import time
+from datetime import date
 from typing import Dict, Optional, Tuple
 
 import streamlit as st
@@ -16,6 +17,7 @@ from shared.auth import check_authentication, get_user_id
 from shared.config import get_avatar_image, get_user_avatar_image, initialize_agent, initialize_session_state, inject_custom_css
 from shared.clova_speech import clova_credentials_present, clova_stt, clova_tts
 from shared.local_speech import local_stt_faster_whisper, local_tts_mms, local_tts_piper
+from shared.team_tasks import TeamTaskStore, STATUS_LABELS, format_remaining_kst, normalize_status
 try:
     from shared.voice_logs import (
         append_checkin_summary,
@@ -130,6 +132,57 @@ def _reset_voice_session():
     st.session_state.voice_auto_play_index = None
     if st.session_state.agent:
         st.session_state.agent.voice_conversation_history = []
+
+
+def _build_task_context_text(tasks: list[dict]) -> str:
+    if not tasks:
+        return ""
+    lines = ["[팀 과업]"]
+    for task in tasks:
+        title = task.get("title", "")
+        status = task.get("status", "todo")
+        owner = task.get("owner", "")
+        due_date = task.get("due_date", "")
+        suffix = []
+        if status:
+            suffix.append(f"상태={status}")
+        if owner:
+            suffix.append(f"담당={owner}")
+        if due_date:
+            suffix.append(f"마감={due_date}")
+        meta = " · ".join(suffix)
+        if meta:
+            lines.append(f"- {title} ({meta})")
+        else:
+            lines.append(f"- {title}")
+    return "\n".join(lines)
+
+
+def _render_task_card(task: dict) -> None:
+    title = task.get("title", "")
+    owner = task.get("owner") or "담당 미정"
+    due_date = task.get("due_date", "")
+    status_raw = task.get("status", "todo")
+    status_key = normalize_status(status_raw)
+    status_label = STATUS_LABELS.get(status_key, status_key)
+    remaining = format_remaining_kst(due_date)
+
+    with st.container(border=True):
+        st.markdown(f"**{title}**")
+        st.caption(f"상태: {status_label}")
+        st.caption(f"담당: {owner}")
+        if due_date:
+            if remaining:
+                st.caption(f"마감: {due_date} · {remaining}")
+            else:
+                st.caption(f"마감: {due_date}")
+        else:
+            st.caption("마감: 미설정")
+        if status_raw == "blocked":
+            st.caption("블로커: 진행 지연 상태")
+        notes = task.get("notes") or ""
+        if notes:
+            st.caption(notes)
 
 
 def _resolve_user_text(
@@ -368,8 +421,98 @@ st.markdown("# Voice Agent")
 st.caption("로컬 STT/TTS 또는 Naver CLOVA로 음성 대화를 제공합니다.")
 
 user_id = get_user_id()
+team_id = st.session_state.get("team_id") or user_id
+member_name = st.session_state.get("member_name") or ""
+task_store = TeamTaskStore(team_id=team_id)
 fast_mode = st.session_state.voice_fast_mode
 last_checkin = None
+
+st.markdown("## 팀 과업 요약")
+show_done_tasks = st.checkbox("완료 과업 표시", value=False, key="team_tasks_show_done")
+team_tasks = task_store.list_tasks(include_done=show_done_tasks, limit=50)
+task_context_text = _build_task_context_text(team_tasks)
+
+status_groups = {"todo": [], "in_progress": [], "done": []}
+for task in team_tasks:
+    status_key = normalize_status(task.get("status", "todo"))
+    status_groups.setdefault(status_key, []).append(task)
+
+cols = st.columns(3)
+for col, key in zip(cols, ["todo", "in_progress", "done"]):
+    with col:
+        st.markdown(f"### {STATUS_LABELS.get(key, key)}")
+        tasks = status_groups.get(key, [])
+        if not tasks:
+            st.caption("비어 있음")
+        else:
+            for task in tasks:
+                _render_task_card(task)
+
+with st.expander("과업 관리", expanded=False):
+    if not team_tasks:
+        st.caption("등록된 과업이 없습니다. 아래에서 추가하세요.")
+    else:
+        task_options = {f"{t.get('title')} ({t.get('id')})": t for t in team_tasks}
+        selected_label = st.selectbox("과업 선택", options=list(task_options.keys()), key="task_manage_select")
+        selected = task_options[selected_label]
+
+        edit_title = st.text_input("과업 제목", value=selected.get("title", ""), key="task_manage_title")
+        edit_owner = st.text_input("담당자", value=selected.get("owner", ""), key="task_manage_owner")
+        status_options = ["todo", "in_progress", "done"]
+        status_labels = [STATUS_LABELS.get(s, s) for s in status_options]
+        status_index = status_options.index(normalize_status(selected.get("status", "todo")))
+        edit_status_label = st.selectbox(
+            "상태",
+            options=status_labels,
+            index=status_index,
+            key="task_manage_status",
+        )
+        edit_status = status_options[status_labels.index(edit_status_label)]
+
+        due_raw = selected.get("due_date", "")
+        has_due = bool(due_raw)
+        due_toggle = st.checkbox("마감일 지정", value=has_due, key="task_manage_due_toggle")
+        try:
+            due_value = date.fromisoformat(due_raw) if due_raw else date.today()
+        except ValueError:
+            due_value = date.today()
+        edit_due = st.date_input("마감일", value=due_value, disabled=not due_toggle, key="task_manage_due")
+        edit_notes = st.text_area("메모", value=selected.get("notes", ""), height=80, key="task_manage_notes")
+
+        if st.button("과업 업데이트", type="primary", use_container_width=True, key="task_manage_update"):
+            task_store.update_task(
+                task_id=selected.get("id"),
+                title=edit_title,
+                status=edit_status,
+                owner=edit_owner,
+                due_date=edit_due if due_toggle else "",
+                notes=edit_notes,
+                updated_by=member_name,
+            )
+            st.success("과업이 업데이트되었습니다.")
+            st.rerun()
+
+with st.expander("과업 추가", expanded=False):
+    new_title = st.text_input("과업 제목", key="task_new_title")
+    new_owner = st.text_input("담당자", value=member_name, key="task_new_owner")
+    use_due = st.checkbox("마감일 지정", value=False, key="task_new_due_toggle")
+    new_due = st.date_input("마감일", key="task_new_due", disabled=not use_due)
+    new_notes = st.text_area("메모", key="task_new_notes", height=80)
+    if st.button("과업 저장", type="primary", use_container_width=True, key="task_new_submit"):
+        if not new_title.strip():
+            st.warning("과업 제목을 입력해 주세요.")
+        else:
+            task_store.add_task(
+                title=new_title,
+                owner=new_owner,
+                due_date=new_due if use_due else None,
+                notes=new_notes,
+                created_by=member_name,
+            )
+            st.success("팀 과업이 추가되었습니다.")
+            st.rerun()
+
+st.divider()
 
 context_scope = st.selectbox(
     "컨텍스트 범위",
@@ -405,8 +548,8 @@ if fast_mode:
     checkin_summaries = []
     checkin_summaries_text = ""
     checkin_summaries_preview = ""
-    context_payload = ""
-    context_display = ""
+    context_payload = task_context_text or ""
+    context_display = task_context_text or ""
     st.info("속도 우선 모드: 체크인 컨텍스트/요약 로딩을 생략합니다.")
 else:
     last_checkin = get_latest_checkin(user_id)
@@ -444,6 +587,16 @@ else:
     else:
         context_payload = checkin_summary_text or checkin_context_text
         context_display = checkin_summary_text or checkin_context_preview
+
+    if task_context_text:
+        if context_payload:
+            context_payload = f"{context_payload}\n\n{task_context_text}"
+        else:
+            context_payload = task_context_text
+        if context_display:
+            context_display = f"{context_display}\n\n{task_context_text}"
+        else:
+            context_display = task_context_text
 
     voice_log_count = len(checkin_context.get("voice_logs", []))
     chat_log_count = len(checkin_context.get("chat_messages", []))
@@ -587,7 +740,11 @@ def _run_tts_with_fallback(
 
 
 if checkin_seed:
-    seed = "오늘 체크인을 시작합니다. 어제 로그를 반영해 간단히 안부를 묻고, 학습과 감정 상태를 짧게 언급한 뒤, 오늘 목표를 2~4개 질문으로 확인해줘."
+    seed = (
+        "오늘 체크인을 시작합니다. 어제 로그를 반영해 간단히 안부를 묻고, "
+        "학습과 감정 상태를 짧게 언급한 뒤, 팀 과업 진행 상황과 오늘 목표를 "
+        "2~4개 질문으로 확인해줘."
+    )
     send_clicked = True
     text_input = seed
 

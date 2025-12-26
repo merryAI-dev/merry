@@ -5,6 +5,7 @@
 - 세션 관리
 """
 
+import time
 import streamlit as st
 from pathlib import Path
 
@@ -14,6 +15,10 @@ from shared.file_utils import (
     validate_upload,
     ALLOWED_EXTENSIONS_EXCEL
 )
+from shared.session_utils import load_session_by_id
+from shared.calendar_store import TeamCalendarStore
+from shared.doc_checklist import TeamDocChecklistStore
+from shared.comments_store import TeamCommentStore
 
 
 def render_sidebar(mode: str = "exit"):
@@ -25,8 +30,10 @@ def render_sidebar(mode: str = "exit"):
     with st.sidebar:
         # 로그인 정보
         user_id = st.session_state.get('user_id', 'anonymous')
-        st.markdown(f"**User: {user_id[:8]}...**")
-        st.caption("Claude API Key 인증")
+        team_label = st.session_state.get("team_label") or "Team"
+        member_name = st.session_state.get("member_name") or "멤버"
+        st.markdown(f"**{team_label} | {member_name}**")
+        st.caption(f"팀 세션 ID: {user_id}")
 
         st.divider()
 
@@ -77,6 +84,9 @@ def render_sidebar(mode: str = "exit"):
         elif mode == "report":
             st.markdown("### 파일 업로드")
             st.caption("보고서 모드에서는 메인 화면에서 기업 자료를 업로드합니다.")
+        elif mode == "collab":
+            st.markdown("### 파일 업로드")
+            st.caption("협업 허브에서는 별도 파일 업로드를 사용하지 않습니다.")
 
         st.divider()
 
@@ -85,9 +95,34 @@ def render_sidebar(mode: str = "exit"):
 
         if st.session_state.agent and hasattr(st.session_state.agent, 'memory'):
             memory = st.session_state.agent.memory
+            cache = st.session_state.get("sidebar_cache", {})
+            cache_ttl = 45
+
+            refresh = st.button("세션/통계 새로고침", use_container_width=True, key="sidebar_refresh")
+            if refresh:
+                cache.pop(f"recent_sessions:{memory.user_id}", None)
+                cache.pop(f"feedback_stats:{memory.user_id}", None)
+                st.session_state.sidebar_cache = cache
+
+            def _get_cached(key: str):
+                entry = cache.get(key)
+                if not entry:
+                    return None
+                if time.time() - entry.get("ts", 0) > cache_ttl:
+                    cache.pop(key, None)
+                    return None
+                return entry.get("data")
+
+            def _set_cached(key: str, data):
+                cache[key] = {"ts": time.time(), "data": data}
+                st.session_state.sidebar_cache = cache
 
             # 최근 세션 목록
-            recent_sessions = memory.get_recent_sessions(limit=10)
+            sessions_key = f"recent_sessions:{memory.user_id}"
+            recent_sessions = None if refresh else _get_cached(sessions_key)
+            if recent_sessions is None:
+                recent_sessions = memory.get_recent_sessions(limit=10)
+                _set_cached(sessions_key, recent_sessions)
 
             if recent_sessions:
                 # 세션 선택 드롭다운 (현재 세션 정보 포함)
@@ -114,6 +149,53 @@ def render_sidebar(mode: str = "exit"):
                 if not selected_session.startswith("현재"):
                     if st.button("세션 불러오기", use_container_width=True, type="primary", key="load_session"):
                         _load_session(selected_session)
+
+            st.divider()
+
+            # 업무 디렉토리
+            st.markdown("### 업무 디렉토리")
+            project_root = Path(__file__).resolve().parent.parent
+            team_id = st.session_state.get("team_id") or memory.user_id
+            temp_dir = project_root / "temp" / team_id
+            history_dir = project_root / "chat_history" / team_id
+            st.caption(f"프로젝트: `{project_root}`")
+            st.caption(f"팀 temp: `{temp_dir}`")
+            st.caption(f"팀 로그: `{history_dir}`")
+
+            st.divider()
+
+            # 팀 캘린더
+            st.markdown("### 팀 캘린더")
+            team_id = st.session_state.get("team_id") or memory.user_id
+            calendar = TeamCalendarStore(team_id=team_id)
+            events = calendar.list_events(limit=8)
+
+            if events:
+                for event in events:
+                    title = event.get("title", "일정")
+                    date_str = event.get("date", "")
+                    created_by = event.get("created_by", "")
+                    note = f" · {created_by}" if created_by else ""
+                    st.caption(f"{date_str} | {title}{note}")
+            else:
+                st.caption("등록된 팀 일정이 없습니다.")
+
+            with st.expander("일정 추가", expanded=False):
+                event_date = st.date_input("날짜", key="calendar_event_date")
+                event_title = st.text_input("일정 제목", key="calendar_event_title")
+                event_notes = st.text_area("메모", key="calendar_event_notes", height=80)
+                if st.button("일정 저장", use_container_width=True, key="calendar_event_save"):
+                    if not event_title.strip():
+                        st.warning("일정 제목을 입력해 주세요.")
+                    else:
+                        calendar.add_event(
+                            event_date=event_date,
+                            title=event_title,
+                            notes=event_notes,
+                            created_by=st.session_state.get("member_name", ""),
+                        )
+                        st.success("팀 일정이 저장되었습니다.")
+                        st.rerun()
 
             st.divider()
 
@@ -185,7 +267,11 @@ def render_sidebar(mode: str = "exit"):
 
             # 피드백 통계
             if hasattr(st.session_state.agent, 'feedback'):
-                feedback_stats = st.session_state.agent.feedback.get_feedback_stats()
+                stats_key = f"feedback_stats:{memory.user_id}"
+                feedback_stats = None if refresh else _get_cached(stats_key)
+                if feedback_stats is None:
+                    feedback_stats = st.session_state.agent.feedback.get_feedback_stats()
+                    _set_cached(stats_key, feedback_stats)
                 if feedback_stats["total_feedback"] > 0:
                     st.markdown("**피드백 통계:**")
                     st.caption(f"총 피드백: {feedback_stats['total_feedback']}개")
@@ -209,107 +295,120 @@ def render_sidebar(mode: str = "exit"):
 
         st.divider()
 
+        # 필수 서류 체크리스트
+        st.markdown("### 필수 서류 체크리스트")
+        team_id = st.session_state.get("team_id") or user_id
+        member_name = st.session_state.get("member_name") or ""
+        doc_store = TeamDocChecklistStore(team_id=team_id)
+        docs = doc_store.list_docs()
+
+        if not docs:
+            st.caption("필수 서류 리스트가 없습니다.")
+            if st.button("추천 문서 추가", use_container_width=True, key="doc_seed_defaults"):
+                added = doc_store.seed_defaults()
+                st.success(f"{added}개 문서를 추가했습니다.")
+                st.rerun()
+        else:
+            with st.expander("문서 상태 보기/수정", expanded=True):
+                for doc in docs:
+                    doc_id = doc.get("id")
+                    uploaded_key = f"doc_uploaded_{doc_id}"
+                    owner_key = f"doc_owner_{doc_id}"
+                    notes_key = f"doc_notes_{doc_id}"
+                    name = doc.get("name", "")
+                    required = doc.get("required", False)
+                    label = f"{name} {'(필수)' if required else '(선택)'}"
+
+                    cols = st.columns([2.4, 1, 1.2])
+                    with cols[0]:
+                        st.markdown(label)
+                    with cols[1]:
+                        st.checkbox(
+                            "Drive 업로드",
+                            value=bool(doc.get("uploaded")),
+                            key=uploaded_key,
+                        )
+                    with cols[2]:
+                        st.text_input(
+                            "담당자",
+                            value=doc.get("owner", ""),
+                            key=owner_key,
+                        )
+
+                    st.text_area(
+                        "메모",
+                        value=doc.get("notes", ""),
+                        key=notes_key,
+                        height=60,
+                    )
+                    st.divider()
+
+                if st.button("문서 변경 저장", use_container_width=True, key="doc_save_updates"):
+                    for doc in docs:
+                        doc_id = doc.get("id")
+                        uploaded_val = st.session_state.get(f"doc_uploaded_{doc_id}")
+                        owner_val = st.session_state.get(f"doc_owner_{doc_id}") or ""
+                        notes_val = st.session_state.get(f"doc_notes_{doc_id}") or ""
+                        doc_store.update_doc(
+                            doc_id=doc_id,
+                            uploaded=bool(uploaded_val),
+                            owner=owner_val,
+                            notes=notes_val,
+                            updated_by=member_name,
+                        )
+                    st.success("문서 상태가 저장되었습니다.")
+                    st.rerun()
+
+            with st.expander("문서 추가", expanded=False):
+                new_doc_name = st.text_input("문서명", key="doc_new_name")
+                new_doc_required = st.checkbox("필수 문서", value=True, key="doc_new_required")
+                new_doc_owner = st.text_input("담당자", value=member_name, key="doc_new_owner")
+                new_doc_notes = st.text_area("메모", key="doc_new_notes", height=60)
+                if st.button("문서 추가", use_container_width=True, key="doc_new_submit"):
+                    if not new_doc_name.strip():
+                        st.warning("문서명을 입력해 주세요.")
+                    else:
+                        doc_store.add_doc(
+                            name=new_doc_name,
+                            required=new_doc_required,
+                            owner=new_doc_owner,
+                            notes=new_doc_notes,
+                        )
+                        st.success("문서가 추가되었습니다.")
+                        st.rerun()
+
+        st.divider()
+
+        # 팀 코멘트 (항상 표시)
+        st.markdown("### 팀 코멘트")
+        comment_store = TeamCommentStore(team_id=team_id)
+        comments = comment_store.list_comments(limit=12)
+        if comments:
+            for comment in comments:
+                meta = comment.get("created_by") or "멤버"
+                created_at = comment.get("created_at", "")
+                st.caption(f"{meta} · {created_at}")
+                st.write(comment.get("text", ""))
+        else:
+            st.caption("등록된 코멘트가 없습니다.")
+
+        comment_text = st.text_area("코멘트 작성", key="team_comment_text", height=80)
+        if st.button("코멘트 등록", use_container_width=True, key="team_comment_submit"):
+            if not comment_text.strip():
+                st.warning("코멘트를 입력해 주세요.")
+            else:
+                comment_store.add_comment(comment_text, created_by=member_name)
+                st.success("코멘트가 등록되었습니다.")
+                st.rerun()
+
         # 세션 초기화
         if st.button("대화 초기화", use_container_width=True, type="secondary", key="reset_session"):
             _reset_session()
 
 
 def _load_session(selected_session: str):
-    """선택된 세션 불러오기"""
-    memory = st.session_state.agent.memory
-
-    # 선택된 세션 ID 추출
     selected_session_id = selected_session.split(" ")[0]
-
-    # 세션 데이터 로드
-    session_data = memory.load_session(selected_session_id)
-
-    if session_data:
-        messages = session_data.get("messages", []) or []
-
-        # UI 메시지 복원 (user/assistant만)
-        ui_messages = []
-        for msg in messages:
-            if msg.get("role") not in ["user", "assistant"]:
-                continue
-            ui_messages.append(
-                {
-                    "role": msg.get("role", "user"),
-                    "content": msg.get("content", ""),
-                }
-            )
-
-        st.session_state.exit_messages = list(ui_messages)
-        st.session_state.peer_messages = list(ui_messages)
-        st.session_state.diagnosis_messages = list(ui_messages)
-
-        # 파생 결과는 세션에 맞게 다시 sync 되도록 초기화
-        st.session_state.projection_data = None
-        st.session_state.peer_analysis_result = None
-        st.session_state.diagnosis_analysis_result = None
-        st.session_state.diagnosis_draft_path = None
-        st.session_state.diagnosis_draft_progress = None
-
-        # 에이전트 컨텍스트 복원
-        st.session_state.agent.context["analyzed_files"] = session_data.get("analyzed_files", [])
-        memory.session_id = session_data.get("session_id", selected_session_id)
-        memory.session_metadata = dict(session_data)
-        memory.session_metadata["session_id"] = memory.session_id
-        memory.session_metadata["user_id"] = memory.user_id
-        memory.current_session_file = memory.storage_dir / f"session_{memory.session_id}.json"
-
-        # 대화 히스토리 복원
-        st.session_state.agent.conversation_history = []
-        for msg in ui_messages:
-            st.session_state.agent.conversation_history.append(
-                {
-                    "role": msg.get("role"),
-                    "content": msg.get("content", ""),
-                }
-            )
-
-        # 사용자 정보 수집 상태 복원
-        user_info = session_data.get("user_info", {})
-        if user_info.get("nickname") and user_info.get("company"):
-            st.session_state.exit_user_info_collected = True
-        else:
-            st.session_state.exit_user_info_collected = False
-        st.session_state.exit_show_welcome = not st.session_state.exit_user_info_collected
-
-        # 가능하면 마지막 분석 파일도 복원 (temp 내부 파일만)
-        analyzed_files = session_data.get("analyzed_files", []) or []
-        project_root = Path(__file__).resolve().parent.parent
-        temp_root = (project_root / "temp").resolve()
-        last_pdf = None
-        last_excel = None
-        for p in reversed(analyzed_files):
-            path = Path(p)
-            try:
-                resolved = path.resolve()
-                resolved.relative_to(temp_root)
-                if not resolved.is_file():
-                    continue
-            except Exception:
-                continue
-
-            ext = resolved.suffix.lower()
-            if ext == ".pdf" and last_pdf is None:
-                last_pdf = resolved
-            if ext in [".xlsx", ".xls"] and last_excel is None:
-                last_excel = resolved
-            if last_pdf and last_excel:
-                break
-
-        if last_pdf:
-            st.session_state.peer_pdf_path = str(last_pdf)
-            st.session_state.peer_pdf_name = last_pdf.name
-
-        if last_excel:
-            st.session_state.uploaded_file_path = str(last_excel)
-            st.session_state.uploaded_file_name = last_excel.name
-            st.session_state.diagnosis_excel_path = str(last_excel)
-            st.session_state.diagnosis_excel_name = last_excel.name
-
+    if st.session_state.agent and load_session_by_id(st.session_state.agent, selected_session_id):
         st.success(f"세션 {selected_session_id} 불러오기 완료")
         st.rerun()
     else:
@@ -327,12 +426,17 @@ def _reset_session():
     st.session_state.exit_messages = []
     st.session_state.peer_messages = []
     st.session_state.diagnosis_messages = []
+    st.session_state.report_messages = []
     st.session_state.projection_data = None
     st.session_state.exit_projection_assumptions = None
     st.session_state.peer_analysis_result = None
     st.session_state.diagnosis_analysis_result = None
     st.session_state.diagnosis_draft_path = None
     st.session_state.diagnosis_draft_progress = None
+    st.session_state.report_evidence = None
+    st.session_state.report_deep_analysis = None
+    st.session_state.report_deep_error = None
+    st.session_state.report_deep_step = 0
     st.session_state.uploaded_file_path = None
     st.session_state.uploaded_file_name = None
     st.session_state.peer_pdf_path = None

@@ -99,9 +99,7 @@ class ChatMemory:
             "user_info": {}
         }
 
-        # Supabase에 세션 생성
-        if self.db:
-            self.db.create_session(self.session_id, self.session_metadata.get("user_info"))
+        self._session_created = False
 
     def set_user_info(self, nickname: str = None, company: str = None, google_email: str = None):
         """사용자 정보 설정 및 세션 ID 업데이트"""
@@ -131,12 +129,19 @@ class ChatMemory:
             # Supabase: 새 세션 생성
             if self.db:
                 self.db.create_session(new_session_id, self.session_metadata["user_info"])
+                self._session_created = True
 
-            # 저장
-            self._save_session()
+        # 저장
+        self._save_session()
+
+    def _ensure_session_created(self):
+        if self.db and not self._session_created:
+            self.db.create_session(self.session_id, self.session_metadata.get("user_info"))
+            self._session_created = True
 
     def add_message(self, role: str, content: str, metadata: Dict[str, Any] = None):
         """메시지 추가 및 저장"""
+        self._ensure_session_created()
         message = {
             "timestamp": datetime.now().isoformat(),
             "role": role,
@@ -155,6 +160,7 @@ class ChatMemory:
 
     def add_file_analysis(self, file_path: str):
         """분석된 파일 추가"""
+        self._ensure_session_created()
         if file_path not in self.session_metadata["analyzed_files"]:
             self.session_metadata["analyzed_files"].append(file_path)
 
@@ -168,6 +174,7 @@ class ChatMemory:
 
     def add_generated_file(self, file_path: str):
         """생성된 파일 추가"""
+        self._ensure_session_created()
         if file_path not in self.session_metadata["generated_files"]:
             self.session_metadata["generated_files"].append(file_path)
 
@@ -273,8 +280,10 @@ class ChatMemory:
             "user_info": user_info or {}
         }
 
+        self._session_created = False
         if self.db:
             self.db.create_session(new_session_id, self.session_metadata.get("user_info"))
+            self._session_created = True
 
         self._save_session()
 

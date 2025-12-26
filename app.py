@@ -6,6 +6,7 @@ VC 투자 분석 에이전트 - 홈페이지
 
 import json
 import re
+from pathlib import Path
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -17,6 +18,7 @@ from shared.config import (
     inject_custom_css,
 )
 from shared.auth import check_authentication
+from shared.team_tasks import TeamTaskStore, STATUS_LABELS, format_remaining_kst, normalize_status
 from shared.logging_config import setup_logging
 
 # 로깅 초기화 (앱 시작 시 1회)
@@ -435,12 +437,12 @@ GRAPH_NODES = [
     },
     {
         "id": "hub",
-        "title": "VC 투자 분석 그래프",
-        "summary": "메리와 대화하며 각 모듈을 연결합니다.",
-        "bullets": ["필요한 분석을 선택해 바로 시작", "각 모듈은 업무 흐름으로 연결"],
-        "chips": ["Exit", "Peer", "Report", "Contract"],
-        "page": "",
-        "cta": "허브 노드",
+        "title": "협업 허브",
+        "summary": "팀 과업·서류·일정을 한 곳에서 관리합니다.",
+        "bullets": ["팀 과업 보드/담당자 배정", "필수 서류/Drive 업로드 체크", "AI 협업 브리프 생성"],
+        "chips": ["Tasks", "Docs", "Calendar", "Brief"],
+        "page": "Collaboration_Hub",
+        "cta": "협업 허브 열기",
         "accent": "hub",
         "x": 50,
         "y": 55,
@@ -1197,6 +1199,47 @@ components.html(graph_html, height=780, scrolling=False)
 st.divider()
 
 # ========================================
+# 팀 과업 요약
+# ========================================
+st.markdown("## 팀 과업 요약")
+team_id = st.session_state.get("team_id") or st.session_state.get("user_id")
+task_store = TeamTaskStore(team_id=team_id)
+team_tasks = task_store.list_tasks(include_done=True, limit=24)
+
+status_groups = {"todo": [], "in_progress": [], "done": []}
+for task in team_tasks:
+    status_key = normalize_status(task.get("status", "todo"))
+    status_groups.setdefault(status_key, []).append(task)
+
+cols = st.columns(3)
+for col, key in zip(cols, ["todo", "in_progress", "done"]):
+    with col:
+        st.markdown(f"### {STATUS_LABELS.get(key, key)}")
+        tasks = status_groups.get(key, [])
+        if not tasks:
+            st.caption("비어 있음")
+        else:
+            for task in tasks[:4]:
+                title = task.get("title", "")
+                owner = task.get("owner") or "담당 미정"
+                due_date = task.get("due_date", "")
+                remaining = format_remaining_kst(due_date)
+                with st.container(border=True):
+                    st.markdown(f"**{title}**")
+                    st.caption(f"담당: {owner}")
+                    if due_date:
+                        if remaining:
+                            st.caption(f"마감: {due_date} · {remaining}")
+                        else:
+                            st.caption(f"마감: {due_date}")
+                    else:
+                        st.caption("마감: 미설정")
+        if len(status_groups.get(key, [])) > 4:
+            st.caption("더 많은 과업은 Voice Agent에서 확인하세요.")
+
+st.divider()
+
+# ========================================
 # 홈 안내 챗봇
 # ========================================
 st.markdown("## 메리 안내 데스크")
@@ -1206,6 +1249,18 @@ avatar_image = get_avatar_image()
 user_avatar_image = get_user_avatar_image()
 
 ROUTE_DEFS = [
+    {
+        "id": "collab",
+        "label": "협업 허브",
+        "page": "pages/0_Collaboration_Hub.py",
+        "summary": "팀 과업, 서류, 일정, 코멘트를 통합 관리합니다.",
+        "next_step": "협업 허브로 이동해 팀 상태를 확인하세요.",
+        "strong_keywords": ["협업", "허브", "팀", "과업", "캘린더"],
+        "keywords": [
+            "협업", "허브", "팀", "과업", "업무", "일정", "캘린더", "코멘트",
+            "docs", "문서", "체크리스트", "drive", "업로드", "collab", "hub",
+        ],
+    },
     {
         "id": "exit",
         "label": "Exit 프로젝션",
@@ -1248,10 +1303,11 @@ ROUTE_DEFS = [
         "page": "pages/4_Investment_Report.py",
         "summary": "시장규모 근거 추출 및 인수인의견 스타일 초안에 적합합니다.",
         "next_step": "기업 자료(PDF/엑셀)를 업로드하고 근거 정리를 요청하세요.",
-        "strong_keywords": ["투자심사", "인수인의견", "시장규모", "보고서"],
+        "strong_keywords": ["투자심사", "인수인의견", "시장규모", "보고서", "DART", "증권신고서"],
         "keywords": [
             "투자심사", "인수인의견", "보고서", "시장규모", "근거", "report",
             "증거", "시장", "draft",
+            "dart", "공시", "증권신고서", "수요예측", "공모", "underwriter",
         ],
     },
     {
@@ -1283,6 +1339,132 @@ for route in ROUTE_DEFS:
 
 def _compact_text(text: str) -> str:
     return re.sub(r"[\\s\\-_/]+", "", (text or "").lower())
+
+
+def _looks_like_dart_query(text: str) -> bool:
+    lowered = (text or "").lower()
+    dart_keywords = [
+        "dart", "공시", "증권신고서", "인수의견", "인수인의견",
+        "underwriter", "수요예측", "공모", "상장",
+    ]
+    return any(keyword in lowered for keyword in dart_keywords)
+
+
+def _detect_dart_category(text: str) -> str | None:
+    lowered = (text or "").lower()
+    if any(k in lowered for k in ["시장규모", "시장 규모", "tam", "sam", "som", "cagr", "성장률"]):
+        return "market_size"
+    if any(k in lowered for k in ["비교기업", "유사기업", "comparables", "peer"]):
+        return "comparables"
+    if any(k in lowered for k in ["공모가", "공모가격", "per", "pbr", "psr", "ev/ebitda", "valuation", "밸류"]):
+        return "valuation"
+    if any(k in lowered for k in ["수요예측", "수요 예측"]):
+        return "demand_forecast"
+    if any(k in lowered for k in ["리스크", "위험", "불확실", "불확실성"]):
+        return "risk"
+    return None
+
+
+def _dart_status_message(path: str | None, error: str | None = None) -> str:
+    if error:
+        return (
+            "DART 인수인의견 데이터셋을 찾지 못했습니다.\n\n"
+            f"사유: {error}\n\n"
+            "해결 방법:\n"
+            "- `python scripts/dart_extract_underwriter_opinion.py --out temp/dart_underwriter_opinion_latest` 실행\n"
+            "- 또는 `UNDERWRITER_DATA_PATH` 환경변수로 JSONL 경로 지정\n"
+            "- temp/ 하위에 `underwriter_opinion.jsonl` 파일이 있어야 합니다."
+        )
+    if not path:
+        return (
+            "DART 인수인의견 데이터셋을 찾지 못했습니다.\n\n"
+            "해결 방법:\n"
+            "- `python scripts/dart_extract_underwriter_opinion.py --out temp/dart_underwriter_opinion_latest` 실행\n"
+            "- 또는 `UNDERWRITER_DATA_PATH` 환경변수로 JSONL 경로 지정"
+        )
+    try:
+        size_mb = Path(path).stat().st_size / (1024 * 1024)
+        size_text = f"{size_mb:.1f}MB"
+    except OSError:
+        size_text = "알 수 없음"
+    return (
+        "DART 인수인의견 데이터셋이 준비되어 있습니다.\n\n"
+        f"- 경로: {path}\n"
+        f"- 파일 크기: {size_text}\n\n"
+        "원하시는 키워드를 알려주시면 해당 문장을 바로 찾아드릴게요. "
+        "예: \"시장규모 근거\", \"비교기업 선정\", \"수요예측\""
+    )
+
+
+def _handle_dart_query(user_text: str) -> str:
+    try:
+        from agent.tools import _resolve_underwriter_data_path, execute_search_underwriter_opinion_similar
+    except Exception:
+        return (
+            "DART 인수인의견 검색 모듈을 불러오지 못했습니다.\n\n"
+            "투자심사 보고서 모듈에서 다시 시도해 주세요."
+        )
+
+    resolved_path, resolve_error = _resolve_underwriter_data_path(None)
+    lowered = (user_text or "").lower()
+    status_only = any(token in lowered for token in ["데이터", "데이터셋", "dataset", "어디", "파일", "경로"])
+    wants_snippet = any(token in lowered for token in ["근거", "문장", "찾", "검색", "인용", "요약"])
+
+    if not resolved_path or resolve_error:
+        st.session_state.home_route_target = "pages/4_Investment_Report.py"
+        st.session_state.home_route_label = "투자심사 보고서"
+        return _dart_status_message(resolved_path, resolve_error)
+
+    if status_only and not wants_snippet:
+        st.session_state.home_route_target = "pages/4_Investment_Report.py"
+        st.session_state.home_route_label = "투자심사 보고서"
+        return _dart_status_message(resolved_path, None)
+
+    category = _detect_dart_category(user_text)
+    result = execute_search_underwriter_opinion_similar(
+        query=user_text,
+        category=category,
+        top_k=3,
+        max_chars=420,
+        min_score=0.08,
+        return_patterns=True,
+    )
+
+    if not result.get("success"):
+        st.session_state.home_route_target = "pages/4_Investment_Report.py"
+        st.session_state.home_route_label = "투자심사 보고서"
+        return _dart_status_message(resolved_path, result.get("error"))
+
+    results = result.get("results", [])
+    patterns = result.get("patterns", [])
+    if not results:
+        st.session_state.home_route_target = "pages/4_Investment_Report.py"
+        st.session_state.home_route_label = "투자심사 보고서"
+        return (
+            "DART 인수인의견 데이터셋에서 관련 문장을 찾지 못했습니다.\n\n"
+            "다른 키워드로 다시 요청해 주세요. "
+            "예: \"시장규모 근거\", \"비교기업 선정\", \"수요예측\""
+        )
+
+    lines = ["DART 인수인의견 데이터셋에서 관련 근거를 찾았습니다.\n"]
+    for idx, item in enumerate(results, 1):
+        corp = item.get("corp_name", "미상")
+        report = item.get("report_nm", "")
+        title = item.get("section_title", "")
+        snippet = (item.get("snippet") or "").strip()
+        lines.append(f"{idx}. {corp} | {report} | {title}")
+        if snippet:
+            lines.append(f"   - {snippet}")
+
+    if patterns:
+        lines.append("\n일반화 패턴:")
+        for pattern in patterns[:3]:
+            lines.append(f"- {pattern}")
+
+    st.session_state.home_route_target = "pages/4_Investment_Report.py"
+    st.session_state.home_route_label = "투자심사 보고서"
+    lines.append("\n더 정밀한 분석은 아래 버튼으로 이동해 진행할 수 있습니다.")
+    return "\n".join(lines)
 
 
 def _resolve_candidate_choice(compact_text: str, candidate_ids: list[str]):
@@ -1320,6 +1502,9 @@ def _route_message(user_text: str) -> str:
     state = st.session_state.home_router_state
     candidates = state.get("candidates", [])
 
+    if _looks_like_dart_query(user_text):
+        return _handle_dart_query(user_text)
+
     if candidates:
         selection = _resolve_candidate_choice(compact_text, candidates)
         if selection:
@@ -1352,6 +1537,7 @@ def _route_message(user_text: str) -> str:
             "예시:\n"
             "- \"투자검토 엑셀 Exit 분석\"\n"
             "- \"유사기업 PER 비교\"\n"
+            "- \"팀 과업/서류 관리\"\n"
             "- \"투자계약서 내용 일치 확인\"\n"
             "- \"시장규모 근거 정리\""
         )
@@ -1408,7 +1594,11 @@ with chat_container:
 
 if user_input:
     st.session_state.home_messages.append({"role": "user", "content": user_input})
-    response = _route_message(user_input)
+    if _looks_like_dart_query(user_input):
+        with st.spinner("DART 인수인의견 데이터셋 검색 중..."):
+            response = _route_message(user_input)
+    else:
+        response = _route_message(user_input)
     st.session_state.home_messages.append({"role": "assistant", "content": response})
     st.rerun()
 
@@ -1422,6 +1612,21 @@ if route_target and route_label:
 # 사용 가이드
 # ========================================
 st.markdown("## 사용 가이드")
+
+with st.expander("협업 허브 워크플로우", expanded=False):
+    st.markdown("""
+### 1. 팀 상태 확인
+협업 허브에서 과업/문서/일정을 한 화면에서 확인합니다.
+
+### 2. 과업 관리
+담당자, 상태(진행 전/중/완료), 마감일을 지정합니다.
+
+### 3. 필수 서류 체크
+Drive 업로드 여부를 체크하고 누락 문서를 정리합니다.
+
+### 4. 메리 협업 브리프
+Claude 기반 요약으로 오늘의 집중 포인트를 정리합니다.
+    """)
 
 with st.expander("Exit 프로젝션 워크플로우", expanded=False):
     st.markdown("""

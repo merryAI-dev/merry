@@ -11,6 +11,18 @@ from anthropic import Anthropic
 
 
 DEFAULT_MODEL = "claude-opus-4-5-20251101"
+DEFAULT_LENSES = [
+    "Bull",
+    "Bear",
+    "Market",
+    "Competitive",
+    "Unit Economics",
+    "Execution",
+    "Deal Terms",
+    "Regulatory",
+    "Exit",
+    "Governance",
+]
 
 
 def build_evidence_context(evidence: Optional[Dict[str, Any]], max_items: int = 12) -> str:
@@ -43,22 +55,47 @@ def _extract_json(text: str) -> Dict[str, Any]:
     return json.loads(text[start : end + 1])
 
 
-def generate_deep_investment_opinion(
+def _call_opus(
+    api_key: str,
+    system_prompt: str,
+    user_prompt: str,
+    model: str,
+    max_tokens: int,
+) -> Dict[str, Any]:
+    client = Anthropic(api_key=api_key)
+    response = client.messages.create(
+        model=model,
+        system=system_prompt,
+        max_tokens=max_tokens,
+        messages=[{"role": "user", "content": user_prompt}],
+    )
+    text_blocks = []
+    for block in response.content:
+        if getattr(block, "type", "") == "text":
+            text_blocks.append(block.text)
+    raw_text = "\n".join(text_blocks).strip()
+    return _extract_json(raw_text)
+
+
+def generate_lens_group(
     api_key: str,
     evidence_context: str,
     extra_context: str = "",
+    lenses: Optional[List[str]] = None,
     model: str = DEFAULT_MODEL,
-    max_tokens: int = 2200,
+    max_tokens: int = 1800,
 ) -> Dict[str, Any]:
     if not api_key:
         raise ValueError("API 키가 필요합니다.")
 
+    lenses = lenses or DEFAULT_LENSES
+    lens_text = ", ".join(lenses)
     system_prompt = (
-        "You are a senior investment reviewer. Use only provided evidence. "
-        "If evidence is missing, mark the claim as UNVERIFIED. "
-        "Return JSON only. Do not add any extra text."
+        "You are a critical but constructive investment reviewer. Return JSON only. "
+        "Write in Korean. Use evidence IDs when available. "
+        "If evidence is missing, provide conditional analysis with assumptions and information requests. "
+        "Avoid absolute statements like 'cannot evaluate' or 'HOLD'."
     )
-
     user_prompt = f"""
 Evidence snippets (E1..):
 {evidence_context}
@@ -66,18 +103,193 @@ Evidence snippets (E1..):
 Additional context:
 {extra_context or "none"}
 
+Lenses: {lens_text}
+
 Task:
-Create a critical investment opinion using group-relative reasoning.
-Include hallucination checks and impact analysis (carbon + IRIS+).
+Draft independent opinions for each lens. Each lens must include a summary and 3-5 points with evidence IDs.
+
+Output JSON schema:
+{{
+  "lenses": [
+    {{
+      "lens": "Bull",
+      "summary": "...",
+      "points": [{{"point": "...", "evidence": ["E1"]}}]
+    }}
+  ]
+}}
+"""
+    return _call_opus(api_key, system_prompt, user_prompt, model, max_tokens)
+
+
+def cross_examine_and_score(
+    api_key: str,
+    evidence_context: str,
+    lens_outputs: Dict[str, Any],
+    model: str = DEFAULT_MODEL,
+    max_tokens: int = 1600,
+) -> Dict[str, Any]:
+    if not api_key:
+        raise ValueError("API 키가 필요합니다.")
+
+    system_prompt = (
+        "You are a skeptical but balanced reviewer. Return JSON only. "
+        "Write in Korean. Score lenses relative to each other and apply clipping for stability. "
+        "If evidence is missing, keep scores near neutral (raw_score=3, normalized=0, clipped=0) "
+        "and focus on data gaps rather than conclusions."
+    )
+    user_prompt = f"""
+Evidence snippets (E1..):
+{evidence_context}
+
+Lens outputs:
+{json.dumps(lens_outputs, ensure_ascii=False)}
+
+Task:
+1) Cross-examine lenses and note weak assumptions.
+2) Score each lens (raw 1-5), normalize to -1..1, then clip to -0.5..0.5.
+3) Select core lenses (top 2 clipped scores) and dissent lens (lowest).
+4) Summarize top 5 risks with evidence IDs.
+
+Output JSON schema:
+{{
+  "scores": [
+    {{"lens": "...", "raw_score": 3, "normalized": 0.2, "clipped": 0.2, "rationale": "..."}}
+  ],
+  "selected_core": ["..."],
+  "selected_dissent": ["..."],
+  "top_risks": [
+    {{"risk": "...", "severity": "high|medium|low", "verification": "...", "evidence": ["E1"]}}
+  ],
+  "criticisms": [
+    {{"lens": "...", "critique": "..."}}
+  ]
+}}
+"""
+    return _call_opus(api_key, system_prompt, user_prompt, model, max_tokens)
+
+
+def generate_hallucination_check(
+    api_key: str,
+    evidence_context: str,
+    lens_outputs: Dict[str, Any],
+    model: str = DEFAULT_MODEL,
+    max_tokens: int = 1200,
+) -> Dict[str, Any]:
+    if not api_key:
+        raise ValueError("API 키가 필요합니다.")
+
+    system_prompt = (
+        "You are a verifier. Return JSON only. "
+        "Write in Korean. Flag claims without evidence or with numeric inconsistency. "
+        "Phrase missing evidence as 'needs verification' rather than invalid."
+    )
+    user_prompt = f"""
+Evidence snippets (E1..):
+{evidence_context}
+
+Lens outputs:
+{json.dumps(lens_outputs, ensure_ascii=False)}
+
+Task:
+List unverified claims (missing evidence IDs), numeric conflicts, and evidence gaps.
+
+Output JSON schema:
+{{
+  "unverified_claims": [{{"claim": "...", "reason": "no evidence", "lens": "..."}}],
+  "numeric_conflicts": ["..."],
+  "evidence_gaps": ["..."]
+}}
+"""
+    return _call_opus(api_key, system_prompt, user_prompt, model, max_tokens)
+
+
+def generate_impact_analysis(
+    api_key: str,
+    evidence_context: str,
+    lens_outputs: Dict[str, Any],
+    model: str = DEFAULT_MODEL,
+    max_tokens: int = 1400,
+) -> Dict[str, Any]:
+    if not api_key:
+        raise ValueError("API 키가 필요합니다.")
+
+    system_prompt = (
+        "You are an impact analyst. Return JSON only. "
+        "Write in Korean. Use evidence IDs when available; otherwise note gaps. "
+        "If evidence is missing, set pathways to ['unknown'] and focus on gaps."
+    )
+    user_prompt = f"""
+Evidence snippets (E1..):
+{evidence_context}
+
+Lens outputs:
+{json.dumps(lens_outputs, ensure_ascii=False)}
+
+Task:
+Provide impact analysis (carbon + IRIS+). Avoid inventing IRIS+ codes.
+
+Output JSON schema:
+{{
+  "carbon": {{
+    "pathways": ["감축|회피|격리|unknown"],
+    "metrics": [{{"metric": "...", "method": "...", "evidence": ["E1"]}}],
+    "gaps": ["..."]
+  }},
+  "iris_plus": [
+    {{"code": "IRIS+", "name": "...", "why": "...", "measurement": "...", "evidence": ["E2"]}}
+  ]
+}}
+"""
+    return _call_opus(api_key, system_prompt, user_prompt, model, max_tokens)
+
+
+def synthesize_deep_opinion(
+    api_key: str,
+    evidence_context: str,
+    lens_outputs: Dict[str, Any],
+    scoring: Dict[str, Any],
+    hallucination: Dict[str, Any],
+    impact: Dict[str, Any],
+    model: str = DEFAULT_MODEL,
+    max_tokens: int = 2000,
+) -> Dict[str, Any]:
+    if not api_key:
+        raise ValueError("API 키가 필요합니다.")
+
+    system_prompt = (
+        "You are a senior investment reviewer. Return JSON only. "
+        "Write in Korean. Use evidence IDs; keep output concise and structured. "
+        "If evidence is missing, produce a constructive, conditional conclusion focused on 자료 보강 요청. "
+        "Avoid absolute recommendations or all-caps directives."
+    )
+    user_prompt = f"""
+Evidence snippets (E1..):
+{evidence_context}
+
+Lens outputs:
+{json.dumps(lens_outputs, ensure_ascii=False)}
+
+Scoring summary:
+{json.dumps(scoring, ensure_ascii=False)}
+
+Hallucination check:
+{json.dumps(hallucination, ensure_ascii=False)}
+
+Impact analysis:
+{json.dumps(impact, ensure_ascii=False)}
+
+Task:
+Synthesize a final critical opinion. Include 2-3 paragraph conclusion.
 
 Output JSON schema:
 {{
   "conclusion": {{
-    "paragraphs": ["...","...","..."]  // 2-3 short paragraphs
+    "paragraphs": ["...","..."]
   }},
   "core_case": {{
     "summary": "...",
-    "points": [{{"point": "...", "evidence": ["E1","E2"]}}]
+    "points": [{{"point": "...", "evidence": ["E1"]}}]
   }},
   "dissent_case": {{
     "summary": "...",
@@ -106,24 +318,5 @@ Output JSON schema:
   "go_conditions": ["..."],
   "next_actions": [{{"action": "...", "priority": "P0|P1|P2"}}]
 }}
-
-Constraints:
-- Use evidence IDs whenever possible. If none, set evidence to [] and mark as UNVERIFIED in hallucination_check.
-- Keep each list concise: 3-6 items max.
-- Do not invent IRIS+ codes if unsure; use "IRIS+" as code and explain why.
 """
-
-    client = Anthropic(api_key=api_key)
-    response = client.messages.create(
-        model=model,
-        system=system_prompt,
-        max_tokens=max_tokens,
-        messages=[{"role": "user", "content": user_prompt}],
-    )
-
-    text_blocks = []
-    for block in response.content:
-        if getattr(block, "type", "") == "text":
-            text_blocks.append(block.text)
-    raw_text = "\n".join(text_blocks).strip()
-    return _extract_json(raw_text)
+    return _call_opus(api_key, system_prompt, user_prompt, model, max_tokens)

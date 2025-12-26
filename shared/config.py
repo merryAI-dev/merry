@@ -18,6 +18,11 @@ def initialize_session_state():
     defaults = {
         # 인증
         "user_email": None,
+        "team_id": None,
+        "team_label": "",
+        "member_id": None,
+        "member_name": "",
+        "pending_session_id": None,
 
         # 에이전트 (공유)
         "agent": None,
@@ -53,8 +58,14 @@ def initialize_session_state():
         "report_quick_command": None,
         "report_evidence": None,
         "report_deep_analysis": None,
+        "report_deep_lens": None,
+        "report_deep_scoring": None,
+        "report_deep_hallucination": None,
+        "report_deep_impact": None,
+        "report_deep_logs": [],
         "report_deep_step": 0,
         "report_deep_error": None,
+        "dart_api_key": "",
 
         # 파일 관리
         "uploaded_file_path": None,
@@ -69,6 +80,12 @@ def initialize_session_state():
         "home_route_target": None,
         "home_route_label": "",
         "home_router_state": {"candidates": []},
+
+        "sidebar_cache": {},
+
+        "collab_brief": None,
+        "collab_brief_error": None,
+        "collab_brief_model": "claude-opus-4-5-20251101",
 
         "voice_messages": [],
         "voice_mode": "checkin",
@@ -210,19 +227,29 @@ def initialize_agent():
         try:
             from agent.vc_agent import VCAgent
             from shared.auth import get_user_api_key, get_user_id
+            from shared.session_utils import load_session_by_id
 
             # 사용자가 입력한 API 키 및 user_id 사용
             user_api_key = get_user_api_key()
             user_id = get_user_id()
+            member_name = st.session_state.get("member_name") or None
+            team_id = st.session_state.get("team_id") or user_id
 
             if user_api_key:
                 st.session_state.agent = VCAgent(
                     api_key=user_api_key,
-                    user_id=user_id
+                    user_id=user_id,
+                    member_name=member_name,
+                    team_id=team_id
                 )
             else:
                 # 환경변수 fallback (로컬 개발용)
-                st.session_state.agent = VCAgent(user_id=user_id)
+                st.session_state.agent = VCAgent(user_id=user_id, member_name=member_name, team_id=team_id)
+
+            pending_session_id = st.session_state.get("pending_session_id")
+            if pending_session_id:
+                load_session_by_id(st.session_state.agent, pending_session_id)
+                st.session_state.pending_session_id = None
         except ValueError as e:
             st.error(f"{str(e)}")
             st.info("API 키가 필요합니다.")

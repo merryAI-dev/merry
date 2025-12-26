@@ -7,7 +7,16 @@
 
 import streamlit as st
 import hashlib
+from pathlib import Path
 from anthropic import Anthropic
+
+
+TEAM_OPTIONS = {
+    "Team 1": "team_1",
+    "Team 2": "team_2",
+    "Team 3": "team_3",
+    "Team 4": "team_4",
+}
 
 
 def get_user_id_from_api_key(api_key: str) -> str:
@@ -19,6 +28,37 @@ def get_user_id_from_api_key(api_key: str) -> str:
         return "anonymous"
     # API 키의 SHA256 해시 앞 12자리를 user_id로 사용
     return hashlib.sha256(api_key.encode()).hexdigest()[:12]
+
+
+def _get_team_sessions(team_id: str) -> list[dict]:
+    if not team_id:
+        return []
+
+    try:
+        from agent.supabase_storage import SupabaseStorage
+        storage = SupabaseStorage(user_id=team_id)
+        if storage.available:
+            return storage.get_recent_sessions(limit=10)
+    except Exception:
+        pass
+
+    # 로컬 fallback (chat_history/<team_id>/session_*.json)
+    storage_dir = Path("chat_history") / team_id
+    if not storage_dir.exists():
+        return []
+
+    sessions = []
+    for path in sorted(storage_dir.glob("session_*.json"), reverse=True)[:10]:
+        session_id = path.stem.replace("session_", "")
+        try:
+            sessions.append({
+                "session_id": session_id,
+                "message_count": 0,
+                "created_at": path.stat().st_mtime,
+            })
+        except OSError:
+            continue
+    return sessions
 
 
 def validate_api_key(api_key: str) -> bool:
@@ -130,6 +170,46 @@ def check_authentication() -> bool:
             unsafe_allow_html=True,
         )
     with cols[1]:
+        st.markdown("#### 팀 선택")
+        team_options = list(TEAM_OPTIONS.keys())
+        stored_team_label = st.session_state.get("team_label")
+        team_index = team_options.index(stored_team_label) if stored_team_label in team_options else 0
+        team_label = st.selectbox(
+            "Team",
+            options=team_options,
+            index=team_index,
+        )
+        team_id = TEAM_OPTIONS.get(team_label)
+        st.session_state.team_id = team_id
+        st.session_state.team_label = team_label
+
+        member_name = st.text_input(
+            "닉네임",
+            value=st.session_state.get("member_name", ""),
+            placeholder="이름 또는 닉네임",
+        )
+        st.session_state.member_name = member_name
+
+        st.markdown("#### 최근 팀 세션")
+        sessions = _get_team_sessions(team_id)
+        if sessions:
+            session_options = [
+                f"{s['session_id']} ({s.get('message_count', 0)}개 메시지)"
+                for s in sessions
+            ]
+            selected_session = st.selectbox(
+                "세션 선택",
+                options=["새 세션 시작"] + session_options,
+                index=0,
+            )
+            if selected_session != "새 세션 시작":
+                st.session_state.pending_session_id = selected_session.split(" ")[0]
+            else:
+                st.session_state.pending_session_id = None
+            st.caption("선택한 세션은 로그인 후 자동으로 불러옵니다.")
+        else:
+            st.caption("팀 세션이 없습니다. 새 세션으로 시작합니다.")
+
         st.markdown("#### 메리의 역할")
         st.markdown(
             """
@@ -163,7 +243,8 @@ def check_authentication() -> bool:
                 if validate_api_key(api_key):
                     st.session_state.api_key_validated = True
                     st.session_state.user_api_key = api_key
-                    st.session_state.user_id = get_user_id_from_api_key(api_key)
+                    st.session_state.member_id = get_user_id_from_api_key(api_key)
+                    st.session_state.user_id = st.session_state.get("team_id") or "team_1"
                     st.success("인증 성공!")
                     st.rerun()
                 else:

@@ -42,7 +42,9 @@ class VCAgent:
         self,
         api_key: str = None,
         model: str = "claude-opus-4-5-20251101",
-        user_id: str = None
+        user_id: str = None,
+        member_name: str = None,
+        team_id: str = None,
     ):
         """
         Args:
@@ -52,6 +54,8 @@ class VCAgent:
         """
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
         self.user_id = user_id or "anonymous"
+        self.member_name = member_name
+        self.team_id = team_id or self.user_id
 
         if not self.api_key:
             raise ValueError(
@@ -100,6 +104,9 @@ class VCAgent:
 
         # 도구 호출 카운터 (무한 루프 방지)
         self._tool_step_count = 0
+
+        # 보고서 모드: 항상 심화 의견 파이프라인 사용
+        self.report_deep_mode = True
 
     # ========================================
     # System Prompt
@@ -317,13 +324,15 @@ class VCAgent:
 진행 방식:
 1) 짧게 인사하고 오늘 컨디션을 물어봅니다.
 2) 어제 로그가 있으면 2~4개의 근거를 언급하며 "학습"과 "감정"을 HCI 관점으로 설명합니다.
-3) 오늘 목표/우선순위를 2~4개 질문으로 확인합니다.
+3) 팀 과업이 제공된 경우, 진행 상태/블로커/도움 필요 여부를 2~4개 질문으로 확인합니다.
+4) 오늘 목표/우선순위를 2~4개 질문으로 확인합니다.
 4) 마지막에 요약을 제공합니다.
 
 요약 형식:
 - 어제 로그 요약
 - 학습 포인트
 - 감정 상태
+- 팀 과업 진행 요약
 - 오늘 목표/우선순위
 - 다음 액션 (3개 이하)
 
@@ -491,12 +500,15 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
     def _build_report_system_prompt(self, analyzed_files: str) -> str:
         """투자심사 보고서(인수인의견 스타일) 모드 시스템 프롬프트"""
 
+        dart_status = self._get_underwriter_dataset_status()
+
         return f"""당신은 **투자심사 보고서 작성 지원 에이전트**입니다. 현재 **인수인의견 스타일**로 작성합니다.
 
 ## 현재 컨텍스트
 - 분석된 파일: {analyzed_files}
 - 캐시된 결과: {len(self.context["cached_results"])}개
 - user_id: {self.user_id}
+- DART 인수인의견 데이터셋: {dart_status}
 
 ## 🚨 최우선 규칙 (CRITICAL)
 
@@ -508,7 +520,8 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
 - 추측/예시 답변 금지 (근거가 없으면 '확인 필요'로 명시)
 - 임의로 "접근 불가"라고 단정하지 말고, 도구 결과의 에러/가이드를 그대로 전달
  - 외부 유료 리포트 수치 인용은 금지 (사용자가 원문을 업로드한 경우에만 인용)
- - 인수인의견 데이터가 없으면 **fetch_underwriter_opinion_data**로 수집 시도 (API 키 필요)
+ - 인수인의견 데이터가 없고 DART API 키가 있을 때만 **fetch_underwriter_opinion_data**로 수집 시도
+ - DART 데이터셋이 없고 API 키도 없으면 먼저 사용자에게 키/데이터 확보를 요청
 
 ### 규칙 2) 기업 자료가 주어지면 반드시 도구 사용
 - PDF 경로 제공 → **read_pdf_as_text**로 근거 추출
@@ -566,11 +579,15 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
         # 도구 호출 카운터 초기화 (새 메시지마다)
         self._tool_step_count = 0
 
+        force_deep_report = mode == "report" and self.report_deep_mode
+
         # 현재 모드 저장
         self._current_mode = mode
         self._current_allow_tools = allow_tools
         self._current_context_text = context_text
         tools = self.tools if allow_tools else []
+        if mode == "report" and not os.getenv("DART_API_KEY"):
+            tools = [tool for tool in tools if tool.get("name") != "fetch_underwriter_opinion_data"]
         history = self.voice_conversation_history if mode.startswith("voice_") else self.conversation_history
 
         # 대화 히스토리에 추가
@@ -580,7 +597,11 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
         })
 
         # 메모리에 저장
-        self.memory.add_message("user", user_message)
+        user_meta = {
+            "member": self.member_name or self.user_id,
+            "team": self.team_id,
+        }
+        self.memory.add_message("user", user_message, user_meta)
 
         # 마지막 인터랙션 저장
         self.last_interaction["user_message"] = user_message
@@ -618,7 +639,8 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
                 # 텍스트 출력
                 if event.type == "content_block_delta":
                     if hasattr(event.delta, 'text'):
-                        yield event.delta.text
+                        if not force_deep_report:
+                            yield event.delta.text
 
                 # 도구 사용
                 elif event.type == "content_block_stop":
@@ -660,10 +682,36 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
                             yield f"**도구: {tool_name}** {'완료' if tool_ok else '실패'}\n\n"
 
                     # Assistant 응답 메모리에 저장
-                    if assistant_response_parts:
+                    if assistant_response_parts and not force_deep_report:
                         full_response = "\n".join(assistant_response_parts)
                         self.memory.add_message("assistant", full_response)
                         self.last_interaction["assistant_response"] = full_response
+
+                    if force_deep_report:
+                        if tool_results:
+                            history.append({
+                                "role": "assistant",
+                                "content": message.content
+                            })
+
+                            history.append({
+                                "role": "user",
+                                "content": tool_results
+                            })
+
+                            async for _ in self._continue_conversation(suppress_output=True):
+                                pass
+
+                        yield "\n\n[심화 의견] 분석 중...\n"
+                        deep_text = self._run_deep_report_pipeline(user_message)
+                        history.append({
+                            "role": "assistant",
+                            "content": deep_text
+                        })
+                        self.memory.add_message("assistant", deep_text)
+                        self.last_interaction["assistant_response"] = deep_text
+                        yield deep_text
+                        return
 
                     # 도구 결과가 있으면 대화 계속
                     if tool_results:
@@ -683,7 +731,7 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
                         async for text in self._continue_conversation():
                             yield text
 
-    async def _continue_conversation(self) -> AsyncIterator[str]:
+    async def _continue_conversation(self, suppress_output: bool = False) -> AsyncIterator[str]:
         """도구 실행 후 대화 계속"""
 
         # 도구 호출 횟수 제한 확인 (무한 루프 방지)
@@ -713,7 +761,8 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
             async for event in stream:
                 if event.type == "content_block_delta":
                     if hasattr(event.delta, 'text'):
-                        yield event.delta.text
+                        if not suppress_output:
+                            yield event.delta.text
 
                 # 추가 도구 호출 (재귀적 처리)
                 elif event.type == "content_block_stop":
@@ -758,8 +807,281 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
                             "content": tool_results
                         })
 
-                        async for text in self._continue_conversation():
+                        async for text in self._continue_conversation(suppress_output=suppress_output):
                             yield text
+
+    def _get_latest_report_evidence(self) -> Optional[Dict[str, Any]]:
+        messages = self.memory.session_metadata.get("messages", [])
+        for msg in reversed(messages):
+            if msg.get("role") != "tool":
+                continue
+            meta = msg.get("metadata") or {}
+            if meta.get("tool_name") != "extract_pdf_market_evidence":
+                continue
+            result = meta.get("result")
+            if isinstance(result, dict) and result.get("success"):
+                return result
+        return None
+
+    def _get_underwriter_dataset_status(self) -> str:
+        try:
+            from agent.tools import _resolve_underwriter_data_path
+        except Exception:
+            return "상태 확인 불가"
+
+        path, error = _resolve_underwriter_data_path(None)
+        has_key = bool(os.getenv("DART_API_KEY"))
+        if error:
+            key_text = "API 키 있음" if has_key else "API 키 없음"
+            return f"미확인 ({key_text})"
+        if not path:
+            key_text = "API 키 있음" if has_key else "API 키 없음"
+            return f"미확인 ({key_text})"
+        return "사용 가능"
+
+    @staticmethod
+    def _detect_dart_category(text: str) -> Optional[str]:
+        lowered = (text or "").lower()
+        if any(k in lowered for k in ["시장규모", "시장 규모", "tam", "sam", "som", "cagr", "성장률"]):
+            return "market_size"
+        if any(k in lowered for k in ["비교기업", "유사기업", "comparables", "peer"]):
+            return "comparables"
+        if any(k in lowered for k in ["공모가", "공모가격", "per", "pbr", "psr", "ev/ebitda", "valuation", "밸류"]):
+            return "valuation"
+        if any(k in lowered for k in ["수요예측", "수요 예측"]):
+            return "demand_forecast"
+        if any(k in lowered for k in ["리스크", "위험", "불확실", "불확실성"]):
+            return "risk"
+        return None
+
+    def _search_dart_evidence(self, query: str) -> List[Dict[str, Any]]:
+        try:
+            from agent.tools import execute_search_underwriter_opinion_similar, _resolve_underwriter_data_path
+        except Exception:
+            return []
+
+        path, error = _resolve_underwriter_data_path(None)
+        if error or not path:
+            return []
+
+        category = self._detect_dart_category(query)
+        try:
+            result = execute_search_underwriter_opinion_similar(
+                query=query,
+                category=category,
+                top_k=3,
+                max_chars=420,
+                min_score=0.08,
+                return_patterns=False,
+            )
+        except Exception:
+            return []
+
+        if not result.get("success"):
+            return []
+
+        evidence = []
+        for item in result.get("results", []) or []:
+            corp = item.get("corp_name", "미상")
+            report = item.get("report_nm", "")
+            title = item.get("section_title", "")
+            snippet = (item.get("snippet") or "").strip()
+            if not snippet:
+                continue
+            text = f"[DART] {corp} | {report} | {title} - {snippet}"
+            evidence.append({
+                "page": "DART",
+                "text": text,
+                "numbers": [],
+            })
+        return evidence
+
+    def _build_recent_user_context(self, limit: int = 3) -> str:
+        history = self.conversation_history[-12:]
+        user_lines = []
+        for msg in reversed(history):
+            if msg.get("role") != "user":
+                continue
+            content = msg.get("content", "")
+            if not content:
+                continue
+            user_lines.append(content)
+            if len(user_lines) >= limit:
+                break
+        user_lines = list(reversed(user_lines))
+        if not user_lines:
+            return ""
+        return "최근 사용자 요청:\n" + "\n".join(user_lines)
+
+    def _format_deep_opinion(self, result: Dict[str, Any]) -> str:
+        lines = []
+        conclusion = result.get("conclusion", {}).get("paragraphs", [])
+        if conclusion:
+            lines.append("결론")
+            lines.extend(conclusion)
+            lines.append("")
+
+        def render_case(title: str, key: str) -> None:
+            section = result.get(key, {})
+            if not section:
+                return
+            lines.append(title)
+            summary = section.get("summary")
+            if summary:
+                lines.append(f"- 요약: {summary}")
+            for item in section.get("points", []):
+                point = item.get("point", "")
+                evidence = ", ".join(item.get("evidence", []) or [])
+                suffix = f" (근거: {evidence})" if evidence else " (근거: 없음)"
+                lines.append(f"- {point}{suffix}")
+            lines.append("")
+
+        render_case("핵심 관점", "core_case")
+        render_case("반대 관점", "dissent_case")
+
+        top_risks = result.get("top_risks", [])
+        if top_risks:
+            lines.append("주요 리스크")
+            for item in top_risks:
+                evidence = ", ".join(item.get("evidence", []) or [])
+                severity = item.get("severity", "medium")
+                verification = item.get("verification", "")
+                label = f"[{severity}] {item.get('risk', '')}"
+                suffix = f" · 검증: {verification}" if verification else ""
+                if evidence:
+                    suffix += f" · 근거: {evidence}"
+                lines.append(f"- {label}{suffix}")
+            lines.append("")
+
+        hallucination = result.get("hallucination_check", {})
+        if hallucination:
+            lines.append("할루시네이션 검증")
+            for item in hallucination.get("unverified_claims", []):
+                lines.append(f"- 미검증 주장: {item.get('claim', '')} (사유: {item.get('reason', '')})")
+            for item in hallucination.get("numeric_conflicts", []):
+                lines.append(f"- 수치 충돌: {item}")
+            for item in hallucination.get("evidence_gaps", []):
+                lines.append(f"- 근거 공백: {item}")
+            lines.append("")
+
+        impact = result.get("impact_analysis", {})
+        if impact:
+            carbon = impact.get("carbon", {})
+            lines.append("임팩트 분석")
+            pathways = ", ".join(carbon.get("pathways", []) or [])
+            if pathways:
+                lines.append(f"- 탄소 경로: {pathways}")
+            for metric in carbon.get("metrics", []):
+                evidence = ", ".join(metric.get("evidence", []) or [])
+                suffix = f" (근거: {evidence})" if evidence else ""
+                lines.append(f"- {metric.get('metric', '')}: {metric.get('method', '')}{suffix}")
+            for gap in carbon.get("gaps", []):
+                lines.append(f"- 탄소 공백: {gap}")
+            for item in impact.get("iris_plus", []):
+                evidence = ", ".join(item.get("evidence", []) or [])
+                suffix = f" (근거: {evidence})" if evidence else ""
+                lines.append(
+                    f"- IRIS+ {item.get('code', 'IRIS+')}: {item.get('name', '')} · {item.get('why', '')} "
+                    f"· {item.get('measurement', '')}{suffix}"
+                )
+            lines.append("")
+
+        data_gaps = result.get("data_gaps", [])
+        if data_gaps:
+            lines.append("데이터 공백")
+            for item in data_gaps:
+                lines.append(f"- {item}")
+            lines.append("")
+
+        deal_breakers = result.get("deal_breakers", [])
+        go_conditions = result.get("go_conditions", [])
+        if deal_breakers or go_conditions:
+            lines.append("딜 브레이커 / GO 조건")
+            if deal_breakers:
+                for item in deal_breakers:
+                    lines.append(f"- 딜 브레이커: {item}")
+            if go_conditions:
+                for item in go_conditions:
+                    lines.append(f"- GO 조건: {item}")
+            lines.append("")
+
+        next_actions = result.get("next_actions", [])
+        if next_actions:
+            lines.append("다음 액션")
+            for item in next_actions:
+                lines.append(f"- {item.get('priority', 'P1')}: {item.get('action', '')}")
+
+        return "\n".join(lines).strip()
+
+    def _run_deep_report_pipeline(self, user_message: str) -> str:
+        if not self.api_key:
+            return "API 키가 없어 심화 의견을 생성할 수 없습니다."
+
+        try:
+            from shared.deep_opinion import (
+                build_evidence_context,
+                cross_examine_and_score,
+                generate_hallucination_check,
+                generate_impact_analysis,
+                generate_lens_group,
+                synthesize_deep_opinion,
+            )
+        except Exception as exc:
+            logger.error(f"Deep opinion import failed: {exc}", exc_info=True)
+            return "심화 의견 모듈을 불러오지 못했습니다."
+
+        evidence = self._get_latest_report_evidence()
+        dart_evidence = self._search_dart_evidence(user_message)
+        if dart_evidence:
+            merged_evidence = {"evidence": []}
+            if isinstance(evidence, dict) and evidence.get("evidence"):
+                merged_evidence["evidence"].extend(evidence.get("evidence", []))
+            merged_evidence["evidence"].extend(dart_evidence)
+            evidence_context = build_evidence_context(merged_evidence)
+        else:
+            evidence_context = build_evidence_context(evidence)
+        extra_context = self._build_recent_user_context() or f"사용자 요청:\n{user_message}"
+        if evidence_context.strip().lower() == "evidence: none":
+            extra_context = (
+                f"{extra_context}\n\n"
+                "근거가 제공되지 않았습니다. 단정적 결론 대신 조건부 의견과 "
+                "자료 요청 중심으로 작성하세요."
+            )
+
+        try:
+            lens_outputs = generate_lens_group(
+                api_key=self.api_key,
+                evidence_context=evidence_context,
+                extra_context=extra_context,
+            )
+            scoring = cross_examine_and_score(
+                api_key=self.api_key,
+                evidence_context=evidence_context,
+                lens_outputs=lens_outputs,
+            )
+            hallucination = generate_hallucination_check(
+                api_key=self.api_key,
+                evidence_context=evidence_context,
+                lens_outputs=lens_outputs,
+            )
+            impact = generate_impact_analysis(
+                api_key=self.api_key,
+                evidence_context=evidence_context,
+                lens_outputs=lens_outputs,
+            )
+            final_result = synthesize_deep_opinion(
+                api_key=self.api_key,
+                evidence_context=evidence_context,
+                lens_outputs=lens_outputs,
+                scoring=scoring,
+                hallucination=hallucination,
+                impact=impact,
+            )
+        except Exception as exc:
+            logger.error(f"Deep opinion pipeline failed: {exc}", exc_info=True)
+            return "심화 의견 생성 중 오류가 발생했습니다. 다시 시도해 주세요."
+
+        return self._format_deep_opinion(final_result)
 
     def _record_tool_usage(self, tool_name: str, tool_input: dict, tool_result: dict):
         """도구 사용 결과를 메모리/컨텍스트에 기록 (공통 헬퍼)"""
@@ -767,7 +1089,9 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
         self.memory.add_message("tool", f"도구 사용: {tool_name}", {
             "tool_name": tool_name,
             "input": tool_input,
-            "result": tool_result
+            "result": tool_result,
+            "member": self.member_name or self.user_id,
+            "team": self.team_id,
         })
 
         # 컨텍스트 업데이트 - 분석 파일
@@ -843,6 +1167,7 @@ Required keys:
 - learnings (array of strings)
 - emotion_state (string)
 - emotion_rationale (string)
+- team_tasks (array of strings)
 - today_priorities (array of strings)
 - next_actions (array of strings)
 
@@ -870,12 +1195,14 @@ If unknown, use empty string or empty array."""
                 "learnings": [],
                 "emotion_state": "",
                 "emotion_rationale": "",
+                "team_tasks": [],
                 "today_priorities": [],
                 "next_actions": [],
             }
 
         parsed.setdefault("mode", mode)
         parsed.setdefault("learnings", [])
+        parsed.setdefault("team_tasks", [])
         parsed.setdefault("today_priorities", [])
         parsed.setdefault("next_actions", [])
         return parsed
