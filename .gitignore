@@ -37,6 +37,7 @@ Thumbs.db
 .claude/file-history/
 .claude/shell-snapshots/
 .claude/session-env/
+.claude/skills/
 
 # Streamlit secrets (OAuth credentials)
 .streamlit/secrets.toml
@@ -54,3 +55,6 @@ temp/
 # Test coverage
 .coverage
 htmlcov/
+# User local add-ons
+scripts/launch_review.py
+*Human-AI Teaming in the ICU_ A Comparative.pdf

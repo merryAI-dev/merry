@@ -17,8 +17,10 @@ from dotenv import load_dotenv
 from anthropic import Anthropic, AsyncAnthropic
 from .tools import register_tools, execute_tool
 from .memory import ChatMemory
+from .streaming import AgentOutput
 from .feedback import FeedbackSystem
 from shared.logging_config import get_logger
+from shared.model_opinions import gather_model_opinions
 
 load_dotenv()
 
@@ -26,6 +28,7 @@ logger = get_logger("vc_agent")
 
 # 안전장치: 최대 도구 호출 횟수
 MAX_TOOL_STEPS = 15
+MAX_HISTORY_MESSAGES = 20
 
 
 class VCAgent:
@@ -75,15 +78,15 @@ class VCAgent:
         self.conversation_history: List[Dict[str, Any]] = []
         self.voice_conversation_history: List[Dict[str, Any]] = []
 
-        # 작업 컨텍스트
-        self.context = {
-            "analyzed_files": [],
-            "cached_results": {},
-            "last_analysis": None
-        }
-
         # 메모리 시스템 (user_id 기반)
         self.memory = ChatMemory(user_id=self.user_id)
+
+        # 작업 컨텍스트 (메모리 참조용; backward compatibility)
+        self.context = {
+            "analyzed_files": self.memory.session_metadata.get("analyzed_files", []),
+            "cached_results": self.memory.cached_results,
+            "last_analysis": None
+        }
 
         # 피드백 시스템 (user_id 기반)
         self.feedback = FeedbackSystem(user_id=self.user_id)
@@ -105,8 +108,22 @@ class VCAgent:
         # 도구 호출 카운터 (무한 루프 방지)
         self._tool_step_count = 0
 
-        # 보고서 모드: 항상 심화 의견 파이프라인 사용
-        self.report_deep_mode = True
+        # 보고서 모드: 심화 의견 파이프라인 사용 (env로 토글)
+        self.report_deep_mode = os.getenv("VC_REPORT_DEEP_MODE", "1").lower() not in ["0", "false", "no"]
+        self.multi_model_opinions = os.getenv("VC_MULTI_MODEL_OPINIONS", "1").lower() not in ["0", "false", "no"]
+
+    def _get_analyzed_files(self) -> List[str]:
+        return self.memory.session_metadata.get("analyzed_files", []) or []
+
+    def _cached_count(self) -> int:
+        return len(self.memory.cached_results or {})
+
+    def _trim_history(self, history: List[Dict[str, Any]]) -> None:
+        if len(history) > MAX_HISTORY_MESSAGES:
+            del history[:-MAX_HISTORY_MESSAGES]
+
+    def _build_tool_list_text(self) -> str:
+        return json.dumps([t.get("name") for t in self.tools], ensure_ascii=False, indent=2)
 
     # ========================================
     # System Prompt
@@ -119,7 +136,8 @@ class VCAgent:
             mode: "exit" (Exit 프로젝션), "peer" (Peer PER 분석), "diagnosis", "report"
         """
 
-        analyzed_files = ", ".join(self.context["analyzed_files"]) if self.context["analyzed_files"] else "없음"
+        analyzed_files_list = self._get_analyzed_files()
+        analyzed_files = ", ".join(analyzed_files_list) if analyzed_files_list else "없음"
 
         if mode.startswith("voice_"):
             submode = mode.split("_", 1)[1] if "_" in mode else "chat"
@@ -142,7 +160,7 @@ class VCAgent:
 
 ## 현재 컨텍스트
 - 분석된 파일: {analyzed_files}
-- 캐시된 결과: {len(self.context["cached_results"])}개
+- 캐시된 결과: {self._cached_count()}개
 
 ## ⚠️ 절대 규칙 (CRITICAL)
 
@@ -201,7 +219,7 @@ class VCAgent:
 - **명확한 설명**: IRR, 멀티플, 기업가치 등을 실제 숫자로 설명
 
 ## 사용 가능한 도구
-{json.dumps([t["name"] for t in self.tools], ensure_ascii=False, indent=2)}
+{self._build_tool_list_text()}
 
 ## 답변 스타일 가이드
 
@@ -357,7 +375,7 @@ class VCAgent:
 
 ## 현재 컨텍스트
 - 분석된 파일: {analyzed_files}
-- 캐시된 결과: {len(self.context["cached_results"])}개
+- 캐시된 결과: {self._cached_count()}개
 
 ## 🚨 최우선 규칙 (이 규칙을 어기면 실패입니다)
 
@@ -432,7 +450,7 @@ class VCAgent:
 
 ## 현재 컨텍스트
 - 분석된 파일: {analyzed_files}
-- 캐시된 결과: {len(self.context["cached_results"])}개
+- 캐시된 결과: {self._cached_count()}개
 - user_id: {self.user_id}
 
 ## 🚨 최우선 규칙 (CRITICAL)
@@ -506,7 +524,7 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
 
 ## 현재 컨텍스트
 - 분석된 파일: {analyzed_files}
-- 캐시된 결과: {len(self.context["cached_results"])}개
+- 캐시된 결과: {self._cached_count()}개
 - user_id: {self.user_id}
 - DART 인수인의견 데이터셋: {dart_status}
 
@@ -557,14 +575,14 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
 	    # Chat Mode (대화형)
 	    # ========================================
 
-    async def chat(
+    async def chat_events(
         self,
         user_message: str,
         mode: str = "exit",
         allow_tools: bool = True,
         context_text: Optional[str] = None,
         model_override: Optional[str] = None,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncIterator[AgentOutput]:
         """
         대화형 인터페이스 (스트리밍)
 
@@ -573,8 +591,10 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
             mode: "exit" (Exit 프로젝션), "peer" (Peer PER 분석), "diagnosis", "report"
 
         Yields:
-            str: 에이전트 응답 (스트리밍)
+            AgentOutput: 에이전트 응답 이벤트
         """
+
+        logger.info("User message received: %s", user_message[:120])
 
         # 도구 호출 카운터 초기화 (새 메시지마다)
         self._tool_step_count = 0
@@ -595,6 +615,7 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
             "role": "user",
             "content": user_message
         })
+        self._trim_history(history)
 
         # 메모리에 저장
         user_meta = {
@@ -618,13 +639,15 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
             })
             self.memory.add_message("assistant", summary)
             self.last_interaction["assistant_response"] = summary
-            yield summary
+            yield AgentOutput(type="text", content=summary)
             return
 
         # 시스템 프롬프트 (모드에 따라 다름)
         system_prompt = self._build_system_prompt(mode, context_text=context_text)
         model = model_override or self.model
         self._current_model = model
+
+        assistant_response_parts: List[str] = []
 
         # Claude API 호출 (스트리밍)
         async with self.async_client.messages.stream(
@@ -640,99 +663,154 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
                 if event.type == "content_block_delta":
                     if hasattr(event.delta, 'text'):
                         if not force_deep_report:
-                            yield event.delta.text
+                            yield AgentOutput(type="text", content=event.delta.text)
+                        assistant_response_parts.append(event.delta.text)
 
-                # 도구 사용
-                elif event.type == "content_block_stop":
-                    message = await stream.get_final_message()
+            message = await stream.get_final_message()
 
-                    # 토큰 사용량 추적
-                    if hasattr(message, 'usage'):
-                        self.token_usage["total_input_tokens"] += message.usage.input_tokens
-                        self.token_usage["total_output_tokens"] += message.usage.output_tokens
-                        self.token_usage["session_calls"] += 1
+        # 토큰 사용량 추적
+        if hasattr(message, 'usage'):
+            self.token_usage["total_input_tokens"] += message.usage.input_tokens
+            self.token_usage["total_output_tokens"] += message.usage.output_tokens
+            self.token_usage["session_calls"] += 1
 
-                    # 도구 호출 처리
-                    tool_results = []
-                    assistant_response_parts = []
+        # 도구 호출 처리
+        tool_results = []
+        tool_uses = [
+            block for block in (message.content or [])
+            if getattr(block, "type", "") == "tool_use"
+        ]
 
-                    for content_block in message.content:
-                        if content_block.type == "text":
-                            assistant_response_parts.append(content_block.text)
-                        elif content_block.type == "tool_use":
-                            tool_name = content_block.name
-                            tool_input = content_block.input
+        if not assistant_response_parts:
+            for block in message.content or []:
+                if getattr(block, "type", "") == "text":
+                    assistant_response_parts.append(block.text)
 
-                            yield f"\n\n**도구: {tool_name}** 실행 중...\n"
+        for content_block in tool_uses:
+            tool_name = content_block.name
+            tool_input = content_block.input
 
-                            # 도구 실행
-                            tool_result = execute_tool(tool_name, tool_input)
+            logger.info("Tool call: %s", tool_name)
+            logger.debug("Tool input: %s", tool_input)
+            yield AgentOutput(
+                type="tool_start",
+                content=tool_name,
+                data={"tool_input": tool_input},
+            )
 
-                            # 결과 저장
-                            tool_results.append({
-                                "type": "tool_result",
-                                "tool_use_id": content_block.id,
-                                "content": json.dumps(tool_result, ensure_ascii=False)
-                            })
+            try:
+                tool_result = execute_tool(tool_name, tool_input)
+            except Exception as exc:
+                logger.exception("Tool execution failed: %s", tool_name)
+                tool_result = {"success": False, "error": str(exc)}
+                yield AgentOutput(
+                    type="tool_error",
+                    content=str(exc),
+                    data={"tool_name": tool_name},
+                )
 
-                            # 메모리/컨텍스트 업데이트 (공통 헬퍼)
-                            self._record_tool_usage(tool_name, tool_input, tool_result)
+            # 결과 저장
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": content_block.id,
+                "content": json.dumps(tool_result, ensure_ascii=False)
+            })
 
-                            tool_ok = not (isinstance(tool_result, dict) and tool_result.get("success") is False)
-                            yield f"**도구: {tool_name}** {'완료' if tool_ok else '실패'}\n\n"
+            # 메모리/컨텍스트 업데이트 (공통 헬퍼)
+            self._record_tool_usage(tool_name, tool_input, tool_result)
 
-                    # Assistant 응답 메모리에 저장
-                    if assistant_response_parts and not force_deep_report:
-                        full_response = "\n".join(assistant_response_parts)
-                        self.memory.add_message("assistant", full_response)
-                        self.last_interaction["assistant_response"] = full_response
+            tool_ok = not (isinstance(tool_result, dict) and tool_result.get("success") is False)
+            yield AgentOutput(
+                type="tool_result",
+                content=json.dumps(tool_result, ensure_ascii=False),
+                data={"tool_name": tool_name, "success": tool_ok},
+            )
 
-                    if force_deep_report:
-                        if tool_results:
-                            history.append({
-                                "role": "assistant",
-                                "content": message.content
-                            })
+        # Assistant 응답 메모리에 저장
+        if assistant_response_parts and not force_deep_report:
+            full_response = "\n".join(part for part in assistant_response_parts if part).strip()
+            if full_response:
+                self.memory.add_message("assistant", full_response)
+                self.last_interaction["assistant_response"] = full_response
+                if not tool_uses:
+                    history.append({"role": "assistant", "content": full_response})
+                    self._trim_history(history)
 
-                            history.append({
-                                "role": "user",
-                                "content": tool_results
-                            })
+        if force_deep_report:
+            if tool_results:
+                history.append({
+                    "role": "assistant",
+                    "content": message.content
+                })
+                history.append({
+                    "role": "user",
+                    "content": tool_results
+                })
+                self._trim_history(history)
 
-                            async for _ in self._continue_conversation(suppress_output=True):
-                                pass
+                async for _ in self._continue_conversation(suppress_output=True):
+                    pass
 
-                        yield "\n\n[심화 의견] 분석 중...\n"
-                        deep_text = self._run_deep_report_pipeline(user_message)
-                        history.append({
-                            "role": "assistant",
-                            "content": deep_text
-                        })
-                        self.memory.add_message("assistant", deep_text)
-                        self.last_interaction["assistant_response"] = deep_text
-                        yield deep_text
-                        return
+            yield AgentOutput(type="text", content="\n\n[심화 의견] 분석 중...\n")
+            deep_text = self._run_deep_report_pipeline(user_message)
+            history.append({
+                "role": "assistant",
+                "content": deep_text
+            })
+            self._trim_history(history)
+            self.memory.add_message("assistant", deep_text)
+            self.last_interaction["assistant_response"] = deep_text
+            yield AgentOutput(type="text", content=deep_text)
+            return
 
-                    # 도구 결과가 있으면 대화 계속
-                    if tool_results:
-                        # Assistant 메시지 추가
-                        history.append({
-                            "role": "assistant",
-                            "content": message.content
-                        })
+        # 도구 결과가 있으면 대화 계속
+        if tool_results:
+            # Assistant 메시지 추가
+            history.append({
+                "role": "assistant",
+                "content": message.content
+            })
+            self._trim_history(history)
 
-                        # Tool 결과 추가
-                        history.append({
-                            "role": "user",
-                            "content": tool_results
-                        })
+            # Tool 결과 추가
+            history.append({
+                "role": "user",
+                "content": tool_results
+            })
+            self._trim_history(history)
 
-                        # Claude 다음 응답 생성
-                        async for text in self._continue_conversation():
-                            yield text
+            # Claude 다음 응답 생성
+            async for event in self._continue_conversation_events():
+                yield event
 
-    async def _continue_conversation(self, suppress_output: bool = False) -> AsyncIterator[str]:
-        """도구 실행 후 대화 계속"""
+    async def chat(
+        self,
+        user_message: str,
+        mode: str = "exit",
+        allow_tools: bool = True,
+        context_text: Optional[str] = None,
+        model_override: Optional[str] = None,
+    ) -> AsyncIterator[str]:
+        async for event in self.chat_events(
+            user_message,
+            mode=mode,
+            allow_tools=allow_tools,
+            context_text=context_text,
+            model_override=model_override,
+        ):
+            if event.type == "text":
+                yield event.content
+            elif event.type == "tool_start":
+                yield f"\n\n**도구: {event.content}** 실행 중...\n"
+            elif event.type == "tool_error":
+                yield f"❌ 도구 실행 실패: {event.content}\n"
+            elif event.type == "tool_result":
+                tool_name = (event.data or {}).get("tool_name", event.content)
+                tool_ok = (event.data or {}).get("success", True)
+                yield f"**도구: {tool_name}** {'완료' if tool_ok else '실패'}\n\n"
+
+    async def _continue_conversation_events(self, suppress_output: bool = False) -> AsyncIterator[AgentOutput]:
+        """도구 실행 후 대화 계속 (structured events)"""
 
         # 도구 호출 횟수 제한 확인 (무한 루프 방지)
         self._tool_step_count += 1
@@ -750,6 +828,8 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
         system_prompt = self._build_system_prompt(mode, context_text=context_text)
         model = getattr(self, "_current_model", self.model)
 
+        assistant_response_parts: List[str] = []
+
         async with self.async_client.messages.stream(
             model=model,
             system=system_prompt,
@@ -762,53 +842,103 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
                 if event.type == "content_block_delta":
                     if hasattr(event.delta, 'text'):
                         if not suppress_output:
-                            yield event.delta.text
+                            yield AgentOutput(type="text", content=event.delta.text)
+                        assistant_response_parts.append(event.delta.text)
 
-                # 추가 도구 호출 (재귀적 처리)
-                elif event.type == "content_block_stop":
-                    message = await stream.get_final_message()
+            message = await stream.get_final_message()
 
-                    # 토큰 사용량 추적
-                    if hasattr(message, 'usage'):
-                        self.token_usage["total_input_tokens"] += message.usage.input_tokens
-                        self.token_usage["total_output_tokens"] += message.usage.output_tokens
-                        self.token_usage["session_calls"] += 1
+        # 토큰 사용량 추적
+        if hasattr(message, 'usage'):
+            self.token_usage["total_input_tokens"] += message.usage.input_tokens
+            self.token_usage["total_output_tokens"] += message.usage.output_tokens
+            self.token_usage["session_calls"] += 1
 
-                    tool_results = []
-                    for content_block in message.content:
-                        if content_block.type == "tool_use":
-                            tool_name = content_block.name
-                            tool_input = content_block.input
+        tool_results = []
+        tool_uses = [
+            block for block in (message.content or [])
+            if getattr(block, "type", "") == "tool_use"
+        ]
 
-                            yield f"\n\n**도구: {tool_name}** 실행 중...\n"
+        if not assistant_response_parts:
+            for block in message.content or []:
+                if getattr(block, "type", "") == "text":
+                    assistant_response_parts.append(block.text)
 
-                            tool_result = execute_tool(tool_name, tool_input)
+        for content_block in tool_uses:
+            tool_name = content_block.name
+            tool_input = content_block.input
 
-                            tool_results.append({
-                                "type": "tool_result",
-                                "tool_use_id": content_block.id,
-                                "content": json.dumps(tool_result, ensure_ascii=False)
-                            })
+            logger.info("Tool call: %s", tool_name)
+            logger.debug("Tool input: %s", tool_input)
+            yield AgentOutput(
+                type="tool_start",
+                content=tool_name,
+                data={"tool_input": tool_input},
+            )
 
-                            # 메모리/컨텍스트 업데이트 (재귀 호출에서도 기록)
-                            self._record_tool_usage(tool_name, tool_input, tool_result)
+            try:
+                tool_result = execute_tool(tool_name, tool_input)
+            except Exception as exc:
+                logger.exception("Tool execution failed: %s", tool_name)
+                tool_result = {"success": False, "error": str(exc)}
+                yield AgentOutput(
+                    type="tool_error",
+                    content=str(exc),
+                    data={"tool_name": tool_name},
+                )
 
-                            tool_ok = not (isinstance(tool_result, dict) and tool_result.get("success") is False)
-                            yield f"**도구: {tool_name}** {'완료' if tool_ok else '실패'}\n\n"
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": content_block.id,
+                "content": json.dumps(tool_result, ensure_ascii=False)
+            })
 
-                    if tool_results:
-                        history.append({
-                            "role": "assistant",
-                            "content": message.content
-                        })
+            # 메모리/컨텍스트 업데이트 (재귀 호출에서도 기록)
+            self._record_tool_usage(tool_name, tool_input, tool_result)
 
-                        history.append({
-                            "role": "user",
-                            "content": tool_results
-                        })
+            tool_ok = not (isinstance(tool_result, dict) and tool_result.get("success") is False)
+            yield AgentOutput(
+                type="tool_result",
+                content=json.dumps(tool_result, ensure_ascii=False),
+                data={"tool_name": tool_name, "success": tool_ok},
+            )
 
-                        async for text in self._continue_conversation(suppress_output=suppress_output):
-                            yield text
+        if tool_results:
+            history.append({
+                "role": "assistant",
+                "content": message.content
+            })
+            self._trim_history(history)
+
+            history.append({
+                "role": "user",
+                "content": tool_results
+            })
+            self._trim_history(history)
+
+            async for event in self._continue_conversation_events(suppress_output=suppress_output):
+                yield event
+            return
+
+        full_response = "\n".join(part for part in assistant_response_parts if part).strip()
+        if full_response:
+            history.append({"role": "assistant", "content": full_response})
+            self._trim_history(history)
+            if not suppress_output:
+                self.memory.add_message("assistant", full_response)
+
+    async def _continue_conversation(self, suppress_output: bool = False) -> AsyncIterator[str]:
+        async for event in self._continue_conversation_events(suppress_output=suppress_output):
+            if event.type == "text":
+                yield event.content
+            elif event.type == "tool_start":
+                yield f"\n\n**도구: {event.content}** 실행 중...\n"
+            elif event.type == "tool_error":
+                yield f"❌ 도구 실행 실패: {event.content}\n"
+            elif event.type == "tool_result":
+                tool_name = (event.data or {}).get("tool_name", event.content)
+                tool_ok = (event.data or {}).get("success", True)
+                yield f"**도구: {tool_name}** {'완료' if tool_ok else '실패'}\n\n"
 
     def _get_latest_report_evidence(self) -> Optional[Dict[str, Any]]:
         messages = self.memory.session_metadata.get("messages", [])
@@ -986,6 +1116,24 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
                 )
             lines.append("")
 
+        model_opinions = result.get("model_opinions", [])
+        if model_opinions:
+            lines.append("모델 다중 의견")
+            for opinion in model_opinions:
+                provider = opinion.get("provider", "model")
+                model = opinion.get("model", "")
+                label = f"{provider.upper()} ({model})" if model else provider.upper()
+                if opinion.get("success"):
+                    content = (opinion.get("content") or "").strip()
+                    if content:
+                        lines.append(f"- {label}: {content}")
+                    else:
+                        lines.append(f"- {label}: 응답 내용 없음")
+                else:
+                    error = opinion.get("error", "실패")
+                    lines.append(f"- {label}: 실패 ({error})")
+            lines.append("")
+
         data_gaps = result.get("data_gaps", [])
         if data_gaps:
             lines.append("데이터 공백")
@@ -1081,6 +1229,18 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
             logger.error(f"Deep opinion pipeline failed: {exc}", exc_info=True)
             return "심화 의견 생성 중 오류가 발생했습니다. 다시 시도해 주세요."
 
+        if self.multi_model_opinions:
+            try:
+                model_opinions = gather_model_opinions(
+                    user_message=user_message,
+                    evidence=evidence_context,
+                    claude_api_key=self.api_key,
+                )
+                if isinstance(final_result, dict):
+                    final_result["model_opinions"] = model_opinions
+            except Exception as exc:
+                logger.warning(f"Multi-model opinions failed: {exc}")
+
         return self._format_deep_opinion(final_result)
 
     def _record_tool_usage(self, tool_name: str, tool_input: dict, tool_result: dict):
@@ -1096,19 +1256,18 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
 
         # 컨텍스트 업데이트 - 분석 파일
         if tool_name in ["analyze_excel", "read_excel_as_text", "analyze_company_diagnosis_sheet"]:
-            if tool_result.get("success"):
+            if isinstance(tool_result, dict) and tool_result.get("success"):
                 file_path = tool_input.get("excel_path")
-                if file_path and file_path not in self.context["analyzed_files"]:
-                    self.context["analyzed_files"].append(file_path)
+                if file_path:
                     self.memory.add_file_analysis(file_path)
+                self.memory.remember("last_analysis", tool_result)
                 self.context["last_analysis"] = tool_result
 
         # 컨텍스트 업데이트 - PDF 분석
         if tool_name == "read_pdf_as_text":
-            if tool_result.get("success"):
+            if isinstance(tool_result, dict) and tool_result.get("success"):
                 file_path = tool_input.get("pdf_path")
-                if file_path and file_path not in self.context["analyzed_files"]:
-                    self.context["analyzed_files"].append(file_path)
+                if file_path:
                     self.memory.add_file_analysis(file_path)
 
         # 생성 파일 기록
@@ -1257,6 +1416,7 @@ Rules:
             에이전트 응답 문자열
         """
         import asyncio
+        import threading
 
         async def run():
             response = ""
@@ -1270,20 +1430,28 @@ Rules:
                 response += chunk
             return response
 
-        # Python 3.10+ compatible: asyncio.run() 사용
-        # 단, 이미 실행 중인 이벤트 루프가 있으면 nest_asyncio 필요
         try:
-            # 이미 실행 중인 루프가 있는지 확인
             loop = asyncio.get_running_loop()
-            # 실행 중인 루프가 있으면 (예: Jupyter, Streamlit)
-            # nest_asyncio 또는 새 스레드에서 실행
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(asyncio.run, run())
-                return future.result()
         except RuntimeError:
-            # 실행 중인 루프가 없으면 asyncio.run() 사용
             return asyncio.run(run())
+
+        if loop.is_running():
+            result: Dict[str, str] = {}
+
+            def _runner():
+                new_loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(new_loop)
+                try:
+                    result["value"] = new_loop.run_until_complete(run())
+                finally:
+                    new_loop.close()
+
+            thread = threading.Thread(target=_runner)
+            thread.start()
+            thread.join()
+            return result.get("value", "")
+
+        return loop.run_until_complete(run())
 
     def get_token_usage(self) -> Dict[str, Any]:
         """토큰 사용량 및 예상 비용 반환"""
@@ -1316,9 +1484,11 @@ Rules:
         """세션 초기화"""
         self.conversation_history = []
         self.voice_conversation_history = []
+        self.memory.start_new_session()
+        self.memory.cached_results = {}
         self.context = {
-            "analyzed_files": [],
-            "cached_results": {},
+            "analyzed_files": self.memory.session_metadata.get("analyzed_files", []),
+            "cached_results": self.memory.cached_results,
             "last_analysis": None
         }
         self.reset_token_usage()
