@@ -883,21 +883,40 @@ Cap Table을 다음 JSON 형식으로 추출:
         }
 
 
-# 세션 관리
+# 세션 관리 (폴백용 - Streamlit 외부에서 사용)
 _active_sessions: Dict[str, InteractiveAnalysisSession] = {}
 
 
+def _get_streamlit_session_storage() -> Dict[str, InteractiveAnalysisSession]:
+    """Streamlit session_state 기반 세션 저장소 반환 (가능한 경우)"""
+    try:
+        import streamlit as st
+        if "analysis_sessions" not in st.session_state:
+            st.session_state.analysis_sessions = {}
+        return st.session_state.analysis_sessions
+    except (ImportError, RuntimeError):
+        # Streamlit 외부에서 실행 중이거나 context 없음
+        return _active_sessions
+
+
 def get_or_create_session(session_id: str = None) -> InteractiveAnalysisSession:
-    """분석 세션 가져오기 또는 생성"""
-    if session_id and session_id in _active_sessions:
-        return _active_sessions[session_id]
+    """분석 세션 가져오기 또는 생성
+
+    Streamlit 환경에서는 st.session_state를 사용하여 유저별 세션 분리.
+    그 외 환경에서는 모듈 레벨 딕셔너리 사용.
+    """
+    storage = _get_streamlit_session_storage()
+
+    if session_id and session_id in storage:
+        return storage[session_id]
 
     session = InteractiveAnalysisSession(session_id)
-    _active_sessions[session.session_id] = session
+    storage[session.session_id] = session
     return session
 
 
 def clear_session(session_id: str) -> None:
     """세션 삭제"""
-    if session_id in _active_sessions:
-        del _active_sessions[session_id]
+    storage = _get_streamlit_session_storage()
+    if session_id in storage:
+        del storage[session_id]
