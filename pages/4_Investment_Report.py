@@ -19,6 +19,7 @@ from shared.deep_opinion import (
     generate_lens_group,
     synthesize_deep_opinion,
 )
+from shared.model_opinions import gather_model_opinions
 from shared.auth import check_authentication
 from shared.config import (
     get_avatar_image,
@@ -78,6 +79,104 @@ def _sync_report_evidence_from_memory():
 
 
 _sync_report_evidence_from_memory()
+
+
+def _run_deep_opinion_generation(auto_run: bool = False) -> None:
+    st.session_state.report_deep_error = None
+    st.session_state.report_deep_step = 0
+    st.session_state.report_deep_analysis = None
+    st.session_state.report_deep_lens = None
+    st.session_state.report_deep_scoring = None
+    st.session_state.report_deep_hallucination = None
+    st.session_state.report_deep_impact = None
+    st.session_state.report_deep_logs = []
+
+    evidence_context = build_evidence_context(st.session_state.get("report_evidence"))
+    last_user_msgs = [
+        msg.get("content", "")
+        for msg in st.session_state.report_messages
+        if msg.get("role") == "user"
+    ]
+    extra_context = "최근 사용자 요청:\n" + "\n".join(last_user_msgs[-3:]) if last_user_msgs else ""
+
+    logs: list[str] = []
+    progress = st.progress(0.0)
+    status = st.status("Opus 심화 의견 생성 중...", expanded=not auto_run)
+    try:
+        api_key = st.session_state.get("user_api_key", "")
+        if not api_key:
+            raise ValueError("API 키를 입력해 주세요.")
+
+        _append_deep_log(logs, "1/5 다중 관점 생성 시작", status)
+        lens_outputs = generate_lens_group(
+            api_key=api_key,
+            evidence_context=evidence_context,
+            extra_context=extra_context,
+        )
+        st.session_state.report_deep_lens = lens_outputs
+        progress.progress(0.2)
+        _append_deep_log(logs, "1/5 다중 관점 생성 완료", status)
+
+        _append_deep_log(logs, "2/5 교차 검토 및 점수화 시작", status)
+        scoring = cross_examine_and_score(
+            api_key=api_key,
+            evidence_context=evidence_context,
+            lens_outputs=lens_outputs,
+        )
+        st.session_state.report_deep_scoring = scoring
+        progress.progress(0.4)
+        _append_deep_log(logs, "2/5 교차 검토 및 점수화 완료", status)
+
+        _append_deep_log(logs, "3/5 할루시네이션 검증 시작", status)
+        hallucination = generate_hallucination_check(
+            api_key=api_key,
+            evidence_context=evidence_context,
+            lens_outputs=lens_outputs,
+        )
+        st.session_state.report_deep_hallucination = hallucination
+        progress.progress(0.6)
+        _append_deep_log(logs, "3/5 할루시네이션 검증 완료", status)
+
+        _append_deep_log(logs, "4/5 임팩트 분석 시작", status)
+        impact = generate_impact_analysis(
+            api_key=api_key,
+            evidence_context=evidence_context,
+            lens_outputs=lens_outputs,
+        )
+        st.session_state.report_deep_impact = impact
+        progress.progress(0.8)
+        _append_deep_log(logs, "4/5 임팩트 분석 완료", status)
+
+        _append_deep_log(logs, "5/5 최종 종합 시작", status)
+        final_result = synthesize_deep_opinion(
+            api_key=api_key,
+            evidence_context=evidence_context,
+            lens_outputs=lens_outputs,
+            scoring=scoring,
+            hallucination=hallucination,
+            impact=impact,
+        )
+
+        if st.session_state.get("report_deep_multi"):
+            _append_deep_log(logs, "5/5 멀티모델 의견 수집 시작", status)
+            model_opinions = gather_model_opinions(
+                user_message=last_user_msgs[-1] if last_user_msgs else "투자심사 보고서 심화 의견 생성",
+                evidence=evidence_context,
+                claude_api_key=api_key,
+            )
+            final_result["model_opinions"] = model_opinions
+            _append_deep_log(logs, "5/5 멀티모델 의견 수집 완료", status)
+
+        st.session_state.report_deep_analysis = final_result
+        progress.progress(1.0)
+        _append_deep_log(logs, "5/5 최종 종합 완료", status)
+        status.update(label="심화 의견 생성 완료", state="complete", expanded=False)
+    except Exception as exc:
+        st.session_state.report_deep_error = str(exc)
+        st.session_state.report_deep_analysis = None
+        status.update(label="심화 의견 생성 실패", state="error", expanded=True)
+    finally:
+        st.session_state.report_deep_logs = logs
 
 st.markdown("# 투자심사 보고서 작성")
 st.markdown("시장규모 근거를 추출하고 인수인의견 스타일 초안을 작성합니다")
@@ -247,94 +346,23 @@ st.divider()
 st.markdown("## 심화 투자 의견 (Opus)")
 st.caption("근거 기반 다중 관점 검토 + 할루시네이션 검증 + 임팩트(탄소/IRIS+) 분석")
 
+auto_cols = st.columns([1, 1, 2])
+with auto_cols[0]:
+    st.toggle(
+        "심화 의견 자동 생성",
+        value=st.session_state.get("report_deep_autorun", True),
+        key="report_deep_autorun",
+    )
+with auto_cols[1]:
+    multi_state = "ON" if st.session_state.get("report_deep_multi") else "OFF"
+    st.caption(f"멀티모델 의견: {multi_state}")
+with auto_cols[2]:
+    st.caption("보고서 화면 진입 시 자동으로 심화 의견을 생성합니다.")
+
 deep_cols = st.columns([1.2, 1.2, 1])
 with deep_cols[0]:
     if st.button("심화 의견 생성", type="primary", use_container_width=True, key="report_deep_generate"):
-        st.session_state.report_deep_error = None
-        st.session_state.report_deep_step = 0
-        st.session_state.report_deep_analysis = None
-        st.session_state.report_deep_lens = None
-        st.session_state.report_deep_scoring = None
-        st.session_state.report_deep_hallucination = None
-        st.session_state.report_deep_impact = None
-        st.session_state.report_deep_logs = []
-
-        evidence_context = build_evidence_context(st.session_state.get("report_evidence"))
-        last_user_msgs = [
-            msg.get("content", "")
-            for msg in st.session_state.report_messages
-            if msg.get("role") == "user"
-        ]
-        extra_context = "최근 사용자 요청:\n" + "\n".join(last_user_msgs[-3:]) if last_user_msgs else ""
-
-        logs: list[str] = []
-        progress = st.progress(0.0)
-        status = st.status("Opus 심화 의견 생성 중...", expanded=True)
-        try:
-            api_key = st.session_state.get("user_api_key", "")
-            if not api_key:
-                raise ValueError("API 키를 입력해 주세요.")
-
-            _append_deep_log(logs, "1/5 다중 관점 생성 시작", status)
-            lens_outputs = generate_lens_group(
-                api_key=api_key,
-                evidence_context=evidence_context,
-                extra_context=extra_context,
-            )
-            st.session_state.report_deep_lens = lens_outputs
-            progress.progress(0.2)
-            _append_deep_log(logs, "1/5 다중 관점 생성 완료", status)
-
-            _append_deep_log(logs, "2/5 교차 검토 및 점수화 시작", status)
-            scoring = cross_examine_and_score(
-                api_key=api_key,
-                evidence_context=evidence_context,
-                lens_outputs=lens_outputs,
-            )
-            st.session_state.report_deep_scoring = scoring
-            progress.progress(0.4)
-            _append_deep_log(logs, "2/5 교차 검토 및 점수화 완료", status)
-
-            _append_deep_log(logs, "3/5 할루시네이션 검증 시작", status)
-            hallucination = generate_hallucination_check(
-                api_key=api_key,
-                evidence_context=evidence_context,
-                lens_outputs=lens_outputs,
-            )
-            st.session_state.report_deep_hallucination = hallucination
-            progress.progress(0.6)
-            _append_deep_log(logs, "3/5 할루시네이션 검증 완료", status)
-
-            _append_deep_log(logs, "4/5 임팩트 분석 시작", status)
-            impact = generate_impact_analysis(
-                api_key=api_key,
-                evidence_context=evidence_context,
-                lens_outputs=lens_outputs,
-            )
-            st.session_state.report_deep_impact = impact
-            progress.progress(0.8)
-            _append_deep_log(logs, "4/5 임팩트 분석 완료", status)
-
-            _append_deep_log(logs, "5/5 최종 종합 시작", status)
-            final_result = synthesize_deep_opinion(
-                api_key=api_key,
-                evidence_context=evidence_context,
-                lens_outputs=lens_outputs,
-                scoring=scoring,
-                hallucination=hallucination,
-                impact=impact,
-            )
-            st.session_state.report_deep_analysis = final_result
-            progress.progress(1.0)
-            _append_deep_log(logs, "5/5 최종 종합 완료", status)
-
-            status.update(label="심화 의견 생성 완료", state="complete", expanded=False)
-        except Exception as exc:
-            st.session_state.report_deep_error = str(exc)
-            st.session_state.report_deep_analysis = None
-            status.update(label="심화 의견 생성 실패", state="error", expanded=True)
-        finally:
-            st.session_state.report_deep_logs = logs
+        _run_deep_opinion_generation(auto_run=False)
 
 with deep_cols[1]:
     if st.button("처음부터 다시", use_container_width=True, key="report_deep_reset"):
@@ -350,6 +378,18 @@ with deep_cols[2]:
         st.session_state.report_deep_step = 0
         st.session_state.report_deep_error = None
         st.session_state.report_deep_logs = []
+
+should_autorun = (
+    st.session_state.get("report_deep_mode")
+    and st.session_state.get("report_deep_autorun")
+    and not st.session_state.get("report_deep_analysis")
+    and not st.session_state.get("report_deep_error")
+    and not st.session_state.get("report_deep_autorun_done")
+    and (st.session_state.get("report_file_path") or st.session_state.get("report_evidence"))
+)
+if should_autorun:
+    st.session_state.report_deep_autorun_done = True
+    _run_deep_opinion_generation(auto_run=True)
 
 if st.session_state.report_deep_error:
     st.error(f"심화 의견 생성 실패: {st.session_state.report_deep_error}")
@@ -373,6 +413,9 @@ if deep_analysis:
         ("딜 브레이커/GO 조건", "deal_breakers"),
         ("다음 액션", "next_actions"),
     ]
+    if deep_analysis.get("model_opinions"):
+        insert_at = 6
+        steps.insert(insert_at, ("모델 다중 의견", "model_opinions"))
     current_step = st.session_state.get("report_deep_step", 0)
     current_step = max(0, min(current_step, len(steps) - 1))
     st.session_state.report_deep_step = current_step
@@ -438,6 +481,23 @@ if deep_analysis:
                 f"- {item.get('code', 'IRIS+')}: {item.get('name', '')} · {item.get('why', '')} "
                 f"· {item.get('measurement', '')}{suffix}"
             )
+    elif step_key == "model_opinions":
+        opinions = deep_analysis.get("model_opinions", [])
+        if not opinions:
+            st.caption("모델 의견이 없습니다.")
+        else:
+            for opinion in opinions:
+                provider = opinion.get("provider", "model").upper()
+                model_name = opinion.get("model", "")
+                label = f"{provider} ({model_name})" if model_name else provider
+                if opinion.get("success"):
+                    content = (opinion.get("content") or "").strip()
+                    st.markdown(f"**{label}**")
+                    st.markdown(content if content else "응답 내용 없음")
+                else:
+                    error = opinion.get("error", "실패")
+                    st.markdown(f"**{label}**")
+                    st.caption(f"실패: {error}")
     elif step_key == "data_gaps":
         for item in deep_analysis.get("data_gaps", []):
             st.markdown(f"- {item}")

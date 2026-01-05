@@ -69,6 +69,8 @@ def initialize_session_state():
         "report_deep_error": None,
         "dart_api_key": "",
         "report_deep_mode": os.getenv("VC_REPORT_DEEP_MODE", "1").lower() not in ["0", "false", "no"],
+        "report_deep_autorun": os.getenv("VC_REPORT_DEEP_AUTORUN", "1").lower() not in ["0", "false", "no"],
+        "report_deep_multi": os.getenv("VC_MULTI_MODEL_OPINIONS", "1").lower() not in ["0", "false", "no"],
 
         # 파일 관리
         "uploaded_file_path": None,
