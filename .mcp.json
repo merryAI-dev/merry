@@ -8,6 +8,13 @@
         ".claude/skills/interactive-review/mcp-server",
         "server.py"
       ]
+    },
+    "teaming": {
+      "command": "python",
+      "args": ["-m", "agent.teaming.server"],
+      "env": {
+        "PYTHONPATH": "."
+      }
     }
   }
 }
