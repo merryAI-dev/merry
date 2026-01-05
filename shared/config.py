@@ -86,6 +86,7 @@ def initialize_session_state():
         "collab_brief": None,
         "collab_brief_error": None,
         "collab_brief_model": "claude-opus-4-5-20251101",
+        "collab_last_move": "",
 
         "voice_messages": [],
         "voice_mode": "checkin",
