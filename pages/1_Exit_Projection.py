@@ -61,7 +61,7 @@ def _render_feedback_buttons(idx: int, msg: dict):
                 user_message=user_msg,
                 assistant_response=msg["content"],
                 feedback_type="thumbs_up",
-                context={"message_index": idx}
+                context={"message_index": idx, "page": "Exit Projection"}
             )
             st.session_state.message_feedback[feedback_key] = "thumbs_up"
             st.rerun()
@@ -73,7 +73,7 @@ def _render_feedback_buttons(idx: int, msg: dict):
                 user_message=user_msg,
                 assistant_response=msg["content"],
                 feedback_type="thumbs_down",
-                context={"message_index": idx}
+                context={"message_index": idx, "page": "Exit Projection"}
             )
             st.session_state.message_feedback[feedback_key] = "thumbs_down"
             st.rerun()
@@ -105,7 +105,7 @@ def _render_feedback_buttons(idx: int, msg: dict):
                         assistant_response=msg["content"],
                         feedback_type="text_feedback",
                         feedback_value=text_feedback,
-                        context={"message_index": idx}
+                        context={"message_index": idx, "page": "Exit Projection"}
                     )
                     st.session_state.feedback_text[feedback_key] = text_feedback
                     st.session_state.feedback_input_visible[feedback_key] = False
