@@ -4,10 +4,12 @@ Team Collaboration Hub
 
 from __future__ import annotations
 
+import json
 from datetime import date
 from pathlib import Path
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 from shared.auth import check_authentication, get_user_api_key
 from shared.config import initialize_agent, initialize_session_state, inject_custom_css
@@ -235,33 +237,316 @@ with st.expander("메리의 협업 브리프", expanded=True):
 st.divider()
 
 st.markdown("## 팀 과업 보드")
-status_groups = {"todo": [], "in_progress": [], "done": []}
+board_filters = st.columns([1, 1, 2])
+with board_filters[0]:
+    show_done = st.toggle("완료 포함", value=False, key="collab_board_show_done")
+with board_filters[1]:
+    compact_view = st.toggle("요약 카드", value=True, key="collab_board_compact")
+with board_filters[2]:
+    st.caption("카드를 드래그해서 전/중/완료로 이동하세요. 상세 편집은 아래에서 가능합니다.")
+
+board_tasks = []
+task_lookup = {}
 for task in tasks:
     status_key = normalize_status(task.get("status", "todo"))
-    status_groups.setdefault(status_key, []).append(task)
+    if not show_done and status_key == "done":
+        continue
+    task_id = task.get("id")
+    if not task_id:
+        continue
+    remaining = format_remaining_kst(task.get("due_date", ""))
+    card = {
+        "id": task_id,
+        "title": task.get("title", ""),
+        "status": status_key,
+        "owner": task.get("owner", ""),
+        "due": task.get("due_date", ""),
+        "remaining": remaining,
+        "notes": task.get("notes", ""),
+    }
+    board_tasks.append(card)
+    task_lookup[task_id] = task
 
-task_cols = st.columns(3)
-for col, key in zip(task_cols, ["todo", "in_progress", "done"]):
-    with col:
-        st.markdown(f"### {STATUS_LABELS.get(key, key)}")
-        group = status_groups.get(key, [])
-        if not group:
-            st.caption("비어 있음")
-        else:
-            for task in group[:6]:
-                remaining = format_remaining_kst(task.get("due_date", ""))
-                owner = task.get("owner") or "담당 미정"
-                with st.container(border=True):
-                    st.markdown(f"**{task.get('title', '')}**")
-                    st.caption(f"담당: {owner}")
-                    if remaining:
-                        st.caption(remaining)
-                    elif task.get("due_date"):
-                        st.caption(f"마감: {task.get('due_date')}")
-                    else:
-                        st.caption("마감: 미설정")
+board_payload = json.dumps(board_tasks, ensure_ascii=False)
+compact_flag = "true" if compact_view else "false"
+board_height = max(420, 140 + 110 * max(1, len(board_tasks) // 3 + 1))
 
-with st.expander("과업 추가/수정", expanded=False):
+board_html = f"""
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<style>
+    body {{
+        margin: 0;
+        font-family: "Space Grotesk", "Noto Sans KR", sans-serif;
+        background: transparent;
+    }}
+    .board {{
+        display: grid;
+        grid-template-columns: repeat(3, minmax(220px, 1fr));
+        gap: 16px;
+        padding: 4px 2px 12px 2px;
+    }}
+    .column {{
+        background: rgba(255, 255, 255, 0.75);
+        border: 1px solid rgba(31, 26, 20, 0.08);
+        border-radius: 18px;
+        display: flex;
+        flex-direction: column;
+        min-height: 320px;
+        box-shadow: 0 12px 30px rgba(25, 18, 9, 0.08);
+    }}
+    .column-header {{
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 12px 14px 8px 14px;
+        font-size: 13px;
+        font-weight: 600;
+        color: #1f1a14;
+        border-bottom: 1px solid rgba(31, 26, 20, 0.06);
+    }}
+    .count {{
+        font-size: 11px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: rgba(31, 26, 20, 0.08);
+    }}
+    .column-body {{
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        flex: 1;
+        overflow-y: auto;
+        min-height: 200px;
+    }}
+    .column-body.drag-over {{
+        outline: 2px dashed rgba(204, 58, 43, 0.5);
+        outline-offset: -6px;
+        background: rgba(204, 58, 43, 0.04);
+    }}
+    .card {{
+        background: rgba(255, 255, 255, 0.95);
+        border-radius: 14px;
+        border: 1px solid rgba(31, 26, 20, 0.1);
+        padding: 10px 12px;
+        box-shadow: 0 8px 20px rgba(25, 18, 9, 0.08);
+        cursor: grab;
+        transition: transform 0.15s ease, box-shadow 0.15s ease;
+    }}
+    .card:active {{
+        cursor: grabbing;
+    }}
+    .card.dragging {{
+        opacity: 0.6;
+        transform: rotate(-1deg) scale(0.98);
+    }}
+    .card-title {{
+        font-size: 13px;
+        font-weight: 600;
+        color: #1f1a14;
+    }}
+    .card-meta {{
+        margin-top: 6px;
+        font-size: 11px;
+        color: #6b5f53;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }}
+    .card-tag {{
+        padding: 2px 6px;
+        border-radius: 999px;
+        background: rgba(31, 26, 20, 0.08);
+    }}
+    .empty {{
+        font-size: 12px;
+        color: #8a7d6f;
+        padding: 8px 4px;
+    }}
+</style>
+</head>
+<body>
+<div class="board" id="board"></div>
+<script>
+const tasks = {board_payload};
+const compactView = {compact_flag};
+const columns = [
+    {{ key: "todo", label: "진행 전" }},
+    {{ key: "in_progress", label: "진행 중" }},
+    {{ key: "done", label: "완료" }},
+];
+
+const board = document.getElementById("board");
+let dragId = null;
+let dragFrom = null;
+
+window.parent.postMessage(
+    {{ isStreamlitMessage: true, type: "streamlit:componentReady", apiVersion: 1 }},
+    "*"
+);
+
+function sendMove(payload) {{
+    window.parent.postMessage(
+        {{
+            isStreamlitMessage: true,
+            type: "streamlit:componentValue",
+            value: payload
+        }},
+        "*"
+    );
+}}
+
+function buildBoard() {{
+    board.innerHTML = "";
+    columns.forEach((column) => {{
+        const col = document.createElement("div");
+        col.className = "column";
+        col.dataset.status = column.key;
+
+        const header = document.createElement("div");
+        header.className = "column-header";
+        const title = document.createElement("div");
+        title.textContent = column.label;
+        const count = document.createElement("div");
+        count.className = "count";
+        const filtered = tasks.filter((task) => task.status === column.key);
+        count.textContent = filtered.length;
+        header.appendChild(title);
+        header.appendChild(count);
+
+        const body = document.createElement("div");
+        body.className = "column-body";
+        body.dataset.status = column.key;
+
+        if (!filtered.length) {{
+            const empty = document.createElement("div");
+            empty.className = "empty";
+            empty.textContent = "드래그해서 이동";
+            body.appendChild(empty);
+        }} else {{
+            filtered.forEach((task) => {{
+                const card = document.createElement("div");
+                card.className = "card";
+                card.draggable = true;
+                card.dataset.id = task.id;
+                card.dataset.status = task.status;
+
+                const titleEl = document.createElement("div");
+                titleEl.className = "card-title";
+                titleEl.textContent = task.title || "제목 없음";
+                card.appendChild(titleEl);
+
+                const meta = document.createElement("div");
+                meta.className = "card-meta";
+                if (task.owner) {{
+                    const tag = document.createElement("span");
+                    tag.className = "card-tag";
+                    tag.textContent = task.owner;
+                    meta.appendChild(tag);
+                }}
+                if (task.remaining) {{
+                    const tag = document.createElement("span");
+                    tag.className = "card-tag";
+                    tag.textContent = task.remaining;
+                    meta.appendChild(tag);
+                }} else if (task.due) {{
+                    const tag = document.createElement("span");
+                    tag.className = "card-tag";
+                    tag.textContent = task.due;
+                    meta.appendChild(tag);
+                }}
+                if (!compactView && task.notes) {{
+                    const tag = document.createElement("span");
+                    tag.className = "card-tag";
+                    tag.textContent = task.notes.slice(0, 26);
+                    meta.appendChild(tag);
+                }}
+                card.appendChild(meta);
+
+                card.addEventListener("dragstart", (event) => {{
+                    dragId = task.id;
+                    dragFrom = task.status;
+                    card.classList.add("dragging");
+                    event.dataTransfer.effectAllowed = "move";
+                    event.dataTransfer.setData("text/plain", task.id);
+                }});
+                card.addEventListener("dragend", () => {{
+                    card.classList.remove("dragging");
+                }});
+
+                body.appendChild(card);
+            }});
+        }}
+
+        body.addEventListener("dragover", (event) => {{
+            event.preventDefault();
+            body.classList.add("drag-over");
+        }});
+        body.addEventListener("dragleave", () => {{
+            body.classList.remove("drag-over");
+        }});
+        body.addEventListener("drop", (event) => {{
+            event.preventDefault();
+            body.classList.remove("drag-over");
+            const targetStatus = body.dataset.status;
+            if (!dragId || !targetStatus || dragFrom === targetStatus) {{
+                dragId = null;
+                dragFrom = null;
+                return;
+            }}
+            const targetTask = tasks.find((item) => item.id === dragId);
+            if (targetTask) {{
+                targetTask.status = targetStatus;
+            }}
+            const payload = {{
+                task_id: dragId,
+                from: dragFrom,
+                status: targetStatus,
+                ts: Date.now()
+            }};
+            dragId = null;
+            dragFrom = null;
+            buildBoard();
+            sendMove(payload);
+        }});
+
+        col.appendChild(header);
+        col.appendChild(body);
+        board.appendChild(col);
+    }});
+}}
+
+buildBoard();
+</script>
+</body>
+</html>
+"""
+
+move_event = components.html(board_html, height=board_height, scrolling=False, key="collab_task_board")
+if move_event:
+    try:
+        move_data = move_event if isinstance(move_event, dict) else json.loads(move_event)
+    except Exception:
+        move_data = None
+    if move_data:
+        event_id = str(move_data.get("ts", "")) + str(move_data.get("task_id", ""))
+        if st.session_state.get("collab_last_move") != event_id:
+            st.session_state.collab_last_move = event_id
+            task_id = move_data.get("task_id")
+            new_status = move_data.get("status")
+            if task_id and new_status:
+                task_store.update_task(
+                    task_id=task_id,
+                    status=new_status,
+                    updated_by=member_name,
+                )
+                st.toast("과업 상태가 업데이트되었습니다.")
+                st.rerun()
+
+with st.expander("과업 상세 편집", expanded=False):
     st.markdown("### 새 과업 추가")
     new_title = st.text_input("과업 제목", key="collab_task_title")
     new_owner = st.text_input("담당자", value=member_name, key="collab_task_owner")
