@@ -6,9 +6,12 @@ Dolphin 대신 Claude Vision API를 기본으로 사용합니다.
 """
 
 import base64
+import hashlib
+import json
 import logging
+import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
@@ -16,6 +19,56 @@ from typing import Any, Callable, Dict, List, Optional
 from .config import DOLPHIN_CONFIG
 
 logger = logging.getLogger(__name__)
+
+# 캐시 디렉토리
+CACHE_DIR = Path(os.getenv("PDF_CACHE_DIR", "/tmp/claude_pdf_cache"))
+
+
+def _get_cache_path(pdf_path: str, max_pages: int, output_mode: str) -> Path:
+    """캐시 파일 경로 생성"""
+    # 파일 해시 생성
+    file_stat = Path(pdf_path).stat()
+    cache_key = f"{pdf_path}:{file_stat.st_size}:{file_stat.st_mtime}:{max_pages}:{output_mode}"
+    hash_key = hashlib.md5(cache_key.encode()).hexdigest()
+    return CACHE_DIR / f"{hash_key}.json"
+
+
+def _get_cached_result(cache_path: Path) -> Optional[Dict[str, Any]]:
+    """캐시된 결과 조회"""
+    if not DOLPHIN_CONFIG.get("cache_enabled", True):
+        return None
+
+    if not cache_path.exists():
+        return None
+
+    try:
+        # TTL 체크
+        ttl_days = DOLPHIN_CONFIG.get("cache_ttl_days", 7)
+        file_age = datetime.now() - datetime.fromtimestamp(cache_path.stat().st_mtime)
+        if file_age > timedelta(days=ttl_days):
+            cache_path.unlink()  # 만료된 캐시 삭제
+            return None
+
+        with open(cache_path, "r", encoding="utf-8") as f:
+            result = json.load(f)
+            result["cache_hit"] = True
+            return result
+    except Exception as e:
+        logger.warning(f"캐시 읽기 실패: {e}")
+        return None
+
+
+def _save_to_cache(cache_path: Path, result: Dict[str, Any]) -> None:
+    """결과를 캐시에 저장"""
+    if not DOLPHIN_CONFIG.get("cache_enabled", True):
+        return
+
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        with open(cache_path, "w", encoding="utf-8") as f:
+            json.dump(result, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.warning(f"캐시 저장 실패: {e}")
 
 
 class ClaudeVisionProcessor:
@@ -50,6 +103,13 @@ class ClaudeVisionProcessor:
         start_time = time.time()
         max_pages = max_pages or DOLPHIN_CONFIG["default_max_pages"]
 
+        # 캐시 확인
+        cache_path = _get_cache_path(pdf_path, max_pages, output_mode)
+        cached = _get_cached_result(cache_path)
+        if cached:
+            self._emit_progress(progress_callback, "complete", "캐시에서 로드됨")
+            return cached
+
         self._emit_progress(progress_callback, "loading", "PDF 로딩 중...")
 
         try:
@@ -62,6 +122,15 @@ class ClaudeVisionProcessor:
                     "success": False,
                     "error": "PDF에서 이미지를 추출할 수 없습니다",
                 }
+
+            # 이미지 크기 체크 (총 50MB 제한)
+            total_size = sum(len(img) for img in images_base64)
+            if total_size > 50_000_000:  # 50MB
+                logger.warning(f"이미지 크기 초과: {total_size / 1_000_000:.1f}MB")
+                # 페이지 수 줄이기
+                reduced_pages = max(5, len(images_base64) // 2)
+                images_base64 = images_base64[:reduced_pages]
+                logger.info(f"페이지 수를 {reduced_pages}개로 줄임")
 
             # 2. Claude API로 처리
             self._emit_progress(
@@ -91,6 +160,9 @@ class ClaudeVisionProcessor:
                 "cache_hit": False,
                 "cached_at": datetime.utcnow().isoformat(),
             }
+
+            # 캐시에 저장
+            _save_to_cache(cache_path, final_result)
 
             self._emit_progress(
                 progress_callback,
@@ -211,9 +283,15 @@ class ClaudeVisionProcessor:
         progress_callback: Optional[Callable] = None,
     ) -> Dict[str, Any]:
         """Claude Vision API로 이미지 처리"""
+        import httpx
         import anthropic
 
-        client = anthropic.Anthropic()  # 환경변수에서 API 키 자동 로드
+        # 타임아웃 설정 (5분)
+        timeout_config = httpx.Timeout(
+            timeout=DOLPHIN_CONFIG.get("timeout_seconds", 300),
+            connect=30.0,
+        )
+        client = anthropic.Anthropic(timeout=timeout_config)
 
         # 프롬프트 구성
         if output_mode == "tables_only":
