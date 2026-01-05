@@ -754,22 +754,20 @@ class InteractiveAnalysisSession:
             text: 사용자가 입력한 텍스트
             data_type: "financial", "cap_table", "investment_terms", "general"
         """
+        import json
+        import re
         import anthropic
 
-        client = anthropic.Anthropic()
-
-        prompt = self._get_text_parsing_prompt(text, data_type)
-
-        response = client.messages.create(
-            model="claude-opus-4-20250514",
-            max_tokens=4096,
-            system=self.processor._get_system_prompt(),
-            messages=[{"role": "user", "content": prompt}]
-        )
-
         try:
-            import json
-            import re
+            client = anthropic.Anthropic()
+            prompt = self._get_text_parsing_prompt(text, data_type)
+
+            response = client.messages.create(
+                model="claude-opus-4-20250514",
+                max_tokens=4096,
+                system=self.processor._get_system_prompt(),
+                messages=[{"role": "user", "content": prompt}]
+            )
 
             response_text = response.content[0].text
             json_match = re.search(r"```json\s*(.*?)\s*```", response_text, re.DOTALL)
@@ -784,10 +782,35 @@ class InteractiveAnalysisSession:
                 "content": text[:500],  # 요약 저장
             })
 
-        except Exception as e:
+        except anthropic.APIConnectionError as e:
+            logger.error(f"API 연결 실패: {e}")
             return {
                 "success": False,
-                "error": f"텍스트 파싱 실패: {str(e)}",
+                "error": "API 연결에 실패했습니다. 네트워크를 확인해주세요.",
+            }
+        except anthropic.RateLimitError as e:
+            logger.error(f"Rate limit: {e}")
+            return {
+                "success": False,
+                "error": "API 호출 한도에 도달했습니다. 잠시 후 다시 시도해주세요.",
+            }
+        except anthropic.APIStatusError as e:
+            logger.error(f"API 오류: {e}")
+            return {
+                "success": False,
+                "error": f"API 오류: {e.message}",
+            }
+        except json.JSONDecodeError as e:
+            logger.warning(f"JSON 파싱 실패: {e}")
+            return {
+                "success": False,
+                "error": "응답 파싱에 실패했습니다. 다시 시도해주세요.",
+            }
+        except Exception as e:
+            logger.exception("텍스트 입력 처리 실패")
+            return {
+                "success": False,
+                "error": f"처리 실패: {str(e)}",
             }
 
         return self._get_status()
