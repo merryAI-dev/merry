@@ -19,6 +19,12 @@ from .tools import register_tools, execute_tool
 from .memory import ChatMemory
 from .streaming import AgentOutput
 from .feedback import FeedbackSystem
+from .teaming import (
+    teaming_pre_tool_use_hook,
+    teaming_post_tool_use_hook,
+    get_store as get_teaming_store,
+    CheckpointStatus,
+)
 from shared.logging_config import get_logger
 from shared.model_opinions import gather_model_opinions
 
@@ -111,6 +117,10 @@ class VCAgent:
         # 보고서 모드: 심화 의견 파이프라인 사용 (env로 토글)
         self.report_deep_mode = os.getenv("VC_REPORT_DEEP_MODE", "1").lower() not in ["0", "false", "no"]
         self.multi_model_opinions = os.getenv("VC_MULTI_MODEL_OPINIONS", "1").lower() not in ["0", "false", "no"]
+
+        # Human-AI Teaming 시스템
+        self.teaming_enabled = os.getenv("TEAMING_ENABLED", "true").lower() in ["1", "true", "yes"]
+        self.session_id = f"session_{self.user_id}_{id(self)}"
 
     def _get_analyzed_files(self) -> List[str]:
         return self.memory.session_metadata.get("analyzed_files", []) or []
@@ -698,16 +708,103 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
                 data={"tool_input": tool_input},
             )
 
-            try:
-                tool_result = execute_tool(tool_name, tool_input)
-            except Exception as exc:
-                logger.exception("Tool execution failed: %s", tool_name)
-                tool_result = {"success": False, "error": str(exc)}
-                yield AgentOutput(
-                    type="tool_error",
-                    content=str(exc),
-                    data={"tool_name": tool_name},
+            # ========================================
+            # Human-AI Teaming: PreToolUse Hook
+            # ========================================
+            tool_result = None
+            skip_execution = False
+
+            if self.teaming_enabled:
+                teaming_context = {
+                    "session_id": self.session_id,
+                    "negative_feedback_count": self._get_recent_negative_feedback_count(),
+                }
+
+                pre_hook_result = await teaming_pre_tool_use_hook(
+                    tool_name=tool_name,
+                    tool_input=tool_input,
+                    context=teaming_context,
                 )
+
+                decision = pre_hook_result.get("decision")
+                metadata = pre_hook_result.get("metadata", {})
+
+                # Level 1: 거부
+                if decision == "deny":
+                    tool_result = {
+                        "success": False,
+                        "error": pre_hook_result.get("message", "Operation denied by teaming system"),
+                        "teaming": {"decision": "deny", "level": metadata.get("automation_level")}
+                    }
+                    yield AgentOutput(
+                        type="tool_error",
+                        content=pre_hook_result.get("message", "작업이 거부되었습니다"),
+                        data={"tool_name": tool_name, "teaming": metadata},
+                    )
+                    skip_execution = True
+
+                # Level 2: 승인 필요
+                elif decision == "ask":
+                    checkpoint_id = pre_hook_result.get("checkpoint_id")
+                    tool_result = {
+                        "success": None,
+                        "pending_approval": True,
+                        "checkpoint_id": checkpoint_id,
+                        "teaming": {"decision": "ask", "level": metadata.get("automation_level")}
+                    }
+                    yield AgentOutput(
+                        type="checkpoint_required",
+                        content=pre_hook_result.get("message", "승인이 필요합니다"),
+                        data={
+                            "tool_name": tool_name,
+                            "checkpoint_id": checkpoint_id,
+                            "teaming": metadata,
+                        },
+                    )
+                    skip_execution = True
+
+            # ========================================
+            # 도구 실행
+            # ========================================
+            if not skip_execution:
+                try:
+                    tool_result = execute_tool(tool_name, tool_input)
+                except Exception as exc:
+                    logger.exception("Tool execution failed: %s", tool_name)
+                    tool_result = {"success": False, "error": str(exc)}
+                    yield AgentOutput(
+                        type="tool_error",
+                        content=str(exc),
+                        data={"tool_name": tool_name},
+                    )
+
+                # ========================================
+                # Human-AI Teaming: PostToolUse Hook
+                # ========================================
+                if self.teaming_enabled and tool_result:
+                    teaming_context = {
+                        "session_id": self.session_id,
+                    }
+
+                    post_hook_result = await teaming_post_tool_use_hook(
+                        tool_name=tool_name,
+                        tool_input=tool_input,
+                        tool_result=tool_result,
+                        context=teaming_context,
+                    )
+
+                    # Level 3: 검토 필요
+                    if post_hook_result.get("requires_review"):
+                        checkpoint_id = post_hook_result.get("checkpoint_id")
+                        yield AgentOutput(
+                            type="review_required",
+                            content=post_hook_result.get("message", "결과 검토가 필요합니다"),
+                            data={
+                                "tool_name": tool_name,
+                                "checkpoint_id": checkpoint_id,
+                                "teaming": post_hook_result.get("metadata", {}),
+                            },
+                        )
 
             # 결과 저장
             tool_results.append({
@@ -717,7 +814,8 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
             })
 
             # 메모리/컨텍스트 업데이트 (공통 헬퍼)
-            self._record_tool_usage(tool_name, tool_input, tool_result)
+            if tool_result and not skip_execution:
+                self._record_tool_usage(tool_name, tool_input, tool_result)
 
             tool_ok = not (isinstance(tool_result, dict) and tool_result.get("success") is False)
             yield AgentOutput(
@@ -1242,6 +1340,14 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
                 logger.warning(f"Multi-model opinions failed: {exc}")
 
         return self._format_deep_opinion(final_result)
+
+    def _get_recent_negative_feedback_count(self) -> int:
+        """최근 부정적 피드백 수 조회 (Teaming 레벨 조정용)"""
+        try:
+            stats = self.feedback.get_feedback_stats()
+            return stats.get("negative", 0)
+        except Exception:
+            return 0
 
     def _record_tool_usage(self, tool_name: str, tool_input: dict, tool_result: dict):
         """도구 사용 결과를 메모리/컨텍스트에 기록 (공통 헬퍼)"""

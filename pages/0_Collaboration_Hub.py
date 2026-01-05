@@ -525,7 +525,7 @@ buildBoard();
 </html>
 """
 
-move_event = components.html(board_html, height=board_height, scrolling=False, key="collab_task_board")
+move_event = components.html(board_html, height=board_height, scrolling=False)
 if move_event:
     try:
         move_data = move_event if isinstance(move_event, dict) else json.loads(move_event)
