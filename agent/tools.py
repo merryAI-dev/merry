@@ -3640,20 +3640,21 @@ def execute_start_analysis_session(
         # 초기 PDF가 있으면 분석
         if initial_pdf_path:
             status = session.add_pdf(initial_pdf_path, max_pages)
+            # 필수/선택 누락 데이터 합치기
+            all_missing = status.get("critical_missing", []) + status.get("optional_missing", [])
             result.update({
                 "initial_file_analyzed": True,
                 "status": status.get("status"),
                 "message": status.get("message"),
-                "collected_data": status.get("collected_data", {}),
-                "missing_data": status.get("missing_data", []),
+                "collected_data": status.get("accumulated_data", {}),
+                "missing_data": all_missing,
             })
 
             # 부족한 데이터가 있으면 안내
-            if status.get("missing_data"):
-                missing_items = status.get("missing_data", [])
+            if all_missing:
                 result["next_steps"] = [
                     f"- {item['name']}: {item['suggestion']}"
-                    for item in missing_items
+                    for item in all_missing
                 ]
         else:
             result["next_steps"] = [
@@ -3722,15 +3723,16 @@ def execute_add_supplementary_data(
 
         # 현재 상태 업데이트
         current_status = session._get_status()
+        all_missing = current_status.get("critical_missing", []) + current_status.get("optional_missing", [])
         result.update({
-            "collected_data": current_status.get("collected_data", {}),
-            "missing_data": current_status.get("missing_data", []),
+            "collected_data": current_status.get("accumulated_data", {}),
+            "missing_data": all_missing,
         })
 
-        if current_status.get("missing_data"):
+        if all_missing:
             result["next_steps"] = [
                 f"- {item['name']}: {item['suggestion']}"
-                for item in current_status.get("missing_data", [])
+                for item in all_missing
             ]
         else:
             result["next_steps"] = ["모든 필수 데이터가 수집되었습니다. complete_analysis를 호출하세요."]
@@ -3765,10 +3767,10 @@ def execute_get_analysis_status(session_id: str) -> Dict[str, Any]:
             "session_id": session_id,
             "status": status.get("status"),
             "message": status.get("message"),
-            "collected_data": status.get("collected_data", {}),
+            "collected_data": status.get("accumulated_data", {}),
             "source_files": session.accumulated_data.get("source_files", []),
             "text_inputs_count": len(session.accumulated_data.get("text_inputs", [])),
-            "missing_data": status.get("missing_data", []),
+            "critical_missing": status.get("critical_missing", []),
             "optional_missing": status.get("optional_missing", []),
         }
 
