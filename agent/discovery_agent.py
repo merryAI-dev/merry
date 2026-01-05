@@ -8,6 +8,7 @@ Claude Agent SDK를 사용하여 대화형 추천을 제공합니다.
 import json
 import asyncio
 import os
+from datetime import datetime
 from typing import Dict, Any, List, Optional, AsyncIterator
 from pathlib import Path
 from dotenv import load_dotenv
@@ -28,6 +29,9 @@ from anthropic import Anthropic, AsyncAnthropic
 
 from .tools import execute_tool, register_tools
 from .memory import ChatMemory
+from .discovery_verifier import DiscoveryVerifier
+from discovery_service import HypothesisGenerator
+from shared.discovery_store import DiscoveryRecordStore
 
 # 프로젝트 루트
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -139,14 +143,12 @@ class DiscoveryAgent:
             user_id: 사용자 ID (세션 분리용)
         """
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-        if not self.api_key:
-            raise ValueError("ANTHROPIC_API_KEY가 필요합니다")
 
         self.model = model
         self.user_id = user_id or "anonymous"
 
         # SDK 클라이언트
-        if CLAUDE_SDK_AVAILABLE:
+        if CLAUDE_SDK_AVAILABLE and self.api_key:
             self.sdk_client = ClaudeSDKClient(
                 options=ClaudeAgentOptions(
                     model=model,
@@ -159,8 +161,12 @@ class DiscoveryAgent:
             self.sdk_client = None
 
         # Anthropic 클라이언트 (폴백)
-        self.client = Anthropic(api_key=self.api_key)
-        self.async_client = AsyncAnthropic(api_key=self.api_key)
+        if self.api_key:
+            self.client = Anthropic(api_key=self.api_key)
+            self.async_client = AsyncAnthropic(api_key=self.api_key)
+        else:
+            self.client = None
+            self.async_client = None
 
         # 도구 등록
         self.tools = self._get_discovery_tools()
@@ -171,12 +177,15 @@ class DiscoveryAgent:
         self.recommendations = None
         self.interest_areas = []
         self.pdf_paths = []
+        self.hypotheses = None
+        self.verification = None
 
         # 대화 히스토리
         self.conversation_history = []
 
         # 메모리
         self.memory = ChatMemory(user_id=self.user_id)
+        self.session_store = DiscoveryRecordStore(self.user_id)
 
     def _get_discovery_tools(self) -> List[Dict[str, Any]]:
         """발굴 관련 도구만 필터링"""
@@ -212,14 +221,42 @@ class DiscoveryAgent:
             rec_count = len(self.recommendations.get("recommendations", []))
             context_parts.append(f"- 생성된 추천: {rec_count}개")
 
+        if self.hypotheses:
+            hypo_count = len(self.hypotheses.get("hypotheses", []))
+            context_parts.append(f"- 생성된 가설: {hypo_count}개")
+
+        if self.verification:
+            trust_score = self.verification.get("trust_score")
+            if trust_score is not None:
+                context_parts.append(f"- 신뢰점수: {trust_score:.1f}")
+            logic_score = self.verification.get("logic_score")
+            if logic_score is not None:
+                context_parts.append(f"- 논리점수: {logic_score:.1f}")
+
         return "\n".join(context_parts) if context_parts else "아직 분석이 시작되지 않았습니다."
+
+    def _build_stub_policy_analysis(self, interest_areas: List[str]) -> Dict[str, Any]:
+        themes = list(dict.fromkeys(interest_areas)) if interest_areas else []
+        return {
+            "success": True,
+            "policy_themes": themes,
+            "target_industries": themes,
+            "budget_info": {},
+            "timeline": {},
+            "key_policies": [],
+            "summary": "관심 분야 기반 가설용 정책 요약입니다.",
+            "warnings": ["정책 문서 입력이 없어 관심 분야만 반영됨"],
+            "fallback_used": True,
+            "source_reliability": [0.4],
+        }
 
     async def analyze_and_recommend(
         self,
         pdf_paths: List[str] = None,
         text_content: str = None,
         interest_areas: List[str] = None,
-        focus_keywords: List[str] = None
+        focus_keywords: List[str] = None,
+        autonomous_mode: bool = True
     ) -> Dict[str, Any]:
         """
         PDF/텍스트 분석부터 추천까지 전체 파이프라인 실행
@@ -229,34 +266,74 @@ class DiscoveryAgent:
             text_content: 분석할 텍스트 콘텐츠 (선택)
             interest_areas: 사용자 관심 분야
             focus_keywords: 집중 분석 키워드
+            autonomous_mode: 가설/검증 루프 실행 여부
 
         Returns:
             {
                 "success": bool,
                 "policy_analysis": {...},
                 "iris_mapping": {...},
-                "recommendations": {...}
+                "recommendations": {...},
+                "hypotheses": {...},
+                "verification": {...}
             }
         """
         self.pdf_paths = pdf_paths or []
         self.interest_areas = interest_areas or []
+        self.hypotheses = None
+        self.verification = None
+
+        session_id = self.memory.session_id
+        created_at = datetime.now().isoformat()
 
         result = {
             "success": False,
             "policy_analysis": None,
             "iris_mapping": None,
             "recommendations": None,
+            "hypotheses": None,
+            "verification": None,
+            "session_id": session_id,
+            "report_path": None,
+            "checkpoint_path": None,
             "errors": []
         }
 
-        # 1. 정책 분석 (PDF 또는 텍스트)
-        policy_result = execute_tool("analyze_government_policy", {
-            "pdf_paths": pdf_paths or [],
-            "text_content": text_content,
-            "focus_keywords": focus_keywords,
-            "max_pages_per_pdf": 30,
-            "api_key": self.api_key
-        })
+        def _save_checkpoint(stage: str) -> None:
+            payload = {
+                "created_at": created_at,
+                "session_id": session_id,
+                "stage": stage,
+                "interest_areas": self.interest_areas,
+                "pdf_paths": self.pdf_paths,
+                "text_content_excerpt": (text_content or "")[:2000],
+                "policy_analysis": self.policy_analysis,
+                "iris_mapping": self.iris_mapping,
+                "recommendations": self.recommendations,
+                "hypotheses": self.hypotheses,
+                "verification": self.verification,
+            }
+            try:
+                result["checkpoint_path"] = self.session_store.save_checkpoint(session_id, payload)
+            except Exception:
+                pass
+
+        has_content = bool(self.pdf_paths or (text_content and text_content.strip()))
+        if not has_content and not self.interest_areas:
+            result["errors"].append("분석할 콘텐츠 또는 관심 분야가 없습니다")
+            return result
+
+        # 1. 정책 분석 (PDF/텍스트 또는 관심 분야 기반)
+        if has_content:
+            policy_result = execute_tool("analyze_government_policy", {
+                "pdf_paths": pdf_paths or [],
+                "text_content": text_content,
+                "focus_keywords": focus_keywords,
+                "max_pages_per_pdf": 30,
+                "api_key": self.api_key
+            })
+        else:
+            policy_result = self._build_stub_policy_analysis(self.interest_areas)
 
         if not policy_result.get("success"):
             result["errors"].append(f"정책 분석 실패: {policy_result.get('error')}")
@@ -264,6 +341,7 @@ class DiscoveryAgent:
 
         self.policy_analysis = policy_result
         result["policy_analysis"] = policy_result
+        _save_checkpoint("policy_analysis")
 
         # 2. IRIS+ 매핑
         policy_themes = policy_result.get("policy_themes", [])
@@ -281,9 +359,19 @@ class DiscoveryAgent:
                 result["iris_mapping"] = iris_result
             else:
                 result["errors"].append(f"IRIS+ 매핑 실패: {iris_result.get('error')}")
+        if not self.iris_mapping:
+            self.iris_mapping = {
+                "success": False,
+                "mappings": [],
+                "aggregate_sdgs": [],
+                "aggregate_metrics": [],
+                "warnings": ["IRIS+ 매핑 결과 없음"]
+            }
+            result["iris_mapping"] = self.iris_mapping
+        _save_checkpoint("iris_mapping")
 
         # 3. 산업 추천 생성
-        if self.policy_analysis and self.iris_mapping:
+        if self.policy_analysis:
             rec_result = execute_tool("generate_industry_recommendation", {
                 "policy_analysis": self.policy_analysis,
                 "iris_mapping": self.iris_mapping,
@@ -297,8 +385,67 @@ class DiscoveryAgent:
                 result["recommendations"] = rec_result
             else:
                 result["errors"].append(f"추천 생성 실패: {rec_result.get('error')}")
+        _save_checkpoint("recommendations")
 
-        result["success"] = len(result["errors"]) == 0
+        # 4. 가설 생성
+        if self.interest_areas:
+            generator = HypothesisGenerator(api_key=self.api_key)
+            hypo_result = generator.generate(
+                interest_areas=self.interest_areas,
+                policy_analysis=self.policy_analysis,
+                iris_mapping=self.iris_mapping
+            )
+            if hypo_result.get("success"):
+                self.hypotheses = hypo_result
+                result["hypotheses"] = hypo_result
+            else:
+                result["errors"].append(f"가설 생성 실패: {hypo_result.get('error')}")
+        _save_checkpoint("hypotheses")
+
+        # 5. 검증 루프 + 신뢰점수
+        if autonomous_mode:
+            verifier = DiscoveryVerifier(api_key=self.api_key)
+            self.verification = verifier.verify(
+                policy_analysis=self.policy_analysis,
+                iris_mapping=self.iris_mapping,
+                recommendations=self.recommendations,
+                hypotheses=self.hypotheses,
+                interest_areas=self.interest_areas,
+            )
+            result["verification"] = self.verification
+            _save_checkpoint("verification")
+
+        if self.policy_analysis:
+            result["success"] = True
+            if result["errors"]:
+                result["warnings"] = list(result["errors"])
+                result["errors"] = []
+        else:
+            result["success"] = len(result["errors"]) == 0
+
+        session_payload = {
+            "created_at": created_at,
+            "interest_areas": self.interest_areas,
+            "pdf_paths": self.pdf_paths,
+            "text_content_excerpt": (text_content or "")[:2000],
+            "policy_analysis": self.policy_analysis,
+            "iris_mapping": self.iris_mapping,
+            "recommendations": self.recommendations,
+            "hypotheses": self.hypotheses,
+            "verification": self.verification,
+        }
+        try:
+            stored = self.session_store.save_session(session_id, session_payload, write_report=True)
+            result["report_path"] = stored.get("report_path")
+        except Exception:
+            pass
+
+        if self.pdf_paths:
+            for path in self.pdf_paths:
+                self.memory.add_file_analysis(path)
+        if result.get("report_path"):
+            self.memory.add_generated_file(result["report_path"])
+
         return result
 
     async def chat(
@@ -316,6 +463,9 @@ class DiscoveryAgent:
         Yields:
             응답 텍스트 청크
         """
+        if not self.client or not self.async_client:
+            yield "API 키가 없어 대화형 응답을 제공할 수 없습니다. 분석 결과 기반 Q&A는 API 키를 설정해주세요."
+            return
         # 시스템 프롬프트 생성
         context = self._get_context_string()
         system_prompt = DISCOVERY_SYSTEM_PROMPT.format(context=context)
@@ -422,7 +572,9 @@ class DiscoveryAgent:
             "policy_themes": self.policy_analysis.get("policy_themes", []) if self.policy_analysis else [],
             "target_industries": self.policy_analysis.get("target_industries", []) if self.policy_analysis else [],
             "aggregate_sdgs": self.iris_mapping.get("aggregate_sdgs", []) if self.iris_mapping else [],
-            "recommendation_count": len(self.recommendations.get("recommendations", [])) if self.recommendations else 0
+            "recommendation_count": len(self.recommendations.get("recommendations", [])) if self.recommendations else 0,
+            "hypothesis_count": len(self.hypotheses.get("hypotheses", [])) if self.hypotheses else 0,
+            "trust_score": self.verification.get("trust_score") if self.verification else None,
         }
 
     def get_recommendations(self) -> Optional[Dict[str, Any]]:
@@ -436,6 +588,8 @@ class DiscoveryAgent:
         self.recommendations = None
         self.interest_areas = []
         self.pdf_paths = []
+        self.hypotheses = None
+        self.verification = None
         self.conversation_history = []
 
 
@@ -445,7 +599,8 @@ def run_discovery_analysis(
     text_content: str = None,
     interest_areas: List[str] = None,
     focus_keywords: List[str] = None,
-    api_key: str = None
+    api_key: str = None,
+    autonomous_mode: bool = True
 ) -> Dict[str, Any]:
     """
     동기 방식으로 발굴 분석 실행 (Streamlit 호환)
@@ -456,11 +611,13 @@ def run_discovery_analysis(
         interest_areas: 관심 분야
         focus_keywords: 집중 키워드
         api_key: API 키
+        autonomous_mode: 가설/검증 루프 실행 여부
     """
     agent = DiscoveryAgent(api_key=api_key)
     return asyncio.run(agent.analyze_and_recommend(
         pdf_paths=pdf_paths,
         text_content=text_content,
         interest_areas=interest_areas,
-        focus_keywords=focus_keywords
+        focus_keywords=focus_keywords,
+        autonomous_mode=autonomous_mode
     ))

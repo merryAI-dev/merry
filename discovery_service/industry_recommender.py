@@ -101,10 +101,7 @@ class IndustryRecommender:
             api_key: Anthropic API 키 (없으면 환경변수에서 로드)
         """
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-        if not self.api_key:
-            raise ValueError("ANTHROPIC_API_KEY가 필요합니다")
-
-        self.client = Anthropic(api_key=self.api_key)
+        self.client = Anthropic(api_key=self.api_key) if self.api_key else None
 
     def generate_recommendations(
         self,
@@ -157,14 +154,17 @@ class IndustryRecommender:
             interest_areas
         )
 
-        # 4. Claude로 추천 근거 생성
-        recommendations = self._generate_recommendations_with_claude(
-            combined_scores,
-            policy_analysis,
-            iris_mapping,
-            interest_areas,
-            top_k
-        )
+        # 4. 추천 근거 생성 (Claude 또는 로컬 폴백)
+        if self.client:
+            recommendations = self._generate_recommendations_with_claude(
+                combined_scores,
+                policy_analysis,
+                iris_mapping,
+                interest_areas,
+                top_k
+            )
+        else:
+            recommendations = self._build_fallback_result(combined_scores, top_k)
 
         return recommendations
 
@@ -330,6 +330,7 @@ class IndustryRecommender:
         normalized_industries = self._normalize_string_list(policy_analysis.get("target_industries", []))
 
         prompt = f"""당신은 VC/AC 투자 전문가입니다. 다음 분석 결과를 바탕으로 유망 스타트업 산업 추천을 완성해주세요.
+내부 추론은 사용하되 체인오브쏘트는 노출하지 마세요.
 
 ## 산업 점수 (상위 {top_k}개)
 {json.dumps(top_industries, ensure_ascii=False, indent=2)}
@@ -352,9 +353,19 @@ class IndustryRecommender:
 
 1. **rationale**: 왜 이 산업이 유망한지 2-3문장으로 설명 (정책 근거 + 임팩트 관점)
 2. **evidence**: 정책 문서에서의 구체적 근거 리스트 (최대 3개)
-3. **iris_codes**: 관련 IRIS+ 메트릭 코드 리스트
-4. **sdgs**: 연계 SDG 번호 리스트
-5. **startup_examples**: 해당 산업의 구체적 스타트업 아이디어 3-5개
+3. **sources**: 근거 출처 (문서명/페이지 등) 리스트
+4. **assumptions**: 가정 리스트
+5. **uncertainties**: 불확실성 리스트
+6. **evidence_markers**: [FINDING]/[ASSUMPTION]/[UNCERTAINTY] 마커 포함
+7. **iris_codes**: 관련 IRIS+ 메트릭 코드 리스트
+8. **sdgs**: 연계 SDG 번호 리스트
+9. **startup_examples**: 해당 산업의 구체적 스타트업 아이디어 3-5개
+10. **cautions**: 해당 산업 유의점 2-3개
+
+주의:
+- 명시적 근거가 없으면 evidence에 "[ASSUMPTION] ..." 형태로 가정 기반 근거만 작성
+- sources는 "미제공(가정)"처럼 실제 출처가 없음을 명확히 표시
+- 허구의 출처를 만들지 마세요
 
 또한 다음을 추가로 제공해주세요:
 - **emerging_areas**: 아직 점수는 낮지만 주목할 신흥 분야 2-3개
@@ -374,9 +385,16 @@ class IndustryRecommender:
       "interest_match": true/false,
       "rationale": "추천 근거 설명",
       "evidence": ["근거1", "근거2"],
+      "sources": ["문서명 p.12", "보도자료"],
+      "assumptions": ["가정1"],
+      "uncertainties": ["불확실성1"],
+      "evidence_markers": [
+        {{"marker": "[FINDING]", "statement": "근거 요약", "source": "문서명 p.12", "effect_size": "연 12% 성장"}}
+      ],
       "iris_codes": ["코드1", "코드2"],
       "sdgs": [7, 13],
-      "startup_examples": ["아이디어1", "아이디어2", "아이디어3"]
+      "startup_examples": ["아이디어1", "아이디어2", "아이디어3"],
+      "cautions": ["유의점1", "유의점2"]
     }}
   ],
   "emerging_areas": [
@@ -401,7 +419,7 @@ JSON만 출력하세요.
 
         try:
             response = self.client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-opus-4-5-20251101",
                 max_tokens=4096,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -424,6 +442,21 @@ JSON만 출력하세요.
                     rec["policy_score"] = top_industries[i]["policy_score"]
                     rec["impact_score"] = top_industries[i]["impact_score"]
                     rec["interest_match"] = top_industries[i]["interest_match"]
+                rec.setdefault("sources", [])
+                rec.setdefault("assumptions", [])
+                rec.setdefault("uncertainties", [])
+                rec.setdefault("evidence_markers", [])
+                rec.setdefault("cautions", [])
+                if not rec.get("evidence"):
+                    rec["evidence"] = self._build_placeholder_evidence(rec.get("industry", ""))
+                if not rec.get("sources"):
+                    rec["sources"] = ["미제공(가정)"]
+                if not rec.get("assumptions"):
+                    rec["assumptions"] = ["정책/시장 근거가 제한됨"]
+                if not rec.get("uncertainties"):
+                    rec["uncertainties"] = ["근거 데이터 부족"]
+                if not rec.get("evidence_markers"):
+                    rec["evidence_markers"] = self._build_placeholder_markers(rec.get("industry", ""))
 
             return result
 
@@ -436,24 +469,86 @@ JSON만 출력하세요.
                         "rank": i + 1,
                         **score,
                         "rationale": "분석 결과 기반 추천",
-                        "evidence": [],
+                        "evidence": self._build_placeholder_evidence(score.get("industry")),
+                        "sources": ["미제공(가정)"],
+                        "assumptions": ["정책/시장 근거가 제한됨"],
+                        "uncertainties": ["근거 데이터 부족"],
+                        "evidence_markers": self._build_placeholder_markers(score.get("industry")),
                         "iris_codes": [],
                         "sdgs": [],
-                        "startup_examples": []
+                        "startup_examples": [],
+                        "cautions": []
                     }
                     for i, score in enumerate(top_industries)
                 ],
                 "emerging_areas": [],
                 "caution_areas": [],
-                "summary": "정책 및 임팩트 분석 기반 산업 추천"
+                "summary": "정책 및 임팩트 분석 기반 산업 추천",
+                "fallback_used": True
             }
 
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "recommendations": top_industries
-            }
+            fallback = self._build_fallback_result(combined_scores, top_k)
+            fallback["error"] = str(e)
+            fallback["fallback_used"] = True
+            return fallback
+
+    def _build_fallback_result(
+        self,
+        combined_scores: List[Dict[str, Any]],
+        top_k: int
+    ) -> Dict[str, Any]:
+        top_industries = combined_scores[:top_k]
+        return {
+            "success": True,
+            "recommendations": [
+                {
+                    "rank": i + 1,
+                    **score,
+                    "rationale": "로컬 점수 기반 추천 (추가 근거 필요)",
+                    "evidence": self._build_placeholder_evidence(score.get("industry")),
+                    "sources": ["미제공(가정)"],
+                    "assumptions": ["근거 데이터 제한"],
+                    "uncertainties": ["정책 원문 근거 부족"],
+                    "evidence_markers": self._build_placeholder_markers(score.get("industry")),
+                    "iris_codes": [],
+                    "sdgs": [],
+                    "startup_examples": [],
+                    "cautions": ["근거 확보 전에는 투자 결정 보류"]
+                }
+                for i, score in enumerate(top_industries)
+            ],
+            "emerging_areas": [],
+            "caution_areas": [],
+            "summary": "API 사용 불가로 로컬 점수 기반 추천",
+            "fallback_used": True
+        }
+
+    @staticmethod
+    def _build_placeholder_evidence(industry: str) -> List[str]:
+        label = industry or "해당 산업"
+        return [
+            f"[ASSUMPTION] {label} 산업은 정책 우선순위가 될 가능성이 있음",
+            f"[ASSUMPTION] {label} 수요가 중기적으로 증가할 가능성이 있음",
+        ]
+
+    @staticmethod
+    def _build_placeholder_markers(industry: str) -> List[Dict[str, str]]:
+        label = industry or "해당 산업"
+        return [
+            {
+                "marker": "[ASSUMPTION]",
+                "statement": f"{label} 수요 확대 가정",
+                "source": "미제공(가정)",
+                "effect_size": "",
+            },
+            {
+                "marker": "[UNCERTAINTY]",
+                "statement": f"{label} 정책 예산/일정 불확실",
+                "source": "미제공(가정)",
+                "effect_size": "",
+            },
+        ]
 
     def quick_recommend(
         self,

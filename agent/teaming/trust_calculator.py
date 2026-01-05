@@ -24,6 +24,8 @@ TOOL_BASE_RELIABILITY: Dict[str, float] = {
     "analyze_excel": 0.75,
     "analyze_peer_per": 0.70,
     "analyze_company_diagnosis_sheet": 0.70,
+    "analyze_government_policy": 0.70,
+    "map_policy_to_iris": 0.70,
 
     # 검색 도구 (중간 신뢰도)
     "search_underwriter_opinion": 0.65,
@@ -38,6 +40,7 @@ TOOL_BASE_RELIABILITY: Dict[str, float] = {
     "update_company_diagnosis_draft": 0.60,
     "generate_company_diagnosis_sheet_from_draft": 0.55,
     "write_company_diagnosis_report": 0.50,
+    "generate_industry_recommendation": 0.55,
 }
 
 

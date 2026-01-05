@@ -4396,6 +4396,60 @@ def execute_generate_industry_recommendation(
         return result
 
     except Exception as e:
+        try:
+            from discovery_service import IndustryRecommender
+
+            recommender = IndustryRecommender(api_key=None)
+            fallback = recommender.quick_recommend(
+                themes=policy_analysis.get("policy_themes", []),
+                industries=policy_analysis.get("target_industries", []),
+                interest_areas=interest_areas,
+                top_k=recommendation_count,
+            )
+            def _placeholder_evidence(industry: str) -> List[str]:
+                label = industry or "해당 산업"
+                return [
+                    f"[ASSUMPTION] {label} 산업은 정책 우선순위가 될 가능성이 있음",
+                    f"[ASSUMPTION] {label} 수요가 중기적으로 증가할 가능성이 있음",
+                ]
+            return {
+                "success": True,
+                "recommendations": [
+                    {
+                        "rank": item.get("rank"),
+                        "industry": item.get("industry"),
+                        "total_score": item.get("score", 0),
+                        "policy_score": item.get("score", 0),
+                        "impact_score": 0.0,
+                        "interest_match": False,
+                        "rationale": "로컬 폴백 추천",
+                        "evidence": _placeholder_evidence(item.get("industry")),
+                        "sources": ["미제공(가정)"],
+                        "assumptions": ["근거 데이터 제한"],
+                        "uncertainties": ["정책 원문 근거 부족"],
+                        "evidence_markers": [
+                            {
+                                "marker": "[ASSUMPTION]",
+                                "statement": f"{item.get('industry', '해당 산업')} 수요 확대 가정",
+                                "source": "미제공(가정)",
+                                "effect_size": "",
+                            }
+                        ],
+                        "iris_codes": [],
+                        "sdgs": [],
+                        "startup_examples": [],
+                        "cautions": ["근거 확보 전에는 투자 결정 보류"],
+                    }
+                    for item in fallback
+                ],
+                "emerging_areas": [],
+                "caution_areas": [],
+                "summary": "API 오류로 로컬 폴백 추천",
+                "fallback_used": True,
+                "error": str(e),
+            }
+        except Exception:
+            pass
         return {
             "success": False,
             "error": f"산업 추천 생성 실패: {str(e)}"
