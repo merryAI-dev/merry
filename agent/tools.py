@@ -993,7 +993,7 @@ def register_tools() -> List[Dict[str, Any]]:
         # ========================================
         {
             "name": "read_pdf_as_text",
-            "description": "PDF 파일(기업 소개서, IR 자료, 사업계획서 등)을 텍스트로 변환하여 읽습니다. 비즈니스 모델, 산업 분류, 핵심 사업을 파악하기 위해 사용합니다.",
+            "description": "PDF 파일(기업 소개서, IR 자료, 사업계획서 등)을 Claude Vision으로 분석합니다. 테이블 구조를 보존하고 재무제표를 자동으로 추출합니다.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -1004,9 +1004,141 @@ def register_tools() -> List[Dict[str, Any]]:
                     "max_pages": {
                         "type": "integer",
                         "description": "읽을 최대 페이지 수 (기본값: 30)"
+                    },
+                    "output_mode": {
+                        "type": "string",
+                        "enum": ["text_only", "structured", "tables_only"],
+                        "description": "출력 모드 (text_only: 텍스트만, structured: 전체 구조+재무제표, tables_only: 테이블만)"
+                    },
+                    "extract_financial_tables": {
+                        "type": "boolean",
+                        "description": "재무제표 테이블 자동 추출 여부 (IS/BS/CF)"
                     }
                 },
                 "required": ["pdf_path"]
+            }
+        },
+        {
+            "name": "parse_pdf_dolphin",
+            "description": "Claude Vision을 사용하여 PDF를 구조화된 형태로 파싱합니다. 테이블, 재무제표, Cap Table을 자동 인식합니다.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "pdf_path": {
+                        "type": "string",
+                        "description": "분석할 PDF 파일 경로"
+                    },
+                    "max_pages": {
+                        "type": "integer",
+                        "description": "분석할 최대 페이지 수 (기본값: 30)"
+                    },
+                    "output_mode": {
+                        "type": "string",
+                        "enum": ["text_only", "structured", "tables_only"],
+                        "description": "출력 모드"
+                    },
+                    "extract_financial_tables": {
+                        "type": "boolean",
+                        "description": "재무제표 테이블 자동 추출 여부 (기본값: true)"
+                    }
+                },
+                "required": ["pdf_path"]
+            }
+        },
+        {
+            "name": "extract_pdf_tables",
+            "description": "PDF에서 테이블만 추출합니다. 재무제표(IS/BS/CF), Cap Table 등을 구조화된 데이터로 반환합니다.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "pdf_path": {
+                        "type": "string",
+                        "description": "PDF 파일 경로"
+                    },
+                    "max_pages": {
+                        "type": "integer",
+                        "description": "처리할 최대 페이지 수 (기본값: 50)"
+                    }
+                },
+                "required": ["pdf_path"]
+            }
+        },
+        # 대화형 투자 분석 도구
+        {
+            "name": "start_analysis_session",
+            "description": "대화형 투자 분석 세션을 시작합니다. 여러 파일과 텍스트 입력을 받아서 점진적으로 분석을 완성합니다. 세션 ID를 반환하며, 이후 add_supplementary_data와 함께 사용합니다.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "initial_pdf_path": {
+                        "type": "string",
+                        "description": "초기 분석할 PDF 파일 경로 (선택)"
+                    },
+                    "max_pages": {
+                        "type": "integer",
+                        "description": "PDF 분석할 최대 페이지 수 (기본값: 30)"
+                    }
+                },
+                "required": []
+            }
+        },
+        {
+            "name": "add_supplementary_data",
+            "description": "기존 분석 세션에 추가 데이터를 입력합니다. PDF 파일 또는 텍스트(재무 데이터, Cap Table, 투자 조건 등)를 추가할 수 있습니다.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "분석 세션 ID (start_analysis_session에서 반환)"
+                    },
+                    "pdf_path": {
+                        "type": "string",
+                        "description": "추가할 PDF 파일 경로 (선택)"
+                    },
+                    "text_input": {
+                        "type": "string",
+                        "description": "추가할 텍스트 데이터 (선택). 예: '2024년 매출 100억, 순이익 15억'"
+                    },
+                    "data_type": {
+                        "type": "string",
+                        "enum": ["financial", "cap_table", "investment_terms", "general"],
+                        "description": "텍스트 데이터 유형 (기본값: general)"
+                    },
+                    "max_pages": {
+                        "type": "integer",
+                        "description": "PDF 분석할 최대 페이지 수 (기본값: 30)"
+                    }
+                },
+                "required": ["session_id"]
+            }
+        },
+        {
+            "name": "get_analysis_status",
+            "description": "분석 세션의 현재 상태를 확인합니다. 어떤 데이터가 수집되었고, 어떤 데이터가 부족한지 알려줍니다.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "분석 세션 ID"
+                    }
+                },
+                "required": ["session_id"]
+            }
+        },
+        {
+            "name": "complete_analysis",
+            "description": "분석 세션을 완료하고 최종 분석 결과를 반환합니다. 필수 데이터가 부족하면 부족한 항목을 안내합니다.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "session_id": {
+                        "type": "string",
+                        "description": "분석 세션 ID"
+                    }
+                },
+                "required": ["session_id"]
             }
         },
         {
@@ -3316,40 +3448,83 @@ def execute_fetch_underwriter_opinion_data(
 
 def execute_read_pdf_as_text(
     pdf_path: str,
-    max_pages: int = 30
+    max_pages: int = 30,
+    output_mode: str = "structured",
+    extract_financial_tables: bool = True
 ) -> Dict[str, Any]:
-    """PDF 파일을 텍스트로 변환하여 읽기"""
+    """PDF 파일을 Dolphin AI 모델로 파싱하여 읽기
+
+    Dolphin 사용 불가 시 PyMuPDF로 자동 폴백합니다.
+    """
     # 입력 검증: 파일 경로 (temp 디렉토리 내부만 허용)
     is_valid, error = _validate_file_path(pdf_path, allowed_extensions=['.pdf'], require_temp_dir=True)
     if not is_valid:
         return {"success": False, "error": error}
 
+    # 파일 존재 확인
+    if not os.path.exists(pdf_path):
+        return {"success": False, "error": f"파일을 찾을 수 없습니다: {pdf_path}"}
+
+    # 캐시 확인
+    try:
+        file_hash = compute_file_hash(Path(pdf_path))
+        payload = {
+            "version": CACHE_VERSION,
+            "file_hash": file_hash,
+            "max_pages": max_pages,
+            "output_mode": output_mode,
+            "extract_financial_tables": extract_financial_tables,
+            "tool": "read_pdf_as_text_dolphin",
+        }
+        cache_key = compute_payload_hash(payload)
+        cache_dir = get_cache_dir("dolphin_pdf", "shared")
+        cache_path = cache_dir / f"{cache_key}.json"
+        cached = load_json(cache_path)
+        if cached:
+            cached["cache_hit"] = True
+            logger.info(f"Cache hit for PDF: {pdf_path}")
+            return cached
+    except Exception:
+        cache_path = None
+
+    # Claude Vision으로 처리 시도
+    try:
+        from dolphin_service.processor import ClaudeVisionProcessor
+
+        processor = ClaudeVisionProcessor()
+        result = processor.process_pdf(
+            pdf_path=pdf_path,
+            max_pages=max_pages,
+            output_mode=output_mode,
+        )
+
+        # Claude가 이미 financial_tables를 추출하므로 별도 처리 불필요
+        # 캐시 저장
+        if cache_path and result.get("success"):
+            save_json(cache_path, result)
+
+        logger.info(f"PDF processed with Claude Vision: {pdf_path}")
+        return result
+
+    except ImportError as e:
+        logger.warning(f"Claude Vision 모듈 로드 실패, PyMuPDF로 폴백: {e}")
+        return _execute_read_pdf_as_text_pymupdf(pdf_path, max_pages, cache_path)
+
+    except Exception as e:
+        logger.warning(f"Claude Vision 처리 실패, PyMuPDF로 폴백: {e}")
+        return _execute_read_pdf_as_text_pymupdf(pdf_path, max_pages, cache_path)
+
+
+def _execute_read_pdf_as_text_pymupdf(
+    pdf_path: str,
+    max_pages: int = 30,
+    cache_path: Path = None
+) -> Dict[str, Any]:
+    """PyMuPDF를 사용한 기존 PDF 텍스트 추출 (폴백용)"""
     import fitz  # PyMuPDF
 
     doc = None
     try:
-        # 파일 존재 확인
-        if not os.path.exists(pdf_path):
-            return {"success": False, "error": f"파일을 찾을 수 없습니다: {pdf_path}"}
-
-        try:
-            file_hash = compute_file_hash(Path(pdf_path))
-            payload = {
-                "version": CACHE_VERSION,
-                "file_hash": file_hash,
-                "max_pages": max_pages,
-                "tool": "read_pdf_as_text",
-            }
-            cache_key = compute_payload_hash(payload)
-            cache_dir = get_cache_dir("pdf_text", "shared")
-            cache_path = cache_dir / f"{cache_key}.json"
-            cached = load_json(cache_path)
-            if cached:
-                cached["cache_hit"] = True
-                return cached
-        except Exception:
-            cache_path = None
-
         doc = fitz.open(pdf_path)
         total_pages = len(doc)
         pages_to_read = min(total_pages, max_pages)
@@ -3368,7 +3543,7 @@ def execute_read_pdf_as_text(
 
         full_text = "\n".join(text_content)
 
-        logger.info(f"PDF read successfully: {pdf_path} ({pages_to_read}/{total_pages} pages)")
+        logger.info(f"PDF read with PyMuPDF (fallback): {pdf_path} ({pages_to_read}/{total_pages} pages)")
         result = {
             "success": True,
             "file_path": pdf_path,
@@ -3376,6 +3551,8 @@ def execute_read_pdf_as_text(
             "pages_read": pages_to_read,
             "content": full_text,
             "char_count": len(full_text),
+            "processing_method": "pymupdf_fallback",
+            "fallback_used": True,
             "cache_hit": False,
             "cached_at": datetime.utcnow().isoformat()
         }
@@ -3396,6 +3573,234 @@ def execute_read_pdf_as_text(
     finally:
         if doc is not None:
             doc.close()
+
+
+def execute_parse_pdf_dolphin(
+    pdf_path: str,
+    max_pages: int = 30,
+    output_mode: str = "structured",
+    extract_financial_tables: bool = True
+) -> Dict[str, Any]:
+    """Dolphin AI 모델로 PDF 파싱 (전용 도구)"""
+    return execute_read_pdf_as_text(
+        pdf_path=pdf_path,
+        max_pages=max_pages,
+        output_mode=output_mode,
+        extract_financial_tables=extract_financial_tables
+    )
+
+
+def execute_extract_pdf_tables(
+    pdf_path: str,
+    max_pages: int = 50
+) -> Dict[str, Any]:
+    """PDF에서 테이블만 추출"""
+    result = execute_read_pdf_as_text(
+        pdf_path=pdf_path,
+        max_pages=max_pages,
+        output_mode="tables_only",
+        extract_financial_tables=True
+    )
+
+    if not result.get("success"):
+        return result
+
+    # 테이블만 추출하여 반환
+    return {
+        "success": True,
+        "file_path": pdf_path,
+        "total_pages": result.get("total_pages", 0),
+        "financial_tables": result.get("financial_tables", {}),
+        "structured_content": result.get("structured_content", {}),
+        "processing_method": result.get("processing_method", "unknown"),
+        "cache_hit": result.get("cache_hit", False),
+    }
+
+
+# ========================================
+# 대화형 투자 분석 도구 실행 함수
+# ========================================
+
+def execute_start_analysis_session(
+    initial_pdf_path: str = None,
+    max_pages: int = 30
+) -> Dict[str, Any]:
+    """대화형 투자 분석 세션 시작"""
+    try:
+        from dolphin_service.processor import get_or_create_session
+
+        session = get_or_create_session()
+
+        result = {
+            "success": True,
+            "session_id": session.session_id,
+            "message": "새 분석 세션이 시작되었습니다.",
+        }
+
+        # 초기 PDF가 있으면 분석
+        if initial_pdf_path:
+            status = session.add_pdf(initial_pdf_path, max_pages)
+            result.update({
+                "initial_file_analyzed": True,
+                "status": status.get("status"),
+                "message": status.get("message"),
+                "collected_data": status.get("collected_data", {}),
+                "missing_data": status.get("missing_data", []),
+            })
+
+            # 부족한 데이터가 있으면 안내
+            if status.get("missing_data"):
+                missing_items = status.get("missing_data", [])
+                result["next_steps"] = [
+                    f"- {item['name']}: {item['suggestion']}"
+                    for item in missing_items
+                ]
+        else:
+            result["next_steps"] = [
+                "PDF 파일을 업로드하거나 add_supplementary_data 도구로 데이터를 추가하세요.",
+                "예: 재무 데이터, Cap Table, 투자 조건 등"
+            ]
+
+        return result
+
+    except Exception as e:
+        logger.exception("Analysis session start failed")
+        return {
+            "success": False,
+            "error": f"세션 시작 실패: {str(e)}"
+        }
+
+
+def execute_add_supplementary_data(
+    session_id: str,
+    pdf_path: str = None,
+    text_input: str = None,
+    data_type: str = "general",
+    max_pages: int = 30
+) -> Dict[str, Any]:
+    """분석 세션에 추가 데이터 입력"""
+    try:
+        from dolphin_service.processor import get_or_create_session
+
+        session = get_or_create_session(session_id)
+
+        if session.session_id != session_id:
+            return {
+                "success": False,
+                "error": f"세션 '{session_id}'를 찾을 수 없습니다. start_analysis_session으로 새 세션을 시작하세요."
+            }
+
+        if not pdf_path and not text_input:
+            return {
+                "success": False,
+                "error": "pdf_path 또는 text_input 중 하나는 필수입니다."
+            }
+
+        result = {
+            "success": True,
+            "session_id": session_id,
+        }
+
+        # PDF 파일 추가
+        if pdf_path:
+            status = session.add_pdf(pdf_path, max_pages)
+            result.update({
+                "file_added": pdf_path,
+                "status": status.get("status"),
+                "message": status.get("message"),
+            })
+
+        # 텍스트 입력 추가
+        if text_input:
+            status = session.add_text_input(text_input, data_type)
+            result.update({
+                "text_added": True,
+                "data_type": data_type,
+                "status": status.get("status"),
+                "message": status.get("message"),
+            })
+
+        # 현재 상태 업데이트
+        current_status = session._get_status()
+        result.update({
+            "collected_data": current_status.get("collected_data", {}),
+            "missing_data": current_status.get("missing_data", []),
+        })
+
+        if current_status.get("missing_data"):
+            result["next_steps"] = [
+                f"- {item['name']}: {item['suggestion']}"
+                for item in current_status.get("missing_data", [])
+            ]
+        else:
+            result["next_steps"] = ["모든 필수 데이터가 수집되었습니다. complete_analysis를 호출하세요."]
+
+        return result
+
+    except Exception as e:
+        logger.exception("Supplementary data add failed")
+        return {
+            "success": False,
+            "error": f"데이터 추가 실패: {str(e)}"
+        }
+
+
+def execute_get_analysis_status(session_id: str) -> Dict[str, Any]:
+    """분석 세션 상태 확인"""
+    try:
+        from dolphin_service.processor import get_or_create_session
+
+        session = get_or_create_session(session_id)
+
+        if session.session_id != session_id:
+            return {
+                "success": False,
+                "error": f"세션 '{session_id}'를 찾을 수 없습니다."
+            }
+
+        status = session._get_status()
+
+        return {
+            "success": True,
+            "session_id": session_id,
+            "status": status.get("status"),
+            "message": status.get("message"),
+            "collected_data": status.get("collected_data", {}),
+            "source_files": session.accumulated_data.get("source_files", []),
+            "text_inputs_count": len(session.accumulated_data.get("text_inputs", [])),
+            "missing_data": status.get("missing_data", []),
+            "optional_missing": status.get("optional_missing", []),
+        }
+
+    except Exception as e:
+        logger.exception("Analysis status check failed")
+        return {
+            "success": False,
+            "error": f"상태 확인 실패: {str(e)}"
+        }
+
+
+def execute_complete_analysis(session_id: str) -> Dict[str, Any]:
+    """분석 세션 완료 및 최종 결과 반환"""
+    try:
+        from dolphin_service.processor import get_or_create_session
+
+        session = get_or_create_session(session_id)
+
+        if session.session_id != session_id:
+            return {
+                "success": False,
+                "error": f"세션 '{session_id}'를 찾을 수 없습니다."
+            }
+
+        return session.get_final_analysis()
+
+    except Exception as e:
+        logger.exception("Analysis completion failed")
+        return {
+            "success": False,
+            "error": f"분석 완료 실패: {str(e)}"
+        }
 
 
 def _fetch_stock_info(ticker: str) -> dict:
@@ -3722,6 +4127,14 @@ TOOL_EXECUTORS = {
     "search_underwriter_opinion_similar": execute_search_underwriter_opinion_similar,
     "extract_pdf_market_evidence": execute_extract_pdf_market_evidence,
     "fetch_underwriter_opinion_data": execute_fetch_underwriter_opinion_data,
+    # Dolphin PDF 파싱 도구
+    "parse_pdf_dolphin": execute_parse_pdf_dolphin,
+    "extract_pdf_tables": execute_extract_pdf_tables,
+    # 대화형 투자 분석 도구
+    "start_analysis_session": execute_start_analysis_session,
+    "add_supplementary_data": execute_add_supplementary_data,
+    "get_analysis_status": execute_get_analysis_status,
+    "complete_analysis": execute_complete_analysis,
 }
 
 

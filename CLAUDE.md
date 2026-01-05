@@ -214,6 +214,194 @@ result = execute_analyze_peer_per(["CRM", "NOW", "WDAY"])
 # -> peers: [...], statistics: {trailing_per: {mean, median, min, max}}
 ```
 
+## Claude Vision PDF 파싱 기능
+
+### 개요
+
+Claude Vision API를 사용하여 PDF에서 테이블 구조를 보존하며 파싱합니다.
+기존 PyMuPDF보다 테이블/재무제표 추출 정확도가 높고, 별도 모델 다운로드 없이 바로 사용 가능합니다.
+
+### 모듈 구조
+```
+dolphin_service/
+├── __init__.py
+├── config.py              # 설정 (이미지 DPI, 페이지 제한 등)
+├── processor.py           # Claude Vision PDF 처리 핵심 로직
+├── table_extractor.py     # 재무제표 테이블 분류/파싱
+└── output_converter.py    # 출력 포맷 변환
+```
+
+### 도구 (agent/tools.py)
+
+| 도구명 | 설명 | 입력 |
+|--------|------|------|
+| `read_pdf_as_text` | Claude Vision으로 PDF 파싱 (실패시 PyMuPDF 폴백) | `pdf_path`, `max_pages`, `output_mode` |
+| `parse_pdf_dolphin` | Claude Vision PDF 파싱 (동일 기능) | `pdf_path`, `max_pages`, `output_mode` |
+| `extract_pdf_tables` | PDF에서 테이블만 추출 | `pdf_path`, `max_pages` |
+
+### 출력 모드
+
+| 모드 | 설명 |
+|------|------|
+| `text_only` | 페이지별 텍스트만 반환 |
+| `structured` | 텍스트 + 구조화된 테이블/요소 + 재무제표 반환 |
+| `tables_only` | 테이블과 재무제표만 추출하여 반환 |
+
+### 처리 흐름
+
+```
+PDF 업로드
+    ↓
+PyMuPDF로 이미지 변환 (페이지별 PNG)
+    ↓
+Claude Vision API 호출
+    ↓
+구조화된 JSON 응답 파싱
+    ↓
+재무제표 자동 추출 (IS/BS/CF/Cap Table)
+    ↓
+캐시 저장 (7일 TTL)
+```
+
+### 재무제표 자동 추출
+
+`output_mode="structured"` 사용 시 다음 테이블을 자동 감지:
+- **손익계산서 (IS)**: 매출, 영업이익, 당기순이익
+- **재무상태표 (BS)**: 총자산, 총부채, 자본
+- **현금흐름표 (CF)**: 영업/투자/재무활동 현금흐름
+- **Cap Table**: 주주현황, 지분율
+
+### 사용 예시
+
+```python
+# 기본 사용 (Claude Vision)
+result = execute_read_pdf_as_text(
+    pdf_path="temp/user123/company_ir.pdf",
+    max_pages=30,
+    output_mode="structured"
+)
+
+# 결과 구조
+{
+    "success": True,
+    "content": "페이지별 텍스트...",  # 레거시 호환
+    "structured_content": {...},         # 구조화된 요소
+    "financial_tables": {
+        "income_statement": {
+            "found": True,
+            "page": 15,
+            "years": ["2024E", "2025E"],
+            "metrics": {
+                "revenue": [100, 150],
+                "net_income": [8, 16]
+            }
+        },
+        "cap_table": {
+            "found": True,
+            "shareholders": [...],
+            "total_shares": 100000
+        }
+    },
+    "processing_method": "claude_opus",
+    "processing_time_seconds": 12.5
+}
+```
+
+### 모델 및 프롬프트
+
+- **Claude Opus 4** 사용 (최고 성능)
+- 10년+ 경력 VC 투자심사역 페르소나 적용
+- 재무제표/투자조건 추출 특화 시스템 프롬프트
+
+### 추출 가능 데이터
+
+1. **회사 정보**: 회사명, 산업, 설립연도, 직원수, 비즈니스 모델
+2. **투자 조건**: Pre/Post-money, 투자금액, 주당가격, 지분율, 투자유형
+3. **손익계산서**: 매출, 매출총이익, 영업이익, EBITDA, 당기순이익 (연도별)
+4. **재무상태표**: 총자산, 부채, 자본, 현금, 차입금
+5. **현금흐름표**: 영업/투자/재무활동 CF, FCF
+6. **Cap Table**: 주주현황, 지분율, 스톡옵션 풀
+7. **밸류에이션 지표**: PER, PSR, EV/EBITDA
+
+### 비용 고려사항
+
+- Claude Opus 4 사용
+- 30페이지 PDF 기준 약 $0.50-1.00 예상
+- 캐싱으로 반복 처리 비용 절감 (7일 TTL)
+
+## 대화형 투자 분석 세션
+
+### 개요
+
+대화 중에 부족한 데이터를 점진적으로 수집하여 완전한 투자 분석을 완성합니다.
+PDF 파일, 텍스트 입력 등을 자유롭게 추가할 수 있습니다.
+
+### 워크플로우
+
+```
+사용자: IR자료 업로드
+    ↓
+에이전트: 분석 세션 시작 (start_analysis_session)
+    ↓
+에이전트: "손익계산서와 Cap Table이 필요합니다"
+    ↓
+사용자: 재무제표 PDF 업로드 또는 텍스트 입력
+    ↓
+에이전트: 추가 데이터 입력 (add_supplementary_data)
+    ↓
+에이전트: 상태 확인 후 필요시 추가 요청
+    ↓
+모든 데이터 수집 완료
+    ↓
+에이전트: 최종 분석 반환 (complete_analysis)
+```
+
+### 도구 (agent/tools.py)
+
+| 도구명 | 설명 | 주요 입력 |
+|--------|------|-----------|
+| `start_analysis_session` | 새 분석 세션 시작 | `initial_pdf_path` (선택) |
+| `add_supplementary_data` | 세션에 데이터 추가 | `session_id`, `pdf_path` 또는 `text_input`, `data_type` |
+| `get_analysis_status` | 현재 수집 상태 확인 | `session_id` |
+| `complete_analysis` | 최종 분석 결과 반환 | `session_id` |
+
+### 텍스트 입력 data_type
+
+| 유형 | 설명 | 예시 |
+|------|------|------|
+| `financial` | 손익계산서 데이터 | "2024년 매출 100억, 영업이익 20억, 순이익 15억" |
+| `cap_table` | 주주 현황 | "대표이사 60%, 투자자A 20%, 스톡옵션풀 20%" |
+| `investment_terms` | 투자 조건 | "투자금액 30억, Pre-money 100억, 주당가격 10,000원" |
+| `general` | 기타 정보 | 회사 설명, 비즈니스 모델 등 |
+
+### 사용 예시
+
+```python
+# 1. 세션 시작 (PDF 포함 가능)
+result = execute_start_analysis_session(initial_pdf_path="temp/user123/ir.pdf")
+session_id = result["session_id"]
+# -> missing_data: ["손익계산서", "Cap Table"]
+
+# 2. 텍스트로 재무 데이터 추가
+result = execute_add_supplementary_data(
+    session_id=session_id,
+    text_input="2024년 매출 100억, 영업이익 15억, 순이익 10억\n2025년E 매출 150억, 순이익 20억",
+    data_type="financial"
+)
+# -> missing_data: ["Cap Table"]
+
+# 3. Cap Table PDF 추가
+result = execute_add_supplementary_data(
+    session_id=session_id,
+    pdf_path="temp/user123/cap_table.pdf"
+)
+# -> status: "complete"
+
+# 4. 최종 분석
+result = execute_complete_analysis(session_id)
+# -> 전체 분석 결과 반환
+```
+
 ## 의존성
 
 - **openpyxl**: 엑셀 읽기/쓰기 (`.xlsx` 파일 처리)
@@ -221,4 +409,5 @@ result = execute_analyze_peer_per(["CRM", "NOW", "WDAY"])
   - `Workbook()`: 엑셀 생성
   - 스타일링: `Font`, `PatternFill`, `Alignment`, `Border`
 - **yfinance**: Yahoo Finance API (Peer PER 분석)
-- **PyMuPDF (fitz)**: PDF 텍스트 추출
+- **PyMuPDF (fitz)**: PDF → 이미지 변환, 텍스트 추출 (폴백)
+- **anthropic**: Claude API 클라이언트
