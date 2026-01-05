@@ -15,17 +15,20 @@ from datetime import datetime
 from shared.config import initialize_session_state, get_avatar_image, get_user_avatar_image, inject_custom_css
 from shared.auth import check_authentication, get_user_email, get_user_api_key
 from shared.sidebar import render_sidebar
+from shared.discovery_store import DiscoveryRecordStore
 
 # 에이전트 임포트
 from agent.discovery_agent import DiscoveryAgent, run_discovery_analysis
+from agent.interactive_critic_agent import InteractiveCriticAgent
+from agent.feedback import FeedbackSystem
 
 # 프로젝트 루트
 PROJECT_ROOT = Path(__file__).parent.parent
 
 # 페이지 설정
 st.set_page_config(
-    page_title="스타트업 발굴 지원 | AC",
-    page_icon="AC",
+    page_title="스타트업 발굴 지원 | 메리",
+    page_icon="image-removebg-preview-5.png",
     layout="wide",
 )
 
@@ -53,10 +56,28 @@ if "discovery_iris_mapping" not in st.session_state:
     st.session_state.discovery_iris_mapping = None
 if "discovery_recommendations" not in st.session_state:
     st.session_state.discovery_recommendations = None
+if "discovery_hypotheses" not in st.session_state:
+    st.session_state.discovery_hypotheses = None
+if "discovery_verification" not in st.session_state:
+    st.session_state.discovery_verification = None
+if "discovery_report_path" not in st.session_state:
+    st.session_state.discovery_report_path = None
+if "discovery_session_id" not in st.session_state:
+    st.session_state.discovery_session_id = None
+if "discovery_checkpoint_path" not in st.session_state:
+    st.session_state.discovery_checkpoint_path = None
 if "discovery_agent" not in st.session_state:
     st.session_state.discovery_agent = None
+if "discovery_critic_agent" not in st.session_state:
+    st.session_state.discovery_critic_agent = None
+if "discovery_critic_messages" not in st.session_state:
+    st.session_state.discovery_critic_messages = []
+if "discovery_chat_mode" not in st.session_state:
+    st.session_state.discovery_chat_mode = "추천 Q&A"
 if "discovery_show_welcome" not in st.session_state:
     st.session_state.discovery_show_welcome = True
+if "discovery_autonomous_mode" not in st.session_state:
+    st.session_state.discovery_autonomous_mode = True
 
 
 def get_discovery_agent():
@@ -69,6 +90,90 @@ def get_discovery_agent():
             api_key=user_api_key or None
         )
     return st.session_state.discovery_agent
+
+
+def build_discovery_context() -> str:
+    """현재 분석 결과를 요약해 비판적 검토에 제공"""
+    parts = []
+
+    policy = st.session_state.discovery_policy_analysis or {}
+    iris = st.session_state.discovery_iris_mapping or {}
+    recs = st.session_state.discovery_recommendations or {}
+
+    themes = policy.get("policy_themes", [])
+    if themes:
+        parts.append(f"정책 테마: {', '.join(themes[:6])}")
+
+    industries = policy.get("target_industries", [])
+    if industries:
+        parts.append(f"타겟 산업: {', '.join(industries[:6])}")
+
+    budget = policy.get("budget_info", {})
+    if budget:
+        budget_lines = [f"{k}: {v}" for k, v in list(budget.items())[:4]]
+        parts.append(f"예산 정보: {', '.join(budget_lines)}")
+
+    sdgs = iris.get("aggregate_sdgs", [])
+    if sdgs:
+        parts.append(f"연계 SDG: {sdgs}")
+
+    metrics = iris.get("aggregate_metrics", [])
+    if metrics:
+        parts.append(f"IRIS+ 메트릭: {', '.join(metrics[:8])}")
+
+    recommendations = recs.get("recommendations", [])
+    if recommendations:
+        summary_lines = []
+        for rec in recommendations[:4]:
+            industry = rec.get("industry", "N/A")
+            score = rec.get("total_score", 0)
+            summary_lines.append(f"{industry} (총점 {score:.2f})")
+        parts.append("추천 요약: " + "; ".join(summary_lines))
+
+    hypotheses = st.session_state.discovery_hypotheses or {}
+    if hypotheses.get("summary"):
+        parts.append(f"가설 요약: {hypotheses.get('summary')}")
+
+    verification = st.session_state.discovery_verification or {}
+    trust_score = verification.get("trust_score")
+    if trust_score is not None:
+        parts.append(f"신뢰점수: {trust_score:.1f}")
+    logic_score = verification.get("logic_score")
+    if logic_score is not None:
+        parts.append(f"논리점수: {logic_score:.1f}")
+
+    return " | ".join(parts) if parts else "분석 결과가 아직 없습니다."
+
+
+def get_critic_agent():
+    """비판적 검토 에이전트 초기화 또는 반환"""
+    if st.session_state.discovery_critic_agent is None:
+        user_api_key = get_user_api_key()
+        st.session_state.discovery_critic_agent = InteractiveCriticAgent(
+            api_key=user_api_key or None,
+            response_language="Korean",
+        )
+    return st.session_state.discovery_critic_agent
+
+
+def get_discovery_store() -> DiscoveryRecordStore:
+    """세션/리포트 저장소"""
+    user_email = get_user_email() or "anonymous"
+    return DiscoveryRecordStore(user_email)
+
+
+def load_discovery_session(session_data: dict) -> None:
+    """저장된 세션을 UI 상태로 로드"""
+    st.session_state.discovery_policy_analysis = session_data.get("policy_analysis")
+    st.session_state.discovery_iris_mapping = session_data.get("iris_mapping")
+    st.session_state.discovery_recommendations = session_data.get("recommendations")
+    st.session_state.discovery_hypotheses = session_data.get("hypotheses")
+    st.session_state.discovery_verification = session_data.get("verification")
+    st.session_state.discovery_interest_areas = session_data.get("interest_areas") or []
+    st.session_state.discovery_pdf_paths = session_data.get("pdf_paths") or []
+    st.session_state.discovery_session_id = session_data.get("session_id")
+    st.session_state.discovery_report_path = session_data.get("report_path")
+    st.session_state.discovery_show_welcome = False
 
 
 def save_uploaded_file(uploaded_file):
@@ -175,11 +280,22 @@ if interest_input:
 else:
     st.session_state.discovery_interest_areas = []
 
+# 분석 옵션
+st.markdown("**분석 옵션**")
+st.session_state.discovery_autonomous_mode = st.checkbox(
+    "자율 검증 모드 (가설 생성 + 슈퍼메리 검증)",
+    value=st.session_state.discovery_autonomous_mode
+)
+
 # 버튼 영역
 col1, col2, col3 = st.columns([2, 2, 6])
 
-# PDF 또는 텍스트 중 하나라도 있으면 분석 가능
-has_content = len(st.session_state.discovery_pdf_paths) > 0 or len(st.session_state.discovery_text_content.strip()) > 0
+# PDF/텍스트/관심 분야 중 하나라도 있으면 분석 가능
+has_content = (
+    len(st.session_state.discovery_pdf_paths) > 0
+    or len(st.session_state.discovery_text_content.strip()) > 0
+    or len(st.session_state.discovery_interest_areas) > 0
+)
 
 with col1:
     analyze_btn = st.button(
@@ -203,9 +319,60 @@ if reset_btn:
     st.session_state.discovery_policy_analysis = None
     st.session_state.discovery_iris_mapping = None
     st.session_state.discovery_recommendations = None
+    st.session_state.discovery_hypotheses = None
+    st.session_state.discovery_verification = None
+    st.session_state.discovery_report_path = None
+    st.session_state.discovery_session_id = None
+    st.session_state.discovery_checkpoint_path = None
     st.session_state.discovery_agent = None
+    st.session_state.discovery_critic_agent = None
+    st.session_state.discovery_critic_messages = []
+    st.session_state.discovery_chat_mode = "추천 Q&A"
     st.session_state.discovery_show_welcome = True
     st.rerun()
+
+# 세션 관리/복구
+with st.expander("세션 기록/복구", expanded=False):
+    store = get_discovery_store()
+    col_a, col_b = st.columns([2, 3])
+    with col_a:
+        if st.button("최근 체크포인트 복구", use_container_width=True):
+            checkpoint = store.load_latest_checkpoint()
+            if checkpoint:
+                load_discovery_session(checkpoint)
+                st.session_state.discovery_checkpoint_path = checkpoint.get("checkpoint_path")
+                st.success("체크포인트를 복구했습니다.")
+                st.rerun()
+            else:
+                st.info("복구할 체크포인트가 없습니다.")
+
+    with col_b:
+        search_query = st.text_input(
+            "세션 검색 (테마/산업/요약)",
+            key="discovery_session_search",
+            label_visibility="visible",
+        )
+
+    sessions = store.search_sessions(search_query, limit=8)
+    if sessions:
+        for session in sessions:
+            cols = st.columns([6, 2])
+            with cols[0]:
+                st.caption(
+                    f"{session.get('session_id')} · {session.get('created_at')} · "
+                    f"신뢰 {session.get('trust_score', 'N/A')}"
+                )
+                if session.get("summary"):
+                    st.caption(session.get("summary"))
+            with cols[1]:
+                if st.button("불러오기", key=f"load_session_{session.get('session_id')}"):
+                    session_data = store.load_session(session.get("session_id"))
+                    if session_data:
+                        load_discovery_session(session_data)
+                        st.success("세션을 불러왔습니다.")
+                        st.rerun()
+    else:
+        st.caption("저장된 세션이 없습니다.")
 
 # 현재 상태 표시
 if st.session_state.discovery_policy_analysis or st.session_state.discovery_iris_mapping or st.session_state.discovery_recommendations:
@@ -244,13 +411,19 @@ if analyze_btn and has_content:
                 text_content=st.session_state.discovery_text_content if st.session_state.discovery_text_content.strip() else None,
                 interest_areas=st.session_state.discovery_interest_areas,
                 focus_keywords=None,
-                api_key=get_user_api_key() or None
+                api_key=get_user_api_key() or None,
+                autonomous_mode=st.session_state.discovery_autonomous_mode
             )
 
             if result.get("success"):
                 st.session_state.discovery_policy_analysis = result.get("policy_analysis")
                 st.session_state.discovery_iris_mapping = result.get("iris_mapping")
                 st.session_state.discovery_recommendations = result.get("recommendations")
+                st.session_state.discovery_hypotheses = result.get("hypotheses")
+                st.session_state.discovery_verification = result.get("verification")
+                st.session_state.discovery_report_path = result.get("report_path")
+                st.session_state.discovery_session_id = result.get("session_id")
+                st.session_state.discovery_checkpoint_path = result.get("checkpoint_path")
 
                 # 분석 결과 메시지 추가
                 summary = "분석이 완료되었습니다.\n\n"
@@ -269,6 +442,12 @@ if analyze_btn and has_content:
                         summary += "**추천 산업:**\n"
                         for i, rec in enumerate(recs[:5], 1):
                             summary += f"{i}. {rec.get('industry', 'N/A')} (점수: {rec.get('total_score', 0):.2f})\n"
+
+                verification = result.get("verification") or {}
+                if verification.get("trust_score") is not None:
+                    summary += f"\n**신뢰점수:** {verification.get('trust_score'):.1f} ({verification.get('trust_level', 'N/A')})\n"
+                if verification.get("logic_score") is not None:
+                    summary += f"**논리점수:** {verification.get('logic_score'):.1f}\n"
 
                 st.session_state.discovery_messages.append({
                     "role": "assistant",
@@ -289,7 +468,7 @@ if analyze_btn and has_content:
 # ========================================
 if st.session_state.discovery_policy_analysis or st.session_state.discovery_recommendations:
     st.markdown("---")
-    tab1, tab2, tab3, tab4 = st.tabs(["추천 결과", "정책 분석", "IRIS+ 매핑", "대화"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["추천 결과", "정책 분석", "IRIS+ 매핑", "가설/검증", "대화"])
 
     # 탭 1: 추천 결과
     with tab1:
@@ -323,6 +502,33 @@ if st.session_state.discovery_policy_analysis or st.session_state.discovery_reco
                             for ev in evidence:
                                 st.caption(f"- {ev}")
 
+                        sources = rec.get("sources", [])
+                        if sources:
+                            st.markdown("**출처:**")
+                            for source in sources:
+                                st.caption(f"- {source}")
+
+                        assumptions = rec.get("assumptions", [])
+                        if assumptions:
+                            st.markdown("**가정:**")
+                            for item in assumptions:
+                                st.caption(f"- {item}")
+
+                        uncertainties = rec.get("uncertainties", [])
+                        if uncertainties:
+                            st.markdown("**불확실성:**")
+                            for item in uncertainties:
+                                st.caption(f"- {item}")
+
+                        markers = rec.get("evidence_markers", [])
+                        if markers:
+                            st.markdown("**근거 마커:**")
+                            for marker in markers:
+                                statement = marker.get("statement", "")
+                                source = marker.get("source", "")
+                                effect = marker.get("effect_size", "")
+                                st.caption(f"- {marker.get('marker', '')} {statement} ({source}) {effect}")
+
                         # IRIS+ 코드
                         iris_codes = rec.get("iris_codes", [])
                         if iris_codes:
@@ -339,6 +545,12 @@ if st.session_state.discovery_policy_analysis or st.session_state.discovery_reco
                             st.markdown("**스타트업 아이디어:**")
                             for ex in examples:
                                 st.caption(f"- {ex}")
+
+                        cautions = rec.get("cautions", [])
+                        if cautions:
+                            st.markdown("**유의점:**")
+                            for item in cautions:
+                                st.caption(f"- {item}")
 
             # 신흥 분야
             emerging = st.session_state.discovery_recommendations.get("emerging_areas", [])
@@ -402,6 +614,16 @@ if st.session_state.discovery_policy_analysis or st.session_state.discovery_reco
                         if kp.get("page"):
                             st.caption(f"출처: p.{kp.get('page')}")
 
+            source_reliability = policy.get("source_reliability", [])
+            if source_reliability:
+                avg_rel = sum(source_reliability) / len(source_reliability)
+                st.metric("출처 신뢰도(평균)", f"{avg_rel:.2f}")
+
+            warnings = policy.get("warnings", [])
+            if warnings:
+                st.markdown("### 주의사항")
+                for w in warnings:
+                    st.caption(f"- {w}")
         else:
             st.info("분석을 시작하면 정책 분석 결과가 여기에 표시됩니다.")
 
@@ -450,13 +672,211 @@ if st.session_state.discovery_policy_analysis or st.session_state.discovery_reco
         else:
             st.info("분석을 시작하면 IRIS+ 매핑 결과가 여기에 표시됩니다.")
 
-    # 탭 4: 대화
+    # 탭 4: 가설/검증
     with tab4:
+        st.markdown("### 가설 및 검증 결과")
+        st.caption("사고 과정은 논리 체크리스트 형태로 제공되며, 내부 추론 상세는 노출하지 않습니다.")
+
+        hypotheses = st.session_state.discovery_hypotheses or {}
+        if hypotheses.get("hypotheses"):
+            st.markdown("#### 리서치 메리 가설")
+            for idx, hypo in enumerate(hypotheses.get("hypotheses", []), 1):
+                with st.expander(f"{idx}. {hypo.get('hypothesis', '가설')}", expanded=(idx <= 3)):
+                    st.markdown(f"**근거:** {hypo.get('rationale', 'N/A')}")
+                    evidence_needed = hypo.get("evidence_needed", [])
+                    if evidence_needed:
+                        st.markdown("**필요 근거:**")
+                        for item in evidence_needed:
+                            st.caption(f"- {item}")
+                    signals = hypo.get("signals", [])
+                    if signals:
+                        st.markdown("**관찰 신호:**")
+                        for item in signals:
+                            st.caption(f"- {item}")
+                    risks = hypo.get("risks", [])
+                    if risks:
+                        st.markdown("**리스크:**")
+                        for item in risks:
+                            st.caption(f"- {item}")
+                    logic_steps = hypo.get("logic_steps", [])
+                    if logic_steps:
+                        st.markdown("**논리 단계:**")
+                        for step in logic_steps:
+                            st.caption(
+                                f"- 전제: {step.get('premise')} → 추론: {step.get('inference')} "
+                                f"(리스크: {step.get('risk')})"
+                            )
+                    if hypo.get("confidence") is not None:
+                        st.caption(f"신뢰도 추정치: {hypo.get('confidence')}")
+        else:
+            st.info("가설 결과가 없습니다.")
+
+        verification = st.session_state.discovery_verification or {}
+        if verification:
+            st.markdown("---")
+            st.markdown("#### 서브메리 논리 점검")
+            trust_score = verification.get("trust_score")
+            trust_level = verification.get("trust_level", "N/A")
+            if trust_score is not None:
+                st.metric("신뢰점수", f"{trust_score:.1f} ({trust_level})")
+
+            logic_score = verification.get("logic_score")
+            if logic_score is not None:
+                st.metric("논리점수", f"{logic_score:.1f}")
+
+            process_trace = verification.get("process_trace", {})
+            if process_trace:
+                with st.expander("전체 과정 로그", expanded=False):
+                    data_summary = process_trace.get("data_summary", {})
+                    if data_summary:
+                        st.markdown("**입력/데이터 상태:**")
+                        for key, value in data_summary.items():
+                            st.caption(f"- {key}: {value}")
+
+                    trust_breakdown = process_trace.get("trust_breakdown", {})
+                    if trust_breakdown:
+                        st.markdown("**신뢰점수 계산 내역:**")
+                        for key, value in trust_breakdown.items():
+                            st.caption(f"- {key}: {value}")
+
+            sub_mary = verification.get("sub_mary", {})
+            if sub_mary.get("summary"):
+                st.markdown("**서브메리 요약:**")
+                st.info(sub_mary.get("summary"))
+
+            sub_steps = sub_mary.get("reasoning_steps", [])
+            if sub_steps:
+                st.markdown("**서브메리 검증 단계:**")
+                for step in sub_steps:
+                    st.caption(
+                        f"- [{step.get('status', 'warn')}] {step.get('step')}: {step.get('note')}"
+                    )
+
+            logic_checks = sub_mary.get("logic_checks", [])
+            if logic_checks:
+                st.markdown("**논리 체크리스트:**")
+                for check in logic_checks:
+                    status = check.get("status", "warn")
+                    st.caption(
+                        f"- [{status}] {check.get('claim')} · 전제: {check.get('premise')} · "
+                        f"취약점: {check.get('logic_gap')} · 보완: {check.get('fix')}"
+                    )
+
+            st.markdown("---")
+            st.markdown("#### 슈퍼메리 검증")
+            quality_gate = verification.get("quality_gate", {})
+            if quality_gate:
+                st.markdown("**품질 게이트:**")
+                st.caption(f"점수: {quality_gate.get('quality_score', 'N/A')}")
+                issues = quality_gate.get("issues", [])
+                if issues:
+                    st.caption("이슈:")
+                    for issue in issues:
+                        st.caption(f"- {issue.get('industry')}: {', '.join(issue.get('issues', []))}")
+
+            super_mary = verification.get("super_mary", {})
+            if super_mary.get("summary"):
+                st.markdown("**슈퍼메리 요약:**")
+                st.info(super_mary.get("summary"))
+
+            reasoning_steps = super_mary.get("reasoning_steps", [])
+            if reasoning_steps:
+                st.markdown("**슈퍼메리 검증 단계:**")
+                for step in reasoning_steps:
+                    st.caption(
+                        f"- [{step.get('status', 'warn')}] {step.get('step')}: {step.get('note')}"
+                    )
+
+            sub_review = super_mary.get("sub_mary_review", [])
+            if sub_review:
+                st.markdown("**서브메리 검증 결과:**")
+                for item in sub_review:
+                    st.caption(
+                        f"- [{item.get('assessment', 'partial')}] {item.get('sub_claim')} · "
+                        f"근거: {item.get('reason')} · 보완: {item.get('correction')}"
+                    )
+
+            challenges = super_mary.get("challenges", [])
+            if challenges:
+                st.markdown("**챌린지 로그:**")
+                for ch in challenges:
+                    severity = ch.get("severity", "low")
+                    st.caption(f"- [{severity}] {ch.get('challenge')} (근거 필요: {ch.get('needed_evidence')})")
+        else:
+            st.info("검증 결과가 없습니다.")
+
+        report_path = st.session_state.discovery_report_path
+        if report_path:
+            st.markdown("---")
+            st.markdown("#### 리포트")
+            st.caption(f"저장 위치: {report_path}")
+            if st.button("리포트 재생성", key="regen_discovery_report"):
+                store = get_discovery_store()
+                session_id = st.session_state.discovery_session_id or store.create_session_id()
+                payload = {
+                    "created_at": datetime.now().isoformat(),
+                    "interest_areas": st.session_state.discovery_interest_areas,
+                    "pdf_paths": st.session_state.discovery_pdf_paths,
+                    "policy_analysis": st.session_state.discovery_policy_analysis,
+                    "iris_mapping": st.session_state.discovery_iris_mapping,
+                    "recommendations": st.session_state.discovery_recommendations,
+                    "hypotheses": st.session_state.discovery_hypotheses,
+                    "verification": st.session_state.discovery_verification,
+                }
+                stored = store.save_session(session_id, payload, write_report=True)
+                st.session_state.discovery_report_path = stored.get("report_path")
+                st.session_state.discovery_session_id = stored.get("session_id")
+                st.success("리포트를 재생성했습니다.")
+
+        st.markdown("---")
+        st.markdown("#### 피드백 회고")
+        rating = st.slider("추천 만족도 (1~5)", min_value=1, max_value=5, value=3, key="discovery_feedback_rating")
+        feedback_text = st.text_area("추가 피드백", key="discovery_feedback_text")
+        if st.button("피드백 저장", key="save_discovery_feedback"):
+            feedback = FeedbackSystem(
+                session_id=st.session_state.discovery_session_id,
+                user_id=get_user_email() or "anonymous",
+            )
+            context = {
+                "trust_score": (verification or {}).get("trust_score"),
+                "recommendation_summary": (st.session_state.discovery_recommendations or {}).get("summary"),
+                "comment": feedback_text,
+            }
+            feedback.add_feedback(
+                user_message="startup_discovery_feedback",
+                assistant_response=(verification or {}).get("verification_summary", ""),
+                feedback_type="rating",
+                feedback_value=rating,
+                context=context,
+            )
+            stats = feedback.get_feedback_stats()
+            influence = stats.get("satisfaction_rate", 0.0) * 100
+            st.success(f"피드백 저장 완료 · 영향 점수 {influence:.1f}%")
+
+    # 탭 5: 대화
+    with tab5:
         st.markdown("### 대화형 추천")
         st.caption("분석 결과에 대해 질문하거나 추가 추천을 요청하세요.")
 
+        mode = st.radio(
+            "대화 모드",
+            options=["추천 Q&A", "비판적 검토"],
+            horizontal=True,
+            index=0 if st.session_state.discovery_chat_mode == "추천 Q&A" else 1,
+        )
+        st.session_state.discovery_chat_mode = mode
+
+        if mode == "비판적 검토":
+            st.info("비판적 검토 모드: `feedback:`으로 시작하면 사용자 피드백을 비판적으로 검토합니다.")
+
         # 대화 기록 표시
-        for message in st.session_state.discovery_messages:
+        message_pool = (
+            st.session_state.discovery_critic_messages
+            if mode == "비판적 검토"
+            else st.session_state.discovery_messages
+        )
+
+        for message in message_pool:
             if message["role"] == "user":
                 with st.chat_message("user", avatar=user_avatar_image):
                     st.markdown(message["content"])
@@ -469,7 +889,7 @@ if st.session_state.discovery_policy_analysis or st.session_state.discovery_reco
 
         if user_input:
             # 사용자 메시지 추가
-            st.session_state.discovery_messages.append({
+            message_pool.append({
                 "role": "user",
                 "content": user_input
             })
@@ -479,28 +899,39 @@ if st.session_state.discovery_policy_analysis or st.session_state.discovery_reco
 
             with st.chat_message("assistant", avatar=avatar_image):
                 try:
-                    agent = get_discovery_agent()
-
-                    # 컨텍스트 설정
-                    agent.policy_analysis = st.session_state.discovery_policy_analysis
-                    agent.iris_mapping = st.session_state.discovery_iris_mapping
-                    agent.recommendations = st.session_state.discovery_recommendations
-                    agent.interest_areas = st.session_state.discovery_interest_areas
-                    agent.pdf_paths = st.session_state.discovery_pdf_paths
-
-                    # 응답 생성
                     response_placeholder = st.empty()
                     response_container = [""]  # mutable container for async closure
 
-                    async def get_response():
-                        async for chunk in agent.chat(user_input, stream=True):
-                            response_container[0] += chunk
-                            response_placeholder.markdown(response_container[0] + "▌")
-                        response_placeholder.markdown(response_container[0])
+                    if mode == "비판적 검토":
+                        critic_agent = get_critic_agent()
+                        critic_agent.set_context(build_discovery_context())
 
-                    asyncio.run(get_response())
+                        async def get_response():
+                            async for chunk in critic_agent.chat(user_input):
+                                response_container[0] += chunk
+                                response_placeholder.markdown(response_container[0] + "▌")
+                            response_placeholder.markdown(response_container[0])
 
-                    st.session_state.discovery_messages.append({
+                        asyncio.run(get_response())
+                    else:
+                        agent = get_discovery_agent()
+
+                        # 컨텍스트 설정
+                        agent.policy_analysis = st.session_state.discovery_policy_analysis
+                        agent.iris_mapping = st.session_state.discovery_iris_mapping
+                        agent.recommendations = st.session_state.discovery_recommendations
+                        agent.interest_areas = st.session_state.discovery_interest_areas
+                        agent.pdf_paths = st.session_state.discovery_pdf_paths
+
+                        async def get_response():
+                            async for chunk in agent.chat(user_input, stream=True):
+                                response_container[0] += chunk
+                                response_placeholder.markdown(response_container[0] + "▌")
+                            response_placeholder.markdown(response_container[0])
+
+                        asyncio.run(get_response())
+
+                    message_pool.append({
                         "role": "assistant",
                         "content": response_container[0]
                     })

@@ -1,5 +1,6 @@
 # Core dependencies
 anthropic>=0.75.0  # Claude API
+claude-agent-sdk>=0.1.16  # Claude Agent SDK
 httpx>=0.27.0  # HTTP client (for timeout config)
 openpyxl>=3.1.0   # Excel 읽기/쓰기
 python-dotenv>=1.0.0  # 환경변수 관리

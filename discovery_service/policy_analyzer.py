@@ -66,10 +66,7 @@ class PolicyAnalyzer:
             api_key: Anthropic API 키 (없으면 환경변수에서 로드)
         """
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-        if not self.api_key:
-            raise ValueError("ANTHROPIC_API_KEY가 필요합니다")
-
-        self.client = Anthropic(api_key=self.api_key)
+        self.client = Anthropic(api_key=self.api_key) if self.api_key else None
 
     def analyze_content(
         self,
@@ -132,9 +129,18 @@ class PolicyAnalyzer:
                 "error": "분석할 콘텐츠가 없습니다"
             }
 
-        # Claude로 종합 분석
-        analysis = self._analyze_with_claude(all_texts, focus_keywords)
+        # Claude 또는 로컬 분석
+        if self.client:
+            analysis = self._analyze_with_claude(all_texts, focus_keywords)
+            if not analysis.get("success"):
+                fallback = self._analyze_local(all_texts, focus_keywords)
+                fallback["warnings"] = [f"Claude 분석 실패: {analysis.get('error')}"]
+                fallback["fallback_used"] = True
+                analysis = fallback
+        else:
+            analysis = self._analyze_local(all_texts, focus_keywords)
         analysis["sources"] = sources
+        analysis["source_reliability"] = self._calculate_source_reliability(sources)
 
         return analysis
 
@@ -200,9 +206,18 @@ class PolicyAnalyzer:
                 "sources": sources
             }
 
-        # Claude로 종합 분석
-        analysis = self._analyze_with_claude(all_texts, focus_keywords)
+        # Claude 또는 로컬 분석
+        if self.client:
+            analysis = self._analyze_with_claude(all_texts, focus_keywords)
+            if not analysis.get("success"):
+                fallback = self._analyze_local(all_texts, focus_keywords)
+                fallback["warnings"] = [f"Claude 분석 실패: {analysis.get('error')}"]
+                fallback["fallback_used"] = True
+                analysis = fallback
+        else:
+            analysis = self._analyze_local(all_texts, focus_keywords)
         analysis["sources"] = sources
+        analysis["source_reliability"] = self._calculate_source_reliability(sources)
 
         return analysis
 
@@ -235,9 +250,13 @@ class PolicyAnalyzer:
                 return extracted_text
 
             # 텍스트가 부족하면 Claude Vision으로 폴백
+            if not self.client:
+                return extracted_text
             print(f"텍스트 부족 ({len(extracted_text)}자 < {min_chars}자), Claude Vision 사용")
 
         except Exception as e:
+            if not self.client:
+                return ""
             print(f"PyMuPDF 추출 실패: {e}, Claude Vision 사용")
 
         # 2차: Claude Vision 사용
@@ -245,6 +264,8 @@ class PolicyAnalyzer:
 
     def _extract_with_vision(self, pdf_path: str, max_pages: int) -> str:
         """Claude Vision으로 PDF 텍스트 추출"""
+        if not self.client:
+            return ""
         import fitz
         import base64
 
@@ -263,7 +284,7 @@ class PolicyAnalyzer:
             # Claude Vision API 호출
             try:
                 response = self.client.messages.create(
-                    model="claude-sonnet-4-20250514",
+                    model="claude-opus-4-5-20251101",
                     max_tokens=4000,
                     messages=[{
                         "role": "user",
@@ -291,6 +312,21 @@ class PolicyAnalyzer:
 
         doc.close()
         return "\n\n".join(all_text)
+
+    def _calculate_source_reliability(self, sources: List[Dict[str, Any]]) -> List[float]:
+        reliability = []
+        for source in sources:
+            if source.get("error"):
+                reliability.append(0.3)
+                continue
+            source_type = source.get("type", "pdf")
+            if source_type == "pdf":
+                reliability.append(0.8)
+            elif source_type == "text":
+                reliability.append(0.6)
+            else:
+                reliability.append(0.5)
+        return reliability
 
     def _analyze_with_claude(
         self,
@@ -364,7 +400,7 @@ JSON만 출력하세요.
 
         try:
             response = self.client.messages.create(
-                model="claude-sonnet-4-20250514",
+                model="claude-opus-4-5-20251101",
                 max_tokens=8192,
                 messages=[{"role": "user", "content": prompt}]
             )
@@ -392,6 +428,58 @@ JSON만 출력하세요.
                 "success": False,
                 "error": f"분석 오류: {str(e)}"
             }
+
+    def _analyze_local(
+        self,
+        texts: List[Dict[str, str]],
+        focus_keywords: List[str] = None
+    ) -> Dict[str, Any]:
+        combined_text = " ".join(item.get("text", "") for item in texts)
+        themes = self.extract_themes(combined_text)
+        if focus_keywords:
+            for keyword in focus_keywords:
+                if keyword not in themes and keyword in combined_text:
+                    themes.append(keyword)
+
+        theme_to_industry = {
+            "탄소중립": ["신재생에너지", "탄소포집", "ESS", "그린수소"],
+            "디지털전환": ["AI", "클라우드", "빅데이터", "사이버보안"],
+            "바이오헬스": ["신약개발", "의료기기", "디지털헬스", "진단기기"],
+            "모빌리티": ["자율주행", "전기차", "UAM", "스마트물류"],
+            "수소경제": ["그린수소", "수소연료전지", "수소충전소", "수소저장"],
+            "반도체": ["시스템반도체", "AI반도체", "파운드리", "첨단패키징"],
+            "이차전지": ["배터리소재", "전고체배터리", "배터리재활용", "BMS"],
+            "ESG": ["ESG플랫폼", "탄소회계", "지속가능금융", "임팩트측정"],
+            "푸드테크": ["스마트팜", "대체식품", "푸드AI", "식품물류"],
+        }
+
+        target_industries = []
+        for theme in themes:
+            for industry in theme_to_industry.get(theme, []):
+                if industry not in target_industries:
+                    target_industries.append(industry)
+
+        budget_mentions = self.extract_budget_mentions(combined_text)
+        budget_info = {}
+        if budget_mentions:
+            for idx, mention in enumerate(budget_mentions[:5], 1):
+                budget_info[f"예산추정{idx}"] = f"{mention['amount']}{mention['unit']}"
+
+        timeline = {}
+        for year in re.findall(r"(20\d{2})년", combined_text):
+            timeline.setdefault(year, [])
+
+        return {
+            "success": True,
+            "policy_themes": themes,
+            "target_industries": target_industries,
+            "budget_info": budget_info,
+            "timeline": timeline,
+            "key_policies": [],
+            "summary": "키워드 기반 로컬 분석 결과입니다. 추가 근거가 필요합니다.",
+            "warnings": ["API 사용 불가로 로컬 분석으로 대체됨"],
+            "fallback_used": True,
+        }
 
     def extract_themes(self, text: str) -> List[str]:
         """텍스트에서 정책 테마 추출 (키워드 기반)"""
