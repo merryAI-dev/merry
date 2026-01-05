@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "interactive_review": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        ".claude/skills/interactive-review/mcp-server",
+        "server.py"
+      ]
+    }
+  }
+}

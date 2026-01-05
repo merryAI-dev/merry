@@ -51,12 +51,15 @@ def load_session_by_id(agent, session_id: str) -> bool:
     st.session_state.report_deep_error = None
     st.session_state.report_deep_step = 0
 
-    agent.context["analyzed_files"] = session_data.get("analyzed_files", [])
     memory.session_id = session_data.get("session_id", session_id)
     memory.session_metadata = dict(session_data)
     memory.session_metadata["session_id"] = memory.session_id
     memory.session_metadata["user_id"] = memory.user_id
     memory.current_session_file = memory.storage_dir / f"session_{memory.session_id}.json"
+
+    if hasattr(agent, "context"):
+        agent.context["analyzed_files"] = memory.session_metadata.get("analyzed_files", [])
+        agent.context["cached_results"] = memory.cached_results
 
     agent.conversation_history = []
     for msg in ui_messages:

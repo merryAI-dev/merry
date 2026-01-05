@@ -99,7 +99,18 @@ class ChatMemory:
             "user_info": {}
         }
 
+        # Non-persistent cache for quick lookups
+        self.cached_results: Dict[str, Any] = {}
+
         self._session_created = False
+
+    def remember(self, key: str, value: Any) -> None:
+        """Cache a computed result for the current runtime."""
+        self.cached_results[key] = value
+
+    def recall(self, key: str) -> Any:
+        """Retrieve a cached result for the current runtime."""
+        return self.cached_results.get(key)
 
     def set_user_info(self, nickname: str = None, company: str = None, google_email: str = None):
         """사용자 정보 설정 및 세션 ID 업데이트"""

@@ -2,6 +2,7 @@
 세션 상태 초기화 및 설정 모듈
 """
 
+import os
 import streamlit as st
 from PIL import Image
 from pathlib import Path
@@ -15,6 +16,7 @@ USER_AVATAR_IMAGE_PATH = "Unknown.png"
 
 def initialize_session_state():
     """앱 전역 세션 상태 초기화"""
+    _apply_streamlit_secrets_to_env()
     defaults = {
         # 인증
         "user_email": None,
@@ -66,6 +68,7 @@ def initialize_session_state():
         "report_deep_step": 0,
         "report_deep_error": None,
         "dart_api_key": "",
+        "report_deep_mode": os.getenv("VC_REPORT_DEEP_MODE", "1").lower() not in ["0", "false", "no"],
 
         # 파일 관리
         "uploaded_file_path": None,
@@ -142,6 +145,20 @@ def initialize_session_state():
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+
+def _apply_streamlit_secrets_to_env() -> None:
+    """Expose Streamlit secrets as environment variables when available."""
+    try:
+        secrets = st.secrets
+    except Exception:
+        return
+    if not secrets:
+        return
+    for key, value in secrets.items():
+        if isinstance(value, (dict, list)):
+            continue
+        os.environ.setdefault(key, str(value))
 
 
 @st.cache_resource(show_spinner=False)
