@@ -142,11 +142,91 @@ def initialize_session_state():
         "contract_ocr_budget": 6,
         "contract_chat": [],
         "contract_show_file_names": False,
+
+        # 스타트업 발굴 지원
+        "discovery_messages": [],
+        "discovery_pdf_paths": [],
+        "discovery_interest_areas": [],
+        "discovery_policy_analysis": None,
+        "discovery_iris_mapping": None,
+        "discovery_recommendations": None,
+        "discovery_agent": None,
+        "discovery_show_welcome": True,
+
+        # 체크인 피드백 (각 페이지에서 수집)
+        "checkin_feedbacks": [],  # [{page, title, content, created_at, status}]
     }
 
     for key, value in defaults.items():
         if key not in st.session_state:
             st.session_state[key] = value
+
+
+def add_checkin_feedback(page: str, title: str, content: str, status: str = "pending"):
+    """체크인 피드백 추가"""
+    from datetime import datetime
+
+    if "checkin_feedbacks" not in st.session_state:
+        st.session_state.checkin_feedbacks = []
+
+    feedback = {
+        "page": page,
+        "title": title,
+        "content": content,
+        "created_at": datetime.now().isoformat(),
+        "status": status  # pending, reviewed, actioned
+    }
+    st.session_state.checkin_feedbacks.append(feedback)
+    return feedback
+
+
+def get_checkin_feedbacks(page: str = None, status: str = None):
+    """체크인 피드백 조회"""
+    feedbacks = st.session_state.get("checkin_feedbacks", [])
+
+    if page:
+        feedbacks = [f for f in feedbacks if f.get("page") == page]
+    if status:
+        feedbacks = [f for f in feedbacks if f.get("status") == status]
+
+    # 최신순 정렬
+    feedbacks.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return feedbacks
+
+
+def update_feedback_status(index: int, status: str):
+    """피드백 상태 업데이트"""
+    if "checkin_feedbacks" in st.session_state:
+        if 0 <= index < len(st.session_state.checkin_feedbacks):
+            st.session_state.checkin_feedbacks[index]["status"] = status
+
+
+def render_feedback_input(page_name: str, page_title: str):
+    """각 페이지에서 사용할 피드백 입력 UI"""
+    with st.expander("💬 체크인 피드백 남기기", expanded=False):
+        feedback_title = st.text_input(
+            "제목",
+            placeholder="예: PER 배수 조정 필요",
+            key=f"feedback_title_{page_name}"
+        )
+        feedback_content = st.text_area(
+            "내용",
+            placeholder="피드백 내용을 입력하세요...",
+            height=100,
+            key=f"feedback_content_{page_name}"
+        )
+
+        if st.button("피드백 저장", key=f"feedback_save_{page_name}"):
+            if feedback_title and feedback_content:
+                add_checkin_feedback(
+                    page=page_name,
+                    title=feedback_title,
+                    content=feedback_content
+                )
+                st.success("피드백이 저장되었습니다!")
+                st.rerun()
+            else:
+                st.warning("제목과 내용을 모두 입력해주세요.")
 
 
 def _apply_streamlit_secrets_to_env() -> None:

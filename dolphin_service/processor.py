@@ -15,6 +15,11 @@ from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+from dotenv import load_dotenv
+
+# 프로젝트 루트의 .env 파일 로드 (절대 경로 사용)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
 
 from .config import DOLPHIN_CONFIG
 
