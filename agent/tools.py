@@ -11,7 +11,7 @@ import time
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
-from typing import Any, Dict, List, Callable
+from typing import Any, Dict, List, Callable, Optional
 
 from shared.logging_config import get_logger
 from shared.cache_utils import compute_file_hash, compute_payload_hash, get_cache_dir, load_json, save_json
@@ -1955,7 +1955,7 @@ def _extract_user_id_from_temp_path(path_str: str, default: str = "cli_user") ->
     return default
 
 
-def _normalize_optional_text(value: Any) -> str | None:
+def _normalize_optional_text(value: Any) -> Optional[str]:
     if value is None:
         return None
     if isinstance(value, str):

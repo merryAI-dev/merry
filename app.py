@@ -7,6 +7,7 @@ VC 투자 분석 에이전트 - 홈페이지
 import json
 import re
 from pathlib import Path
+from typing import Optional
 import streamlit as st
 import streamlit.components.v1 as components
 
@@ -26,8 +27,8 @@ setup_logging()
 
 # 페이지 설정
 st.set_page_config(
-    page_title="VC 투자 분석 에이전트",
-    page_icon="VC",
+    page_title="메리 | 투자심사 에이전트",
+    page_icon="image-removebg-preview-5.png",
     layout="wide",
 )
 
@@ -1350,7 +1351,7 @@ def _looks_like_dart_query(text: str) -> bool:
     return any(keyword in lowered for keyword in dart_keywords)
 
 
-def _detect_dart_category(text: str) -> str | None:
+def _detect_dart_category(text: str) -> Optional[str]:
     lowered = (text or "").lower()
     if any(k in lowered for k in ["시장규모", "시장 규모", "tam", "sam", "som", "cagr", "성장률"]):
         return "market_size"
@@ -1365,7 +1366,7 @@ def _detect_dart_category(text: str) -> str | None:
     return None
 
 
-def _dart_status_message(path: str | None, error: str | None = None) -> str:
+def _dart_status_message(path: Optional[str], error: Optional[str] = None) -> str:
     if error:
         return (
             "DART 인수인의견 데이터셋을 찾지 못했습니다.\n\n"

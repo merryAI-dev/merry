@@ -7,6 +7,7 @@ from __future__ import annotations
 import json
 from datetime import date
 from pathlib import Path
+from typing import Optional
 
 import streamlit as st
 import streamlit.components.v1 as components
@@ -22,7 +23,7 @@ from shared.activity_feed import get_recent_activity
 from shared.collab_assistant import build_collab_brief, DEFAULT_MODEL
 
 
-def _parse_due_date(value: str | None) -> date | None:
+def _parse_due_date(value: Optional[str]) -> Optional[date]:
     if not value:
         return None
     try:
@@ -49,8 +50,8 @@ def _render_brief_list(title: str, items: list[str]) -> None:
 
 
 st.set_page_config(
-    page_title="협업 허브 | VC 투자 분석",
-    page_icon="VC",
+    page_title="협업 허브 | 메리",
+    page_icon="image-removebg-preview-5.png",
     layout="wide",
 )
 

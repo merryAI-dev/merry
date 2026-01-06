@@ -63,8 +63,8 @@ except Exception as exc:
 # Page setup
 # ========================================
 st.set_page_config(
-    page_title="Voice Agent | VC 투자 분석",
-    page_icon="VC",
+    page_title="음성 에이전트 | 메리",
+    page_icon="image-removebg-preview-5.png",
     layout="wide",
 )
 

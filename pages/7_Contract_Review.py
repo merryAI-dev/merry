@@ -78,8 +78,8 @@ CACHE_VERSION = 2
 
 
 st.set_page_config(
-    page_title="계약서 리서치 | VC 투자 분석",
-    page_icon="VC",
+    page_title="계약서 리서치 | 메리",
+    page_icon="image-removebg-preview-5.png",
     layout="wide",
 )
 

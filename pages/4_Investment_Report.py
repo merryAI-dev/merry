@@ -40,8 +40,8 @@ from shared.team_tasks import TeamTaskStore, STATUS_LABELS, format_remaining_kst
 
 
 st.set_page_config(
-    page_title="투자심사 보고서 | VC 투자 분석",
-    page_icon="VC",
+    page_title="투자심사 보고서 | 메리",
+    page_icon="image-removebg-preview-5.png",
     layout="wide",
 )
 
