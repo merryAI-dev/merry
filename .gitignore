@@ -58,3 +58,7 @@ htmlcov/
 # User local add-ons
 scripts/launch_review.py
 *Human-AI Teaming in the ICU_ A Comparative.pdf
+
+# g2b 스킬은 예외 (공유용)
+!.claude/skills/g2b-bid-downloader/
+!.claude/skills/g2b-bid-downloader/**
