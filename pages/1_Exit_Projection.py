@@ -19,8 +19,8 @@ from shared.sidebar import render_sidebar
 
 # 페이지 설정
 st.set_page_config(
-    page_title="Exit 프로젝션 | VC 투자 분석",
-    page_icon="VC",
+    page_title="Exit 프로젝션 | 메리",
+    page_icon="image-removebg-preview-5.png",
     layout="wide",
 )
 

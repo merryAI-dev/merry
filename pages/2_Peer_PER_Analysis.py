@@ -19,8 +19,8 @@ from shared.file_utils import get_secure_upload_path, cleanup_user_temp_files, v
 
 # 페이지 설정
 st.set_page_config(
-    page_title="Peer PER 분석 | VC 투자 분석",
-    page_icon="VC",
+    page_title="Peer PER 분석 | 메리",
+    page_icon="image-removebg-preview-5.png",
     layout="wide",
 )
 

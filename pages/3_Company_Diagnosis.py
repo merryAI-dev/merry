@@ -6,6 +6,7 @@
 
 import asyncio
 from pathlib import Path
+from typing import Optional, Tuple
 
 import pandas as pd
 import streamlit as st
@@ -71,8 +72,8 @@ def _sync_diagnosis_draft_from_memory():
 
 # 페이지 설정
 st.set_page_config(
-    page_title="기업현황 진단시트 | VC 투자 분석",
-    page_icon="VC",
+    page_title="기업현황 진단시트 | 메리",
+    page_icon="image-removebg-preview-5.png",
     layout="wide",
 )
 
@@ -323,7 +324,7 @@ for p in reversed(generated_files):
     if latest_report_path and latest_sheet_path:
         break
 
-def _is_downloadable_temp_file(path: Path) -> tuple[bool, Path | None]:
+def _is_downloadable_temp_file(path: Path) -> Tuple[bool, Optional[Path]]:
     project_root = Path(__file__).resolve().parent.parent
     temp_root = (project_root / "temp").resolve()
     try:

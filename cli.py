@@ -7,8 +7,7 @@ import asyncio
 import click
 from pathlib import Path
 
-from agent import ConversationalVCAgent, __version__ as AGENT_VERSION
-from agent.autonomous_agent import AutonomousVCAgent
+from agent import ConversationalVCAgent, InteractiveCriticAgent, __version__ as AGENT_VERSION
 from shared.logging_config import setup_logging
 from shared.file_utils import copy_to_temp
 
@@ -85,6 +84,66 @@ def chat(model, mode):
                 click.echo()
 
     # Python 3.10+ 호환: asyncio.run() 사용
+    asyncio.run(run_chat())
+
+
+@cli.command()
+@click.option("--model", default="claude-opus-4-5-20251101", help="사용할 Claude 모델 (기본: Opus 4.5)")
+@click.option("--language", default="Korean", show_default=True, help="응답 언어 (예: Korean, English)")
+def critic(model, language):
+    """근거/의견/피드백 비판을 포함하는 상호작용 에이전트"""
+
+    click.echo("=" * 60)
+    click.echo("Interactive Critic Agent - SDK 기반 대화형 모드")
+    click.echo("=" * 60)
+    click.echo()
+
+    try:
+        agent = InteractiveCriticAgent(model=model, response_language=language)
+    except (ValueError, ImportError) as e:
+        click.echo(f"오류: {e}", err=True)
+        click.echo("claude-agent-sdk 설치 여부와 ANTHROPIC_API_KEY 설정을 확인하세요.")
+        return
+
+    click.echo("팁:")
+    click.echo("  - 피드백 비판을 원하면 'feedback:'으로 시작하세요.")
+    click.echo("  - 기록 초기화: 'reset'")
+    click.echo("  - 종료: 'exit'")
+    click.echo()
+
+    async def run_chat():
+        await agent.connect()
+        while True:
+            try:
+                user_input = click.prompt("You", type=str)
+
+                if user_input.lower() in ["exit", "quit", "종료"]:
+                    click.echo("\n대화를 종료합니다.")
+                    break
+
+                if user_input.lower() in ["reset", "clear"]:
+                    agent.reset()
+                    click.echo("대화 기록을 초기화했습니다.\n")
+                    continue
+
+                if not user_input.strip():
+                    continue
+
+                click.echo("Agent: ", nl=False)
+                async for chunk in agent.chat(user_input):
+                    click.echo(chunk, nl=False)
+                click.echo()
+                click.echo()
+
+            except KeyboardInterrupt:
+                click.echo("\n\n대화를 종료합니다.")
+                break
+            except Exception as e:
+                click.echo(f"\n오류 발생: {str(e)}", err=True)
+                click.echo()
+
+        await agent.close()
+
     asyncio.run(run_chat())
 
 
@@ -187,9 +246,12 @@ def goal(goal_text, file, params, model):
     click.echo()
 
     try:
+        from agent.autonomous_agent import AutonomousVCAgent
         agent = AutonomousVCAgent(model=model)
-    except ValueError as e:
+    except (ImportError, ValueError) as e:
         click.echo(f"오류: {e}", err=True)
+        if isinstance(e, ImportError):
+            click.echo("claude-agent-sdk 설치 여부를 확인하세요.")
         return
 
     # 컨텍스트 구성

@@ -62,8 +62,8 @@ except Exception as exc:
 
 
 st.set_page_config(
-    page_title="체크인 기록 | VC 투자 분석",
-    page_icon="VC",
+    page_title="체크인 기록 | 메리",
+    page_icon="image-removebg-preview-5.png",
     layout="wide",
 )
 
