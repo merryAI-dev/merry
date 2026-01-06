@@ -57,7 +57,8 @@ echo "ANTHROPIC_API_KEY=your-api-key-here" > .env
 ### 1. Claude Skill로 사용
 ```bash
 # Claude Code에서
-/vc-investment-analyzer
+/vc-investment-analyzer        # 투자 분석
+/g2b-bid-downloader 액셀러레이팅  # 나라장터 입찰 검색
 ```
 
 ### 2. Python 스크립트로 사용
@@ -84,6 +85,75 @@ python cli.py analyze <파일경로>
 python cli.py chat --mode diagnosis
 python cli.py analyze <파일경로> --mode peer
 ```
+
+---
+
+## 🤖 Claude Code 스킬 설정 (비개발자용)
+
+Claude Code를 처음 사용하시는 분은 아래 순서대로 설정하세요.
+
+### Step 1. 사전 설치
+
+**터미널 열기**: `Cmd + Space` → "터미널" 입력 → Enter
+
+```bash
+# Homebrew 설치 (없는 경우)
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Node.js 설치 (없는 경우)
+brew install node
+```
+
+### Step 2. Claude Code 설치
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+### Step 3. Claude Code 로그인
+
+```bash
+claude
+```
+→ 브라우저에서 Anthropic 계정 로그인 → "Claude Code 액세스 허용" 클릭
+
+### Step 4. 프로젝트 폴더로 이동
+
+```bash
+cd "/Users/$(whoami)/Library/CloudStorage/GoogleDrive-본인이메일@mysc.co.kr/공유 드라이브/C. 조직 (랩, 팀, 위원회, 클럽)/00.AX솔루션/projection_helper"
+```
+
+(본인이메일 부분을 본인 구글 계정으로 변경)
+
+**폴더 이동이 안 되면**: Finder에서 폴더를 터미널 창에 드래그 앤 드롭
+
+### Step 5. 추가 패키지 설치 (나라장터 스킬용)
+
+```bash
+source venv/bin/activate
+pip install playwright olefile
+playwright install chromium
+```
+
+### Step 6. 스킬 사용
+
+```bash
+claude
+```
+
+Claude Code가 실행되면:
+```
+나라장터에서 액셀러레이팅 입찰 찾아줘
+```
+
+또는 스킬 직접 실행:
+```
+/g2b-bid-downloader 액셀러레이팅
+```
+
+**상세 가이드**: [.claude/skills/g2b-bid-downloader/SKILL.md](.claude/skills/g2b-bid-downloader/SKILL.md)
+
+---
 
 ## 문서
 
