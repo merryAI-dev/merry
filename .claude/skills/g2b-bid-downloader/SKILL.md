@@ -91,11 +91,35 @@ cd "/Users/$(whoami)/Library/CloudStorage/GoogleDrive-본인이메일@mysc.co.kr
 
 ```bash
 source venv/bin/activate
-pip install playwright olefile requests
+pip install playwright olefile requests pyhwp
 playwright install chromium
 ```
 
-### 1.8 설치 확인
+### 1.8 HWP 텍스트 추출기 설치 (필요서류 파싱용)
+
+hwp5txt는 HWP 파일에서 텍스트를 정확하게 추출합니다:
+
+```bash
+# hwp5txt 설치 확인
+hwp5txt --version
+```
+
+설치가 안 되어 있으면:
+```bash
+pip install pyhwp
+```
+
+설치 후에도 `hwp5txt` 명령어가 안 되면:
+```bash
+# Python 스크립트 경로 확인
+which python
+# 예: /Users/본인/venv/bin/python
+
+# 같은 폴더에 hwp5txt가 있는지 확인
+ls $(dirname $(which python))/hwp5txt
+```
+
+### 1.9 설치 확인
 
 ```bash
 python scripts/g2b_file_downloader.py "테스트" --list-only
@@ -348,7 +372,8 @@ python scripts/g2b_file_downloader.py "키워드" --indices 1,2,3
 
 - 크롤링: requests + 나라장터 API
 - 파일 다운로드: Playwright + Raonkupload k00
-- 문서 파싱: HWP/PDF 텍스트 추출 (olefile)
+- HWP 파싱: pyhwp (hwp5txt) - 필요서류/제출방법 추출
+- 폴백 파싱: olefile + zlib (pyhwp 미설치 시)
 - 분석: Claude를 통한 요구사항 분석 및 SWOT 도출
 
 ---
