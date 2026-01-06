@@ -148,9 +148,11 @@ cd "/Users/$(whoami)/Library/CloudStorage/GoogleDrive-본인이메일@mysc.co.kr
 
 ```bash
 source venv/bin/activate
-pip install playwright olefile
+pip install playwright olefile pyhwp
 playwright install chromium
 ```
+
+(pyhwp는 HWP 파일에서 필요서류 등 텍스트를 추출하는 데 사용됩니다)
 
 ### Step 6. 스킬 사용
 
