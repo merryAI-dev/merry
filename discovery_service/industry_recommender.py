@@ -108,7 +108,8 @@ class IndustryRecommender:
         policy_analysis: Dict[str, Any],
         iris_mapping: Dict[str, Any],
         interest_areas: List[str] = None,
-        top_k: int = 5
+        top_k: int = 5,
+        document_weight: float = 0.7
     ) -> Dict[str, Any]:
         """
         정책 + 임팩트 기반 유망 산업 추천 생성
@@ -118,6 +119,7 @@ class IndustryRecommender:
             iris_mapping: IRISMapper의 매핑 결과
             interest_areas: 사용자 관심 분야 (가중치 부여)
             top_k: 추천할 산업 수
+            document_weight: 정책/문서 기반 가중치 (0~1)
 
         Returns:
             {
@@ -141,6 +143,8 @@ class IndustryRecommender:
                 "caution_areas": [...]
             }
         """
+        document_weight = self._sanitize_weight(document_weight, default=0.7)
+
         # 1. 정책 기반 산업 점수 계산
         policy_scores = self._calculate_policy_scores(policy_analysis)
 
@@ -151,7 +155,8 @@ class IndustryRecommender:
         combined_scores = self._combine_scores(
             policy_scores,
             impact_scores,
-            interest_areas
+            interest_areas,
+            document_weight
         )
 
         # 4. 추천 근거 생성 (Claude 또는 로컬 폴백)
@@ -166,6 +171,16 @@ class IndustryRecommender:
         else:
             recommendations = self._build_fallback_result(combined_scores, top_k)
 
+        has_interest = bool(interest_areas)
+        effective_doc_weight = document_weight if has_interest else 1.0
+        effective_interest_weight = (1 - document_weight) if has_interest else 0.0
+        recommendations.setdefault("weighting", {})
+        recommendations["weighting"].update({
+            "document_weight": round(effective_doc_weight, 2),
+            "interest_weight": round(effective_interest_weight, 2),
+            "policy_weight": 0.6,
+            "impact_weight": 0.4,
+        })
         return recommendations
 
     def _calculate_policy_scores(
@@ -274,27 +289,35 @@ class IndustryRecommender:
         self,
         policy_scores: Dict[str, float],
         impact_scores: Dict[str, float],
-        interest_areas: List[str] = None
+        interest_areas: List[str] = None,
+        document_weight: float = 0.7
     ) -> List[Dict[str, Any]]:
         """종합 점수 계산"""
         all_industries = set(policy_scores.keys()) | set(impact_scores.keys())
         combined = []
+        document_weight = self._sanitize_weight(document_weight, default=0.7)
+        has_interest = bool(interest_areas)
+        interest_weight = (1 - document_weight) if has_interest else 0.0
+        effective_doc_weight = document_weight if has_interest else 1.0
 
         for industry in all_industries:
             policy_score = policy_scores.get(industry, 0.0)
             impact_score = impact_scores.get(industry, 0.0)
 
             # 가중 평균 (정책 60%, 임팩트 40%)
-            base_score = policy_score * 0.6 + impact_score * 0.4
+            document_score = policy_score * 0.6 + impact_score * 0.4
 
             # 관심 분야 매칭 보너스
             interest_match = False
+            interest_score = 0.0
             if interest_areas:
                 for area in interest_areas:
                     if area.lower() in industry.lower() or industry.lower() in area.lower():
-                        base_score = min(base_score * 1.15, 1.0)
+                        interest_score = 1.0
                         interest_match = True
                         break
+
+            base_score = (document_score * effective_doc_weight) + (interest_score * interest_weight)
 
             # 기본 산업 가중치 적용
             for key, weight in self.DEFAULT_INDUSTRY_WEIGHTS.items():
@@ -314,6 +337,16 @@ class IndustryRecommender:
         combined.sort(key=lambda x: x["total_score"], reverse=True)
 
         return combined
+
+    @staticmethod
+    def _sanitize_weight(value: Optional[float], default: float = 0.7) -> float:
+        if value is None:
+            return default
+        try:
+            weight = float(value)
+        except (TypeError, ValueError):
+            return default
+        return max(min(weight, 1.0), 0.0)
 
     def _generate_recommendations_with_claude(
         self,

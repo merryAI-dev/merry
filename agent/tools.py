@@ -1275,6 +1275,10 @@ def register_tools() -> List[Dict[str, Any]]:
                     "recommendation_count": {
                         "type": "integer",
                         "description": "추천 개수 (기본: 5)"
+                    },
+                    "document_weight": {
+                        "type": "number",
+                        "description": "문서 기반 가중치 (0~1, 기본: 0.7)"
                     }
                 },
                 "required": ["policy_analysis", "iris_mapping"]
@@ -4379,7 +4383,8 @@ def execute_generate_industry_recommendation(
     iris_mapping: Dict[str, Any],
     interest_areas: List[str] = None,
     recommendation_count: int = 5,
-    api_key: str = None
+    api_key: str = None,
+    document_weight: float = None
 ) -> Dict[str, Any]:
     """유망 산업 추천 생성"""
     try:
@@ -4390,7 +4395,8 @@ def execute_generate_industry_recommendation(
             policy_analysis=policy_analysis,
             iris_mapping=iris_mapping,
             interest_areas=interest_areas,
-            top_k=recommendation_count
+            top_k=recommendation_count,
+            document_weight=document_weight if document_weight is not None else 0.7
         )
 
         return result
@@ -4412,6 +4418,10 @@ def execute_generate_industry_recommendation(
                     f"[ASSUMPTION] {label} 산업은 정책 우선순위가 될 가능성이 있음",
                     f"[ASSUMPTION] {label} 수요가 중기적으로 증가할 가능성이 있음",
                 ]
+            doc_weight_value = float(document_weight if document_weight is not None else 0.7)
+            if not interest_areas:
+                doc_weight_value = 1.0
+            interest_weight_value = (1 - doc_weight_value) if interest_areas else 0.0
             return {
                 "success": True,
                 "recommendations": [
@@ -4445,6 +4455,12 @@ def execute_generate_industry_recommendation(
                 "emerging_areas": [],
                 "caution_areas": [],
                 "summary": "API 오류로 로컬 폴백 추천",
+                "weighting": {
+                    "document_weight": round(doc_weight_value, 2),
+                    "interest_weight": round(interest_weight_value, 2),
+                    "policy_weight": 0.6,
+                    "impact_weight": 0.4,
+                },
                 "fallback_used": True,
                 "error": str(e),
             }

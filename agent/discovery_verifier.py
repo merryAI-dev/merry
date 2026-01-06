@@ -483,18 +483,26 @@ class DiscoveryVerifier:
         total_markers = assumption_count + finding_count
         assumption_ratio = round(assumption_count / total_markers, 2) if total_markers else 1.0
 
+        weighting = recommendations.get("weighting", {}) or {}
+        data_summary = {
+            "policy_has_budget": bool(policy_analysis.get("budget_info")),
+            "policy_has_key_policies": bool(policy_analysis.get("key_policies")),
+            "policy_sources_count": len(policy_analysis.get("sources", []) or []),
+            "sdg_count": len(iris_mapping.get("aggregate_sdgs", []) or []),
+            "metric_count": len(iris_mapping.get("aggregate_metrics", []) or []),
+            "recommendation_count": rec_count,
+            "recommendations_missing_sources": missing_sources,
+            "assumption_ratio": assumption_ratio,
+            "quality_issues": len(quality_gate.get("issues", []) or []),
+        }
+        if weighting:
+            data_summary.update({
+                "document_weight": weighting.get("document_weight"),
+                "interest_weight": weighting.get("interest_weight"),
+            })
+
         return {
-            "data_summary": {
-                "policy_has_budget": bool(policy_analysis.get("budget_info")),
-                "policy_has_key_policies": bool(policy_analysis.get("key_policies")),
-                "policy_sources_count": len(policy_analysis.get("sources", []) or []),
-                "sdg_count": len(iris_mapping.get("aggregate_sdgs", []) or []),
-                "metric_count": len(iris_mapping.get("aggregate_metrics", []) or []),
-                "recommendation_count": rec_count,
-                "recommendations_missing_sources": missing_sources,
-                "assumption_ratio": assumption_ratio,
-                "quality_issues": len(quality_gate.get("issues", []) or []),
-            },
+            "data_summary": data_summary,
             "fallback_flags": {
                 "policy_fallback": bool(policy_analysis.get("fallback_used")),
                 "recommendation_fallback": bool(recommendations.get("fallback_used")),

@@ -18,7 +18,7 @@ from shared.sidebar import render_sidebar
 from shared.discovery_store import DiscoveryRecordStore
 
 # 에이전트 임포트
-from agent.discovery_agent import DiscoveryAgent, run_discovery_analysis
+from agent.discovery_agent import DiscoveryAgent, run_discovery_analysis, run_fusion_proposals
 from agent.interactive_critic_agent import InteractiveCriticAgent
 from agent.feedback import FeedbackSystem
 
@@ -78,6 +78,12 @@ if "discovery_show_welcome" not in st.session_state:
     st.session_state.discovery_show_welcome = True
 if "discovery_autonomous_mode" not in st.session_state:
     st.session_state.discovery_autonomous_mode = True
+if "discovery_document_weight" not in st.session_state:
+    st.session_state.discovery_document_weight = 0.7
+if "discovery_fusion_proposals" not in st.session_state:
+    st.session_state.discovery_fusion_proposals = []
+if "discovery_fusion_feedback" not in st.session_state:
+    st.session_state.discovery_fusion_feedback = {}
 
 
 def get_discovery_agent():
@@ -130,6 +136,23 @@ def build_discovery_context() -> str:
             summary_lines.append(f"{industry} (총점 {score:.2f})")
         parts.append("추천 요약: " + "; ".join(summary_lines))
 
+    weighting = recs.get("weighting", {}) if isinstance(recs, dict) else {}
+    doc_weight = weighting.get("document_weight", st.session_state.get("discovery_document_weight"))
+    if doc_weight is not None:
+        try:
+            parts.append(f"문서 가중치: {float(doc_weight):.0%}")
+        except (TypeError, ValueError):
+            pass
+
+    fusion_proposals = st.session_state.discovery_fusion_proposals or []
+    fusion_feedback = st.session_state.discovery_fusion_feedback or {}
+    if fusion_proposals:
+        accepted = sum(
+            1 for item in fusion_feedback.values()
+            if isinstance(item, dict) and item.get("rating") == "좋음"
+        )
+        parts.append(f"융합안: {len(fusion_proposals)}개 (좋음 {accepted}개)")
+
     hypotheses = st.session_state.discovery_hypotheses or {}
     if hypotheses.get("summary"):
         parts.append(f"가설 요약: {hypotheses.get('summary')}")
@@ -171,8 +194,12 @@ def load_discovery_session(session_data: dict) -> None:
     st.session_state.discovery_verification = session_data.get("verification")
     st.session_state.discovery_interest_areas = session_data.get("interest_areas") or []
     st.session_state.discovery_pdf_paths = session_data.get("pdf_paths") or []
+    st.session_state.discovery_fusion_proposals = session_data.get("fusion_proposals") or []
+    st.session_state.discovery_fusion_feedback = session_data.get("fusion_feedback") or {}
     st.session_state.discovery_session_id = session_data.get("session_id")
     st.session_state.discovery_report_path = session_data.get("report_path")
+    if session_data.get("document_weight") is not None:
+        st.session_state.discovery_document_weight = session_data.get("document_weight")
     st.session_state.discovery_show_welcome = False
 
 
@@ -280,12 +307,130 @@ if interest_input:
 else:
     st.session_state.discovery_interest_areas = []
 
+# 리서치 메리 사전 융합안
+st.markdown("**리서치 메리 융합안**")
+fusion_cols = st.columns([2, 2, 6])
+with fusion_cols[0]:
+    generate_fusion_btn = st.button(
+        "융합안 생성",
+        disabled=not st.session_state.discovery_interest_areas,
+        use_container_width=True,
+        key="generate_fusion_proposals",
+    )
+with fusion_cols[1]:
+    reset_fusion_btn = st.button(
+        "평가 초기화",
+        disabled=not st.session_state.discovery_fusion_proposals,
+        use_container_width=True,
+        key="reset_fusion_feedback",
+    )
+
+if reset_fusion_btn:
+    st.session_state.discovery_fusion_feedback = {}
+    for idx, proposal in enumerate(st.session_state.discovery_fusion_proposals, 1):
+        proposal_id = str(proposal.get("id", "")).strip() or f"fusion_{idx}"
+        st.session_state.pop(f"fusion_rating_{proposal_id}", None)
+        st.session_state.pop(f"fusion_comment_{proposal_id}", None)
+    st.success("융합안 평가를 초기화했습니다.")
+
+if generate_fusion_btn:
+    with st.spinner("리서치 메리가 융합안을 구성 중입니다..."):
+        fusion_result = run_fusion_proposals(
+            interest_areas=st.session_state.discovery_interest_areas,
+            policy_analysis=st.session_state.discovery_policy_analysis,
+            iris_mapping=st.session_state.discovery_iris_mapping,
+            proposal_count=4,
+            api_key=get_user_api_key() or None,
+        )
+        if fusion_result.get("success"):
+            for idx, proposal in enumerate(st.session_state.discovery_fusion_proposals, 1):
+                proposal_id = str(proposal.get("id", "")).strip() or f"fusion_{idx}"
+                st.session_state.pop(f"fusion_rating_{proposal_id}", None)
+                st.session_state.pop(f"fusion_comment_{proposal_id}", None)
+            st.session_state.discovery_fusion_proposals = fusion_result.get("proposals", [])
+            st.session_state.discovery_fusion_feedback = {}
+            st.success("융합안 생성 완료. 아래에서 평가해 주세요.")
+        else:
+            st.error(f"융합안 생성 실패: {fusion_result.get('error')}")
+
+fusion_proposals = st.session_state.discovery_fusion_proposals
+if fusion_proposals:
+    st.caption("관심 분야와 정책 키워드의 융합안을 먼저 검토해 주세요. 평가는 가설 생성에 반영됩니다.")
+    for idx, proposal in enumerate(fusion_proposals, 1):
+        proposal_id = str(proposal.get("id", "")).strip() or f"fusion_{idx}"
+        title = proposal.get("title") or "융합안"
+        basis = proposal.get("fusion_basis") or []
+        concept = proposal.get("concept") or ""
+        validation_questions = proposal.get("validation_questions") or []
+        risks = proposal.get("risks") or []
+
+        with st.expander(title, expanded=False):
+            if basis:
+                st.caption(f"융합 키워드: {', '.join([str(item) for item in basis if str(item).strip()])}")
+            if concept:
+                st.markdown(f"**개념:** {concept}")
+            if validation_questions:
+                st.markdown("**검증 질문:**")
+                for question in validation_questions:
+                    st.caption(f"- {question}")
+            if risks:
+                st.markdown("**리스크:**")
+                for risk in risks:
+                    st.caption(f"- {risk}")
+
+            stored_feedback = st.session_state.discovery_fusion_feedback.get(proposal_id, {})
+            rating_value = stored_feedback.get("rating")
+            rating_options = ["좋음", "보통", "아님"]
+            rating_index = rating_options.index(rating_value) if rating_value in rating_options else 0
+            st.radio(
+                "평가",
+                options=rating_options,
+                index=rating_index,
+                horizontal=True,
+                key=f"fusion_rating_{proposal_id}",
+            )
+            st.text_input(
+                "추가 의견",
+                value=stored_feedback.get("comment", ""),
+                key=f"fusion_comment_{proposal_id}",
+            )
+
+    if st.button("평가 저장", key="save_fusion_feedback"):
+        feedback = {}
+        for idx, proposal in enumerate(fusion_proposals, 1):
+            proposal_id = str(proposal.get("id", "")).strip() or f"fusion_{idx}"
+            rating = st.session_state.get(f"fusion_rating_{proposal_id}")
+            comment = st.session_state.get(f"fusion_comment_{proposal_id}", "")
+            if rating:
+                feedback[proposal_id] = {
+                    "rating": rating,
+                    "comment": comment,
+                }
+        st.session_state.discovery_fusion_feedback = feedback
+        accepted = sum(
+            1 for item in feedback.values()
+            if isinstance(item, dict) and item.get("rating") == "좋음"
+        )
+        st.success(f"평가 저장 완료 · 좋음 {accepted}개")
+
 # 분석 옵션
 st.markdown("**분석 옵션**")
 st.session_state.discovery_autonomous_mode = st.checkbox(
     "자율 검증 모드 (가설 생성 + 슈퍼메리 검증)",
     value=st.session_state.discovery_autonomous_mode
 )
+
+doc_weight_pct = st.slider(
+    "문서 가중치",
+    min_value=0,
+    max_value=100,
+    value=int(st.session_state.discovery_document_weight * 100),
+    step=5,
+    help="정책 문서 기반 점수와 관심 분야 기반 점수의 비중을 조절합니다.",
+)
+st.session_state.discovery_document_weight = doc_weight_pct / 100
+st.caption(f"관심 분야 가중치: {100 - doc_weight_pct}%")
+st.caption("관심 분야가 비어 있으면 문서 가중치가 자동으로 100% 적용됩니다.")
 
 # 버튼 영역
 col1, col2, col3 = st.columns([2, 2, 6])
@@ -329,6 +474,9 @@ if reset_btn:
     st.session_state.discovery_critic_messages = []
     st.session_state.discovery_chat_mode = "추천 Q&A"
     st.session_state.discovery_show_welcome = True
+    st.session_state.discovery_document_weight = 0.7
+    st.session_state.discovery_fusion_proposals = []
+    st.session_state.discovery_fusion_feedback = {}
     st.rerun()
 
 # 세션 관리/복구
@@ -403,6 +551,19 @@ if st.session_state.discovery_policy_analysis or st.session_state.discovery_iris
 # ========================================
 if analyze_btn and has_content:
     st.session_state.discovery_show_welcome = False
+    if st.session_state.discovery_fusion_proposals:
+        feedback = {}
+        for idx, proposal in enumerate(st.session_state.discovery_fusion_proposals, 1):
+            proposal_id = str(proposal.get("id", "")).strip() or f"fusion_{idx}"
+            rating = st.session_state.get(f"fusion_rating_{proposal_id}")
+            comment = st.session_state.get(f"fusion_comment_{proposal_id}", "")
+            if rating:
+                feedback[proposal_id] = {
+                    "rating": rating,
+                    "comment": comment,
+                }
+        if feedback:
+            st.session_state.discovery_fusion_feedback = feedback
 
     with st.spinner("정책 자료 분석 중... (약 1-2분 소요)"):
         try:
@@ -412,7 +573,10 @@ if analyze_btn and has_content:
                 interest_areas=st.session_state.discovery_interest_areas,
                 focus_keywords=None,
                 api_key=get_user_api_key() or None,
-                autonomous_mode=st.session_state.discovery_autonomous_mode
+                autonomous_mode=st.session_state.discovery_autonomous_mode,
+                document_weight=st.session_state.discovery_document_weight,
+                fusion_proposals=st.session_state.discovery_fusion_proposals,
+                fusion_feedback=st.session_state.discovery_fusion_feedback,
             )
 
             if result.get("success"):
@@ -427,6 +591,22 @@ if analyze_btn and has_content:
 
                 # 분석 결과 메시지 추가
                 summary = "분석이 완료되었습니다.\n\n"
+
+                doc_weight = result.get("document_weight", st.session_state.discovery_document_weight)
+                if doc_weight is not None:
+                    try:
+                        summary += f"**문서 가중치:** {float(doc_weight):.0%}\n\n"
+                    except (TypeError, ValueError):
+                        pass
+
+                fusion_proposals = st.session_state.discovery_fusion_proposals
+                fusion_feedback = st.session_state.discovery_fusion_feedback
+                if fusion_proposals:
+                    accepted = sum(
+                        1 for item in fusion_feedback.values()
+                        if isinstance(item, dict) and item.get("rating") == "좋음"
+                    )
+                    summary += f"**융합안 반영:** {len(fusion_proposals)}개 (좋음 {accepted}개)\n\n"
 
                 if result.get("policy_analysis"):
                     themes = result["policy_analysis"].get("policy_themes", [])
@@ -822,6 +1002,9 @@ if st.session_state.discovery_policy_analysis or st.session_state.discovery_reco
                     "recommendations": st.session_state.discovery_recommendations,
                     "hypotheses": st.session_state.discovery_hypotheses,
                     "verification": st.session_state.discovery_verification,
+                    "document_weight": st.session_state.discovery_document_weight,
+                    "fusion_proposals": st.session_state.discovery_fusion_proposals,
+                    "fusion_feedback": st.session_state.discovery_fusion_feedback,
                 }
                 stored = store.save_session(session_id, payload, write_report=True)
                 st.session_state.discovery_report_path = stored.get("report_path")
@@ -869,6 +1052,66 @@ if st.session_state.discovery_policy_analysis or st.session_state.discovery_reco
         if mode == "비판적 검토":
             st.info("비판적 검토 모드: `feedback:`으로 시작하면 사용자 피드백을 비판적으로 검토합니다.")
 
+        with st.expander("리서치 트래커", expanded=False):
+            st.caption(build_discovery_context())
+
+            status_cols = st.columns(5)
+            with status_cols[0]:
+                st.caption("정책 분석")
+                st.write("✅" if st.session_state.discovery_policy_analysis else "⏳")
+            with status_cols[1]:
+                st.caption("IRIS+ 매핑")
+                st.write("✅" if st.session_state.discovery_iris_mapping else "⏳")
+            with status_cols[2]:
+                st.caption("추천")
+                st.write("✅" if st.session_state.discovery_recommendations else "⏳")
+            with status_cols[3]:
+                st.caption("가설")
+                st.write("✅" if st.session_state.discovery_hypotheses else "⏳")
+            with status_cols[4]:
+                st.caption("검증")
+                st.write("✅" if st.session_state.discovery_verification else "⏳")
+
+            recs = st.session_state.discovery_recommendations or {}
+            weighting = recs.get("weighting", {}) if isinstance(recs, dict) else {}
+            doc_weight = weighting.get("document_weight", st.session_state.discovery_document_weight)
+            try:
+                st.caption(f"문서 가중치: {float(doc_weight):.0%}")
+            except (TypeError, ValueError):
+                pass
+
+            fusion_proposals = st.session_state.discovery_fusion_proposals or []
+            if fusion_proposals:
+                fusion_feedback = st.session_state.discovery_fusion_feedback or {}
+                accepted = sum(
+                    1 for item in fusion_feedback.values()
+                    if isinstance(item, dict) and item.get("rating") == "좋음"
+                )
+                st.caption(f"융합안 평가: 좋음 {accepted} / 전체 {len(fusion_proposals)}")
+
+            if st.session_state.discovery_pdf_paths:
+                st.markdown("**사용 문서:**")
+                for path in st.session_state.discovery_pdf_paths:
+                    st.caption(f"- {Path(path).name}")
+
+            report_path = st.session_state.discovery_report_path
+            if report_path:
+                st.markdown("**리포트:**")
+                st.caption(report_path)
+
+            verification = st.session_state.discovery_verification or {}
+            process_trace = verification.get("process_trace", {})
+            if process_trace:
+                st.markdown("**전체 과정 로그:**")
+                data_summary = process_trace.get("data_summary", {})
+                for key, value in data_summary.items():
+                    st.caption(f"- {key}: {value}")
+                trust_breakdown = process_trace.get("trust_breakdown", {})
+                if trust_breakdown:
+                    st.markdown("**신뢰점수 계산 내역:**")
+                    for key, value in trust_breakdown.items():
+                        st.caption(f"- {key}: {value}")
+
         # 대화 기록 표시
         message_pool = (
             st.session_state.discovery_critic_messages
@@ -898,6 +1141,7 @@ if st.session_state.discovery_policy_analysis or st.session_state.discovery_reco
                 st.markdown(user_input)
 
             with st.chat_message("assistant", avatar=avatar_image):
+                research_status = st.status("리서치 진행 중...", expanded=False, state="running")
                 try:
                     response_placeholder = st.empty()
                     response_container = [""]  # mutable container for async closure
@@ -922,6 +1166,9 @@ if st.session_state.discovery_policy_analysis or st.session_state.discovery_reco
                         agent.recommendations = st.session_state.discovery_recommendations
                         agent.interest_areas = st.session_state.discovery_interest_areas
                         agent.pdf_paths = st.session_state.discovery_pdf_paths
+                        agent.document_weight = st.session_state.discovery_document_weight
+                        agent.fusion_proposals = st.session_state.discovery_fusion_proposals
+                        agent.fusion_feedback = st.session_state.discovery_fusion_feedback
 
                         async def get_response():
                             async for chunk in agent.chat(user_input, stream=True):
@@ -935,8 +1182,10 @@ if st.session_state.discovery_policy_analysis or st.session_state.discovery_reco
                         "role": "assistant",
                         "content": response_container[0]
                     })
+                    research_status.update(label="리서치 완료", state="complete")
 
                 except Exception as e:
+                    research_status.update(label="리서치 중 오류 발생", state="error")
                     st.error(f"오류 발생: {str(e)}")
 
             st.rerun()

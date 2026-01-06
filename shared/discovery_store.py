@@ -184,6 +184,20 @@ class DiscoveryRecordStore:
         lines.append("")
         lines.append("## 입력 요약")
         lines.append(f"- 관심 분야: {', '.join(payload.get('interest_areas', []) or [])}")
+        doc_weight = payload.get("document_weight")
+        if doc_weight is not None:
+            try:
+                lines.append(f"- 문서 가중치: {float(doc_weight):.0%}")
+            except (TypeError, ValueError):
+                pass
+        fusion_proposals = payload.get("fusion_proposals") or []
+        fusion_feedback = payload.get("fusion_feedback") or {}
+        if fusion_proposals:
+            accepted = sum(
+                1 for item in fusion_feedback.values()
+                if isinstance(item, dict) and item.get("rating") == "좋음"
+            )
+            lines.append(f"- 융합안 평가: 좋음 {accepted} / 전체 {len(fusion_proposals)}")
 
         policy = payload.get("policy_analysis") or {}
         if policy:
