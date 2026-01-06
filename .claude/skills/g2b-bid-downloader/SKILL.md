@@ -95,29 +95,18 @@ pip install playwright olefile requests pyhwp
 playwright install chromium
 ```
 
-### 1.8 HWP 텍스트 추출기 설치 (필요서류 파싱용)
+### 1.8 HWP 파싱 안내
 
-hwp5txt는 HWP 파일에서 텍스트를 정확하게 추출합니다:
+나라장터 HWP 파일은 특수 포맷을 사용하여 hwp5txt와 호환되지 않습니다.
+대신 olefile + zlib 방식으로 텍스트를 추출합니다 (자동 처리).
 
 ```bash
-# hwp5txt 설치 확인
-hwp5txt --version
+# olefile 설치 확인 (1.7에서 이미 설치됨)
+pip show olefile
 ```
 
-설치가 안 되어 있으면:
-```bash
-pip install pyhwp
-```
-
-설치 후에도 `hwp5txt` 명령어가 안 되면:
-```bash
-# Python 스크립트 경로 확인
-which python
-# 예: /Users/본인/venv/bin/python
-
-# 같은 폴더에 hwp5txt가 있는지 확인
-ls $(dirname $(which python))/hwp5txt
-```
+참고: hwp5txt를 시도해도 "ColumnSet AssertionError"가 발생합니다.
+이는 정상이며, Claude가 olefile 방식으로 자동 폴백합니다.
 
 ### 1.9 설치 확인
 
@@ -237,13 +226,41 @@ options:
   - label: "해당없음"
 ```
 
-### Phase 5: 필요서류 추출
+### Phase 5: 필요서류 추출 (HWP 파싱 + Opus 검증)
 
-다운로드된 HWP 파일에서 제출서류 정보 추출:
-- 입찰참가신청서, 제안서, 가격입찰서
-- 수행실적 증명서류
-- 신용평가등급 확인서
-- 제출처, 제출방법, 마감일시
+**Step 1: HWP 텍스트 추출** (olefile + zlib 방식)
+
+```python
+# 나라장터 HWP는 hwp5txt와 호환 안 됨 → olefile 폴백 사용
+import olefile, zlib, re
+
+ole = olefile.OleFileIO(hwp_path)
+for entry in ole.listdir():
+    if entry[0] == 'BodyText':
+        data = ole.openstream(entry).read()
+        text = zlib.decompress(data, -15).decode('utf-16le', errors='ignore')
+        # 한글/영문/숫자만 추출
+        clean = re.sub(r'[^\uAC00-\uD7A3a-zA-Z0-9\s\.\,\(\)\-\:\;\/]+', ' ', text)
+```
+
+**Step 2: 키워드 기반 섹션 추출**
+
+추출 대상 키워드:
+- 제출서류, 서식, 입찰참가, 신청서류
+- 제출처, 제출방법, 마감, 유의사항
+
+**Step 3: Opus 검증**
+
+추출된 원문을 Opus에게 전달하여 다음을 검증/정리:
+1. 필요 서류 목록 (완전한 리스트)
+2. 제출처 및 방법
+3. 마감일시 (정확한 날짜와 시간)
+4. 유의사항 (핵심만)
+
+```
+Task(subagent_type="general-purpose"):
+prompt: "HWP에서 추출한 원문을 검증하고 슬랙용 형식으로 정리해주세요"
+```
 
 ### Phase 6: SWOT 분석 및 결과 출력
 
@@ -372,8 +389,9 @@ python scripts/g2b_file_downloader.py "키워드" --indices 1,2,3
 
 - 크롤링: requests + 나라장터 API
 - 파일 다운로드: Playwright + Raonkupload k00
-- HWP 파싱: pyhwp (hwp5txt) - 필요서류/제출방법 추출
-- 폴백 파싱: olefile + zlib (pyhwp 미설치 시)
+- HWP 파싱: olefile + zlib (나라장터 HWP 전용)
+  - 참고: hwp5txt는 나라장터 HWP와 호환 안 됨 (ColumnSet 오류)
+- 검증: Claude Opus를 통한 추출 내용 검증
 - 분석: Claude를 통한 요구사항 분석 및 SWOT 도출
 
 ---
