@@ -92,6 +92,23 @@ python cli.py analyze <파일경로> --mode peer
 
 Claude Code를 처음 사용하시는 분은 아래 순서대로 설정하세요.
 
+> 💡 **설정 중 막히는 부분이 있으시면 Claude Code 실행 후 자연어로 질문해주세요.**
+>
+> 예: "터미널에서 이런 에러가 나는데 어떻게 해야 해?"
+>
+> Claude가 친절하게 도와드립니다.
+
+### Step 0. 저장소 클론
+
+먼저 터미널에서 프로젝트를 다운로드합니다:
+
+```bash
+git clone https://github.com/merryAI-dev/merry.git
+cd merry
+```
+
+(Private 저장소이므로 GitHub 계정 권한이 필요합니다. 권한 요청은 AX솔루션 슬랙 채널로 문의해주세요.)
+
 ### Step 1. 사전 설치
 
 **터미널 열기**: `Cmd + Space` → "터미널" 입력 → Enter
