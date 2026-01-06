@@ -179,6 +179,9 @@ class DiscoveryAgent:
         self.pdf_paths = []
         self.hypotheses = None
         self.verification = None
+        self.document_weight = 0.7
+        self.fusion_proposals = []
+        self.fusion_feedback = {}
 
         # 대화 히스토리
         self.conversation_history = []
@@ -225,6 +228,15 @@ class DiscoveryAgent:
             hypo_count = len(self.hypotheses.get("hypotheses", []))
             context_parts.append(f"- 생성된 가설: {hypo_count}개")
 
+        if self.document_weight is not None:
+            context_parts.append(f"- 문서 가중치: {self.document_weight:.0%}")
+
+        if self.fusion_proposals:
+            accepted_count = self._count_fusion_feedback("좋음")
+            context_parts.append(
+                f"- 융합안: {len(self.fusion_proposals)}개 (좋음 {accepted_count}개)"
+            )
+
         if self.verification:
             trust_score = self.verification.get("trust_score")
             if trust_score is not None:
@@ -234,6 +246,15 @@ class DiscoveryAgent:
                 context_parts.append(f"- 논리점수: {logic_score:.1f}")
 
         return "\n".join(context_parts) if context_parts else "아직 분석이 시작되지 않았습니다."
+
+    def _count_fusion_feedback(self, rating: str) -> int:
+        if not self.fusion_feedback:
+            return 0
+        count = 0
+        for item in self.fusion_feedback.values():
+            if isinstance(item, dict) and item.get("rating") == rating:
+                count += 1
+        return count
 
     def _build_stub_policy_analysis(self, interest_areas: List[str]) -> Dict[str, Any]:
         themes = list(dict.fromkeys(interest_areas)) if interest_areas else []
@@ -256,7 +277,10 @@ class DiscoveryAgent:
         text_content: str = None,
         interest_areas: List[str] = None,
         focus_keywords: List[str] = None,
-        autonomous_mode: bool = True
+        autonomous_mode: bool = True,
+        document_weight: float = 0.7,
+        fusion_proposals: Optional[List[Dict[str, Any]]] = None,
+        fusion_feedback: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         PDF/텍스트 분석부터 추천까지 전체 파이프라인 실행
@@ -267,6 +291,9 @@ class DiscoveryAgent:
             interest_areas: 사용자 관심 분야
             focus_keywords: 집중 분석 키워드
             autonomous_mode: 가설/검증 루프 실행 여부
+            document_weight: 문서 기반 가중치 (0~1)
+            fusion_proposals: 사전 융합안 리스트
+            fusion_feedback: 융합안 사용자 평가
 
         Returns:
             {
@@ -282,6 +309,15 @@ class DiscoveryAgent:
         self.interest_areas = interest_areas or []
         self.hypotheses = None
         self.verification = None
+        if document_weight is not None:
+            try:
+                self.document_weight = max(min(float(document_weight), 1.0), 0.0)
+            except (TypeError, ValueError):
+                pass
+        if not self.interest_areas:
+            self.document_weight = 1.0
+        self.fusion_proposals = fusion_proposals or []
+        self.fusion_feedback = fusion_feedback or {}
 
         session_id = self.memory.session_id
         created_at = datetime.now().isoformat()
@@ -293,6 +329,9 @@ class DiscoveryAgent:
             "recommendations": None,
             "hypotheses": None,
             "verification": None,
+            "document_weight": self.document_weight,
+            "fusion_proposals": self.fusion_proposals,
+            "fusion_feedback": self.fusion_feedback,
             "session_id": session_id,
             "report_path": None,
             "checkpoint_path": None,
@@ -312,6 +351,9 @@ class DiscoveryAgent:
                 "recommendations": self.recommendations,
                 "hypotheses": self.hypotheses,
                 "verification": self.verification,
+                "document_weight": self.document_weight,
+                "fusion_proposals": self.fusion_proposals,
+                "fusion_feedback": self.fusion_feedback,
             }
             try:
                 result["checkpoint_path"] = self.session_store.save_checkpoint(session_id, payload)
@@ -377,7 +419,8 @@ class DiscoveryAgent:
                 "iris_mapping": self.iris_mapping,
                 "interest_areas": self.interest_areas,
                 "recommendation_count": 5,
-                "api_key": self.api_key
+                "api_key": self.api_key,
+                "document_weight": self.document_weight
             })
 
             if rec_result.get("success"):
@@ -393,7 +436,9 @@ class DiscoveryAgent:
             hypo_result = generator.generate(
                 interest_areas=self.interest_areas,
                 policy_analysis=self.policy_analysis,
-                iris_mapping=self.iris_mapping
+                iris_mapping=self.iris_mapping,
+                fusion_proposals=self.fusion_proposals,
+                fusion_feedback=self.fusion_feedback,
             )
             if hypo_result.get("success"):
                 self.hypotheses = hypo_result
@@ -433,6 +478,9 @@ class DiscoveryAgent:
             "recommendations": self.recommendations,
             "hypotheses": self.hypotheses,
             "verification": self.verification,
+            "document_weight": self.document_weight,
+            "fusion_proposals": self.fusion_proposals,
+            "fusion_feedback": self.fusion_feedback,
         }
         try:
             stored = self.session_store.save_session(session_id, session_payload, write_report=True)
@@ -569,6 +617,8 @@ class DiscoveryAgent:
             "policy_analyzed": self.policy_analysis is not None,
             "iris_mapped": self.iris_mapping is not None,
             "recommendations_generated": self.recommendations is not None,
+            "document_weight": self.document_weight,
+            "fusion_proposal_count": len(self.fusion_proposals),
             "policy_themes": self.policy_analysis.get("policy_themes", []) if self.policy_analysis else [],
             "target_industries": self.policy_analysis.get("target_industries", []) if self.policy_analysis else [],
             "aggregate_sdgs": self.iris_mapping.get("aggregate_sdgs", []) if self.iris_mapping else [],
@@ -591,6 +641,9 @@ class DiscoveryAgent:
         self.hypotheses = None
         self.verification = None
         self.conversation_history = []
+        self.document_weight = 0.7
+        self.fusion_proposals = []
+        self.fusion_feedback = {}
 
 
 # 동기 래퍼 (Streamlit 호환)
@@ -600,7 +653,10 @@ def run_discovery_analysis(
     interest_areas: List[str] = None,
     focus_keywords: List[str] = None,
     api_key: str = None,
-    autonomous_mode: bool = True
+    autonomous_mode: bool = True,
+    document_weight: float = 0.7,
+    fusion_proposals: Optional[List[Dict[str, Any]]] = None,
+    fusion_feedback: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     동기 방식으로 발굴 분석 실행 (Streamlit 호환)
@@ -612,6 +668,9 @@ def run_discovery_analysis(
         focus_keywords: 집중 키워드
         api_key: API 키
         autonomous_mode: 가설/검증 루프 실행 여부
+        document_weight: 문서 기반 가중치 (0~1)
+        fusion_proposals: 사전 융합안 리스트
+        fusion_feedback: 융합안 사용자 평가
     """
     agent = DiscoveryAgent(api_key=api_key)
     return asyncio.run(agent.analyze_and_recommend(
@@ -619,5 +678,24 @@ def run_discovery_analysis(
         text_content=text_content,
         interest_areas=interest_areas,
         focus_keywords=focus_keywords,
-        autonomous_mode=autonomous_mode
+        autonomous_mode=autonomous_mode,
+        document_weight=document_weight,
+        fusion_proposals=fusion_proposals,
+        fusion_feedback=fusion_feedback,
     ))
+
+
+def run_fusion_proposals(
+    interest_areas: List[str],
+    policy_analysis: Optional[Dict[str, Any]] = None,
+    iris_mapping: Optional[Dict[str, Any]] = None,
+    proposal_count: int = 4,
+    api_key: str = None,
+) -> Dict[str, Any]:
+    generator = HypothesisGenerator(api_key=api_key)
+    return generator.generate_fusion_proposals(
+        interest_areas=interest_areas,
+        policy_analysis=policy_analysis,
+        iris_mapping=iris_mapping,
+        proposal_count=proposal_count,
+    )
