@@ -38,9 +38,9 @@ SEARCH_COLUMNS = [
 AIRTABLE_MAX_PAGE_SIZE = 100
 
 
-def _ensure_data_file() -> Path:
+def _ensure_data_file() -> Optional[Path]:
     if not DATA_FILE.exists():
-        raise FileNotFoundError(f"{DATA_FILE} 파일을 찾을 수 없습니다.")
+        return None
     return DATA_FILE
 
 
@@ -68,6 +68,8 @@ def _airtable_enabled() -> bool:
 @lru_cache(maxsize=1)
 def _load_dataframe() -> pd.DataFrame:
     path = _ensure_data_file()
+    if not path:
+        return pd.DataFrame(columns=SEARCH_COLUMNS)
     df = pd.read_csv(path, encoding="utf-8-sig")
     df.columns = [col.replace("\n", " ").strip() for col in df.columns]
     df = df.fillna("")
