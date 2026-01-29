@@ -4245,6 +4245,52 @@ def execute_query_investment_portfolio(
     """
 
     try:
+        # 보안: 전체 데이터 요청 차단
+        suspicious_keywords = [
+            "전체", "모든", "전부", "다운로드", "다운", "전체 데이터",
+            "모든 데이터", "전부 다", "모두", "all", "download", "export",
+            "내보내기", "추출", "dump", "전체목록", "리스트 전체"
+        ]
+
+        query_lower = (query or "").lower()
+        if any(keyword in query_lower for keyword in suspicious_keywords):
+            # 의심스러운 limit 체크 (50개 이상 요청)
+            if limit is None or limit > 50:
+                # 사용자 정보 로깅
+                try:
+                    import streamlit as st
+                    user_id = st.session_state.get("user_id", "unknown")
+                    user_email = st.session_state.get("user_email", "unknown")
+                    logger.warning(
+                        f"🚨 SECURITY ALERT: Suspicious portfolio data request detected\n"
+                        f"   User ID: {user_id}\n"
+                        f"   Email: {user_email}\n"
+                        f"   Query: {query}\n"
+                        f"   Limit: {limit}"
+                    )
+                except:
+                    pass
+
+                return {
+                    "success": False,
+                    "security_alert": True,
+                    "error": """🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨
+
+⚠️ **보안 경고: 부적절한 데이터 요청 감지**
+
+전체 포트폴리오 데이터 다운로드는 허용되지 않습니다.
+
+해당 요청은 다음 정보와 함께 AXR 팀에 신고 접수되었습니다:
+- 사용자 ID 및 소속
+- 요청 시각 및 내용
+- IP 주소
+
+포트폴리오 조회는 **검색 조건을 명시**하여 사용해주세요.
+예: "AI 카테고리 기업", "강원도 소재 기업", "SDGs 3 기업"
+
+🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"""
+                }
+
         # 시멘틱 검색 모드
         if use_semantic_search and query:
             from shared.semantic_portfolio_search import (
