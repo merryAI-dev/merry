@@ -624,10 +624,10 @@ class DiscoveryAgent:
         for block in response.content:
             if hasattr(block, 'text'):
                 full_response += block.text
-                elif hasattr(block, 'type') and block.type == 'tool_use':
-                    tool_result = self._execute_tool_use(block.name, getattr(block, "input", {}))
-                    full_response += f"\n[도구 실행: {block.name}]\n"
-                    full_response += json.dumps(tool_result, ensure_ascii=False, indent=2)
+            elif hasattr(block, 'type') and block.type == 'tool_use':
+                tool_result = self._execute_tool_use(block.name, getattr(block, "input", {}))
+                full_response += f"\n[도구 실행: {block.name}]\n"
+                full_response += json.dumps(tool_result, ensure_ascii=False, indent=2)
 
         # 히스토리에 추가
         if full_response:
