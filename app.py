@@ -566,10 +566,43 @@ with st.expander("파일 첨부", expanded=False):
 
     if uploaded_files:
         for uploaded_file in uploaded_files:
-            file_path = save_uploaded_file(uploaded_file)
-            if file_path and file_path not in st.session_state.unified_files:
-                st.session_state.unified_files.append(file_path)
-                st.toast(f"{uploaded_file.name} 업로드 완료")
+            # PDF 파일인 경우 로딩바 표시
+            if uploaded_file.name.lower().endswith('.pdf'):
+                import time
+
+                # 로딩바 표시
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+
+                status_text.text(f"📄 {uploaded_file.name} 업로드 중...")
+
+                # 30초 동안 진행
+                for percent in range(101):
+                    time.sleep(0.3)  # 30초 = 100 * 0.3
+                    progress_bar.progress(percent)
+                    if percent < 100:
+                        status_text.text(f"📄 {uploaded_file.name} 업로드 중... {percent}%")
+
+                # 파일 저장
+                file_path = save_uploaded_file(uploaded_file)
+
+                if file_path and file_path not in st.session_state.unified_files:
+                    st.session_state.unified_files.append(file_path)
+                    progress_bar.empty()
+                    status_text.empty()
+
+                    # 완료 토스트
+                    st.toast(f"✅ {uploaded_file.name} 업로드 완료", icon="✅")
+
+                    # 주의 문구 표시
+                    st.warning(f"⚠️ **{uploaded_file.name}** 업로드가 완료되었습니다. 이제 파일 분석을 요청하실 수 있습니다.", icon="⚠️")
+                    time.sleep(2)  # 2초간 표시
+            else:
+                # PDF가 아닌 파일은 즉시 업로드
+                file_path = save_uploaded_file(uploaded_file)
+                if file_path and file_path not in st.session_state.unified_files:
+                    st.session_state.unified_files.append(file_path)
+                    st.toast(f"{uploaded_file.name} 업로드 완료")
 
 # 채팅 입력
 user_input = st.chat_input("메시지를 입력하세요...", key="unified_chat_input")
