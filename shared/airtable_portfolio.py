@@ -39,9 +39,7 @@ AIRTABLE_MAX_PAGE_SIZE = 100
 
 
 def _ensure_data_file() -> Optional[Path]:
-    if not DATA_FILE.exists():
-        return None
-    return DATA_FILE
+    return DATA_FILE if DATA_FILE.exists() else None
 
 
 def _get_airtable_config() -> Tuple[Optional[str], Optional[str], str]:
