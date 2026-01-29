@@ -29,10 +29,11 @@ SEARCH_COLUMNS = [
     "SDGs",
     "Exit방안",
     "Investment Summary",
-    "키워드 (Business)",
-    "키워드 (Social Impact)",
+    "키워드\n(Business)",  # 실제 Airtable 컬럼명 (줄바꿈 포함)
+    "키워드\n(Social Impact)",  # 실제 Airtable 컬럼명 (줄바꿈 포함)
     "대표자명",
     "투자포인트",
+    "투자금액",  # 투자금액 검색 지원 추가
 ]
 
 AIRTABLE_MAX_PAGE_SIZE = 100
