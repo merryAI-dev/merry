@@ -323,7 +323,7 @@ if "unified_files" not in st.session_state:
 def save_uploaded_file(uploaded_file) -> str:
     """업로드된 파일을 temp 디렉토리에 저장"""
     user_id = st.session_state.get("user_id", "anonymous")
-    all_extensions = ALLOWED_EXTENSIONS_PDF | ALLOWED_EXTENSIONS_EXCEL | {".docx", ".doc"}
+    all_extensions = set(ALLOWED_EXTENSIONS_PDF) | set(ALLOWED_EXTENSIONS_EXCEL) | {".docx", ".doc"}
 
     is_valid, error = validate_upload(
         filename=uploaded_file.name,
