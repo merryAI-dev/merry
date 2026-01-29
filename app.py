@@ -211,6 +211,13 @@ html, body, [class*="css"] {
     margin: 0.25rem;
 }
 
+/* 하단 고정 파일 영역 */
+.fixed-file-area {
+    max-width: 900px;
+    margin: 0 auto 0.5rem auto;
+    padding: 0.5rem 0;
+}
+
 /* Streamlit 기본 버튼 스타일 */
 div[data-testid="stButton"] button {
     background: var(--bg-secondary) !important;
@@ -342,43 +349,6 @@ if not st.session_state.unified_messages:
             st.rerun()
 
 # ========================================
-# 파일 업로드 (Expander)
-# ========================================
-with st.expander("파일 첨부", expanded=False):
-    uploaded_files = st.file_uploader(
-        "분석할 파일을 선택하세요 (PDF, 엑셀, DOCX)",
-        type=["pdf", "xlsx", "xls", "docx", "doc"],
-        accept_multiple_files=True,
-        key="unified_file_uploader",
-        help="투자검토 엑셀, 기업소개서 PDF, 진단시트, 계약서 등 모든 파일을 지원합니다"
-    )
-
-    if uploaded_files:
-        for uploaded_file in uploaded_files:
-            file_path = save_uploaded_file(uploaded_file)
-            if file_path and file_path not in st.session_state.unified_files:
-                st.session_state.unified_files.append(file_path)
-                st.toast(f"{uploaded_file.name} 업로드 완료")
-
-# 첨부된 파일 표시
-if st.session_state.unified_files:
-    st.markdown("**업로드된 파일**")
-    for i, fpath in enumerate(st.session_state.unified_files):
-        fname = Path(fpath).name
-
-        col1, col2 = st.columns([5, 1])
-        with col1:
-            st.markdown(f"""
-            <div class="file-chip">
-                {fname}
-            </div>
-            """, unsafe_allow_html=True)
-        with col2:
-            if st.button("×", key=f"remove_{i}", help="제거"):
-                st.session_state.unified_files.pop(i)
-                st.rerun()
-
-# ========================================
 # 대화 영역
 # ========================================
 chat_container = st.container()
@@ -430,8 +400,45 @@ if st.session_state.unified_messages:
     """, unsafe_allow_html=True)
 
 # ========================================
-# 채팅 입력
+# 하단 고정 영역: 파일 첨부 + 채팅 입력
 # ========================================
+
+# 첨부된 파일 표시 (하단 고정)
+if st.session_state.unified_files:
+    st.markdown('<div class="fixed-file-area">', unsafe_allow_html=True)
+    for i, fpath in enumerate(st.session_state.unified_files):
+        fname = Path(fpath).name
+        col1, col2 = st.columns([5, 1])
+        with col1:
+            st.markdown(f"""
+            <div class="file-chip">
+                {fname}
+            </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            if st.button("×", key=f"remove_{i}", help="제거"):
+                st.session_state.unified_files.pop(i)
+                st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+
+# 파일 첨부 버튼
+with st.expander("파일 첨부", expanded=False):
+    uploaded_files = st.file_uploader(
+        "분석할 파일을 선택하세요 (PDF, 엑셀, DOCX)",
+        type=["pdf", "xlsx", "xls", "docx", "doc"],
+        accept_multiple_files=True,
+        key="unified_file_uploader",
+        help="투자검토 엑셀, 기업소개서 PDF, 진단시트, 계약서 등 모든 파일을 지원합니다"
+    )
+
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            file_path = save_uploaded_file(uploaded_file)
+            if file_path and file_path not in st.session_state.unified_files:
+                st.session_state.unified_files.append(file_path)
+                st.toast(f"{uploaded_file.name} 업로드 완료")
+
+# 채팅 입력
 user_input = st.chat_input("메시지를 입력하세요...", key="unified_chat_input")
 
 # 빠른 명령어 처리
