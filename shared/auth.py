@@ -93,144 +93,255 @@ def check_authentication() -> bool:
     if st.session_state.get("api_key_validated"):
         return True
 
-    # 로그인 UI 표시
+    # BoltStyle CSS
     st.markdown(
         """
         <style>
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
         :root {
-            --merry-bg: #fbf4ea;
-            --merry-ink: #1f1a14;
-            --merry-muted: #6b5f53;
-            --merry-accent: #c7422f;
-            --merry-card: rgba(255, 255, 255, 0.86);
+            --graph-bg: #f7f2ea;
+            --graph-ink: #1c1914;
+            --graph-muted: #60554b;
+            --graph-node-bg: rgba(255, 255, 255, 0.9);
+            --graph-node-border: rgba(28, 25, 20, 0.14);
+            --graph-accent-teal: #1a8c86;
+            --graph-accent-amber: #d08a2e;
         }
 
-        .merry-login {
-            padding: 24px 28px;
-            border-radius: 22px;
-            background: var(--merry-card);
-            border: 1px solid rgba(31, 26, 20, 0.08);
-            box-shadow: 0 24px 50px rgba(25, 18, 9, 0.08);
+        .stApp {
+            background-color: var(--graph-bg);
+            background-image:
+                radial-gradient(circle at 15% 10%, rgba(255, 247, 236, 0.9), rgba(255, 247, 236, 0) 40%),
+                radial-gradient(circle at 85% 20%, rgba(255, 232, 218, 0.7), rgba(255, 232, 218, 0) 35%),
+                repeating-linear-gradient(0deg, rgba(28, 25, 20, 0.06), rgba(28, 25, 20, 0.06) 1px, transparent 1px, transparent 28px),
+                repeating-linear-gradient(90deg, rgba(28, 25, 20, 0.06), rgba(28, 25, 20, 0.06) 1px, transparent 1px, transparent 28px);
+            background-attachment: fixed;
         }
 
-        .merry-kicker {
-            font-family: "IBM Plex Mono", monospace;
-            font-size: 11px;
-            letter-spacing: 0.2em;
-            text-transform: uppercase;
-            color: var(--merry-muted);
-        }
-
-        .merry-title {
+        html, body, [class*="css"] {
             font-family: "Space Grotesk", "Noto Sans KR", sans-serif;
-            font-size: 28px;
-            font-weight: 700;
-            margin: 6px 0 8px 0;
-            color: var(--merry-ink);
+            color: var(--graph-ink);
         }
 
-        .merry-subtitle {
-            font-family: "Space Grotesk", "Noto Sans KR", sans-serif;
-            font-size: 15px;
-            color: var(--merry-muted);
+        .auth-welcome-container {
+            text-align: center;
+            padding: 32px 24px 16px 24px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .auth-header {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
             margin-bottom: 12px;
         }
 
-        .merry-note {
-            font-size: 12px;
-            color: var(--merry-muted);
-            margin-top: 8px;
+        .auth-header h1 {
+            font-size: 32px;
+            font-weight: 700;
+            margin: 0;
+            color: var(--graph-ink);
         }
 
-        div[data-testid="stTextInput"] input {
-            border-radius: 12px !important;
-            border: 1px solid rgba(31, 26, 20, 0.16) !important;
+        .auth-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            border-radius: 999px;
+            background: linear-gradient(135deg, rgba(26, 140, 134, 0.15), rgba(208, 138, 46, 0.15));
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--graph-muted);
+        }
+
+        .auth-badge::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--graph-accent-teal);
+            animation: pulse-dot 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.2); }
+        }
+
+        .auth-subtitle {
+            font-size: 15px;
+            color: var(--graph-muted);
+            margin-bottom: 24px;
+        }
+
+        .auth-capability-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin: 24px auto 32px auto;
+            max-width: 600px;
+        }
+
+        .auth-capability-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.6);
+            border-radius: 12px;
+            border: 1px solid rgba(28, 25, 20, 0.08);
+        }
+
+        .auth-capability-item__icon {
+            font-size: 24px;
+        }
+
+        .auth-capability-item__label {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--graph-ink);
+        }
+
+        .auth-login-card {
+            background: var(--graph-node-bg);
+            border: 1px solid var(--graph-node-border);
+            border-radius: 18px;
+            padding: 28px 36px;
+            max-width: 520px;
+            margin: 0 auto 24px auto;
+            box-shadow: 0 12px 32px rgba(25, 18, 9, 0.08);
+        }
+
+        .auth-section-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--graph-ink);
+            margin: 16px 0 8px 0;
+        }
+
+        .auth-section-title:first-child {
+            margin-top: 0;
+        }
+
+        div[data-testid="stTextInput"] input,
+        div[data-testid="stSelectbox"] > div {
+            border-radius: 10px !important;
+            border: 1px solid rgba(28, 25, 20, 0.14) !important;
             background: #fffaf3 !important;
+        }
+
+        div[data-testid="stButton"] button[kind="primary"] {
+            background: linear-gradient(135deg, #1a8c86, #1a7a75) !important;
+            border: none !important;
+            border-radius: 10px !important;
+            font-weight: 600 !important;
+            padding: 10px 24px !important;
+        }
+
+        div[data-testid="stButton"] button[kind="primary"]:hover {
+            background: linear-gradient(135deg, #1a7a75, #166d68) !important;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    cols = st.columns([1.2, 1])
-    with cols[0]:
-        st.markdown(
-            """
-            <div class="merry-login">
-                <div class="merry-kicker">Merry VC Agent</div>
-                <div class="merry-title">안녕하세요 사내기업가님.</div>
-                <div class="merry-subtitle">
-                    투자를 도와드리는 메리입니다. 오늘 어떤 분석을 시작할까요?
-                    아래에서 모듈을 고르거나 안내데스크에 요청해 주세요.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    with cols[1]:
-        st.markdown("#### 팀 선택")
-        team_options = list(TEAM_OPTIONS.keys())
-        stored_team_label = st.session_state.get("team_label")
-        team_index = team_options.index(stored_team_label) if stored_team_label in team_options else 0
-        team_label = st.selectbox(
-            "Team",
-            options=team_options,
-            index=team_index,
-        )
-        team_id = TEAM_OPTIONS.get(team_label)
-        st.session_state.team_id = team_id
-        st.session_state.team_label = team_label
+    # 헤더
+    st.markdown("""
+    <div class="auth-welcome-container">
+        <div class="auth-header">
+            <h1>메리 VC 에이전트</h1>
+            <span class="auth-badge">AI 활성</span>
+        </div>
+        <div class="auth-subtitle">
+            투자를 도와드리는 메리입니다. 오늘 어떤 분석을 시작할까요?
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-        member_name = st.text_input(
-            "닉네임",
-            value=st.session_state.get("member_name", ""),
-            placeholder="이름 또는 닉네임",
-        )
-        st.session_state.member_name = member_name
+    # Capability Grid
+    st.markdown("""
+    <div class="auth-capability-grid">
+        <div class="auth-capability-item">
+            <span class="auth-capability-item__icon">📊</span>
+            <span class="auth-capability-item__label">Exit 프로젝션</span>
+        </div>
+        <div class="auth-capability-item">
+            <span class="auth-capability-item__icon">🔍</span>
+            <span class="auth-capability-item__label">Peer 분석</span>
+        </div>
+        <div class="auth-capability-item">
+            <span class="auth-capability-item__icon">📁</span>
+            <span class="auth-capability-item__label">포트폴리오</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-        st.markdown("#### 최근 팀 세션")
-        sessions = _get_team_sessions(team_id)
-        if sessions:
-            session_options = [
-                f"{s['session_id']} ({s.get('message_count', 0)}개 메시지)"
-                for s in sessions
-            ]
-            selected_session = st.selectbox(
-                "세션 선택",
-                options=["새 세션 시작"] + session_options,
-                index=0,
-            )
-            if selected_session != "새 세션 시작":
-                st.session_state.pending_session_id = selected_session.split(" ")[0]
-            else:
-                st.session_state.pending_session_id = None
-            st.caption("선택한 세션은 로그인 후 자동으로 불러옵니다.")
+    # 로그인 카드
+    st.markdown('<div class="auth-login-card">', unsafe_allow_html=True)
+
+    st.markdown('<div class="auth-section-title">팀 선택</div>', unsafe_allow_html=True)
+    team_options = list(TEAM_OPTIONS.keys())
+    stored_team_label = st.session_state.get("team_label")
+    team_index = team_options.index(stored_team_label) if stored_team_label in team_options else 0
+    team_label = st.selectbox(
+        "Team",
+        options=team_options,
+        index=team_index,
+        label_visibility="collapsed"
+    )
+    team_id = TEAM_OPTIONS.get(team_label)
+    st.session_state.team_id = team_id
+    st.session_state.team_label = team_label
+
+    st.markdown('<div class="auth-section-title">닉네임</div>', unsafe_allow_html=True)
+    member_name = st.text_input(
+        "닉네임",
+        value=st.session_state.get("member_name", ""),
+        placeholder="이름 또는 닉네임",
+        label_visibility="collapsed"
+    )
+    st.session_state.member_name = member_name
+
+    # 최근 팀 세션
+    sessions = _get_team_sessions(team_id)
+    if sessions:
+        st.markdown('<div class="auth-section-title">최근 팀 세션</div>', unsafe_allow_html=True)
+        session_options = [
+            f"{s['session_id']} ({s.get('message_count', 0)}개 메시지)"
+            for s in sessions
+        ]
+        selected_session = st.selectbox(
+            "세션 선택",
+            options=["새 세션 시작"] + session_options,
+            index=0,
+            label_visibility="collapsed"
+        )
+        if selected_session != "새 세션 시작":
+            st.session_state.pending_session_id = selected_session.split(" ")[0]
         else:
-            st.caption("팀 세션이 없습니다. 새 세션으로 시작합니다.")
+            st.session_state.pending_session_id = None
+        st.caption("선택한 세션은 로그인 후 자동으로 불러옵니다.")
 
-        st.markdown("#### 메리의 역할")
-        st.markdown(
-            """
-            - Exit 프로젝션, IRR, 멀티플 계산 지원
-            - Peer PER 및 시장 근거 정리
-            - 계약서 핵심 조항/일치성 검토
-            """
-        )
-        st.markdown("#### 시작 준비")
-        st.caption("Claude API 키를 입력하면 메리가 바로 준비됩니다.")
-
-    # API 키 입력
+    st.markdown('<div class="auth-section-title">Claude API Key</div>', unsafe_allow_html=True)
     api_key = st.text_input(
         "Claude API Key",
         type="password",
         placeholder="sk-ant-api03-...",
-        help="Anthropic Console에서 발급받은 API 키를 입력하세요"
+        help="Anthropic Console에서 발급받은 API 키를 입력하세요",
+        label_visibility="collapsed"
     )
 
-    col1, col2 = st.columns([1, 3])
-    with col1:
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # 버튼
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
         login_clicked = st.button("메리와 시작하기", type="primary", use_container_width=True)
 
     if login_clicked:
@@ -250,9 +361,13 @@ def check_authentication() -> bool:
                 else:
                     st.error("유효하지 않은 API 키입니다.")
 
-    st.markdown("---")
-    st.caption("API 키는 세션 동안만 사용됩니다.")
-    st.caption("[Anthropic Console](https://console.anthropic.com/)에서 API 키를 발급받을 수 있습니다.")
+    # 하단 안내
+    st.markdown("")
+    cols = st.columns([1, 3, 1])
+    with cols[1]:
+        st.caption("💡 **메리의 역할**: Exit 프로젝션, Peer PER 분석, 계약서 검토")
+        st.caption("🔒 API 키는 세션 동안만 사용됩니다.")
+        st.caption("🔑 [Anthropic Console](https://console.anthropic.com/)에서 API 키를 발급받을 수 있습니다.")
 
     st.stop()
 
