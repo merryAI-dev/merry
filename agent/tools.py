@@ -1180,13 +1180,21 @@ def register_tools() -> List[Dict[str, Any]]:
         },
         {
             "name": "query_investment_portfolio",
-            "description": "투자기업 CSV(투자기업-Grid view.csv)를 조회합니다. 질문/필터/정렬 조건을 주면 해당하는 기업 리스트와 요약을 반환합니다.",
+            "description": """투자기업 포트폴리오를 조회합니다.
+
+시멘틱 검색 기능:
+- use_semantic_search=true로 설정하면 자연어 쿼리를 분석하여 여러 서브쿼리로 확장합니다
+- 예: "투자금액 높고 사회적 가치 큰 기업" → ① 투자금액 정렬, ② SDGs 필터, ③ 임팩트 키워드 검색
+- 검색 계획을 사용자에게 먼저 보여주고 승인받은 후 실행합니다 (인터랙티브)
+
+일반 검색:
+- query/filters/sort_by를 직접 지정하여 검색 (use_semantic_search=false 또는 미설정)""",
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "검색어 (기업명/서비스/키워드 등)"
+                        "description": "검색어 (기업명/서비스/키워드 등) 또는 자연어 질문"
                     },
                     "filters": {
                         "type": "object",
@@ -1198,12 +1206,16 @@ def register_tools() -> List[Dict[str, Any]]:
                     },
                     "sort_by": {
                         "type": "string",
-                        "description": "정렬 기준 컬럼명"
+                        "description": "정렬 기준 컬럼명 (투자금액, 기업명 등)"
                     },
                     "sort_order": {
                         "type": "string",
                         "enum": ["asc", "desc"],
                         "description": "정렬 방향 (기본: desc)"
+                    },
+                    "use_semantic_search": {
+                        "type": "boolean",
+                        "description": "시멘틱 검색 사용 여부. true로 설정하면 자연어 쿼리를 분석하여 멀티쿼리 검색을 수행하고 사용자 확인을 받습니다 (기본: false)"
                     }
                 }
             }
@@ -4221,10 +4233,57 @@ def execute_query_investment_portfolio(
     limit: int = None,
     sort_by: str = None,
     sort_order: str = "desc",
+    use_semantic_search: bool = False,
 ) -> Dict[str, Any]:
-    """투자기업 CSV 기반 조회"""
+    """
+    투자기업 포트폴리오 조회
+
+    use_semantic_search=True일 경우:
+    1. 자연어 쿼리를 분석하여 서브쿼리 생성
+    2. 검색 계획을 반환 (사용자 확인 필요)
+    3. 사용자가 승인하면 각 서브쿼리 실행 후 병합
+    """
 
     try:
+        # 시멘틱 검색 모드
+        if use_semantic_search and query:
+            from shared.semantic_portfolio_search import (
+                expand_portfolio_query,
+                format_search_plan,
+                merge_subquery_results
+            )
+            import os
+
+            # API 키 가져오기
+            api_key = os.getenv("ANTHROPIC_API_KEY")
+            if not api_key:
+                try:
+                    import streamlit as st
+                    api_key = st.session_state.get("user_api_key")
+                except:
+                    pass
+
+            if not api_key:
+                return {
+                    "success": False,
+                    "error": "시멘틱 검색을 위한 API 키가 필요합니다"
+                }
+
+            # 쿼리 확장
+            expanded = expand_portfolio_query(query, api_key)
+
+            # 검색 계획을 사용자에게 보여주기 위해 반환
+            search_plan = format_search_plan(expanded)
+
+            return {
+                "success": True,
+                "requires_confirmation": True,  # 사용자 확인 필요
+                "search_plan": search_plan,
+                "expanded_query": expanded,  # 에이전트가 다음 단계에서 사용
+                "message": f"{search_plan}\n\n위 검색 계획에 동의하시면 '네' 또는 '진행'이라고 말씀해주세요."
+            }
+
+        # 일반 검색 모드 (기존)
         records = search_portfolio_records(
             query=query,
             filters=filters or {},
@@ -4242,6 +4301,59 @@ def execute_query_investment_portfolio(
         return {"success": False, "error": str(exc)}
     except Exception as exc:
         return {"success": False, "error": f"투자기업 조회 실패: {str(exc)}"}
+
+
+def execute_semantic_portfolio_search(
+    expanded_query: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    확장된 쿼리를 실제로 실행 (사용자 승인 후)
+
+    Args:
+        expanded_query: expand_portfolio_query가 반환한 확장 쿼리
+
+    Returns:
+        병합된 검색 결과
+    """
+    try:
+        from shared.semantic_portfolio_search import merge_subquery_results
+
+        subqueries = expanded_query.get("subqueries", [])
+        final_limit = expanded_query.get("final_limit", 5)
+
+        all_results = []
+
+        for sq in subqueries:
+            filters = sq.get("filters", {})
+            sort_by = sq.get("sort_by")
+            sort_order = sq.get("sort_order", "desc")
+
+            # 각 서브쿼리 실행
+            records = search_portfolio_records(
+                query=None,  # 필터로만 검색
+                filters=filters,
+                limit=10,  # 서브쿼리당 10개씩
+                sort_by=sort_by,
+                sort_order=sort_order,
+            )
+
+            all_results.append(records)
+
+        # 결과 병합
+        merged_records = merge_subquery_results(all_results, final_limit)
+
+        summary = f"시멘틱 검색 완료: {len(subqueries)}개 서브쿼리 실행, 총 {len(merged_records)}개 기업 발견"
+
+        return {
+            "success": True,
+            "summary": summary,
+            "records": merged_records,
+            "subquery_count": len(subqueries)
+        }
+
+    except Exception as exc:
+        logger.error(f"시멘틱 검색 실행 실패: {exc}", exc_info=True)
+        return {"success": False, "error": f"시멘틱 검색 실행 실패: {str(exc)}"}
 
 
 def _format_large_number(value) -> str:
