@@ -41,6 +41,21 @@ initialize_session_state()
 check_authentication()  # 인증되지 않으면 여기서 멈춤
 
 # ========================================
+# 포트폴리오 데이터 사전 로드 (백그라운드 캐싱)
+# ========================================
+from shared.airtable_portfolio import _get_cached_dataframe
+
+# 앱 시작 시 DataFrame 미리 로드 (첫 검색부터 빠르게)
+# @st.cache_data로 캐싱되므로 한 번만 실행됨
+try:
+    df = _get_cached_dataframe()
+    st.session_state["portfolio_preloaded"] = True
+    st.session_state["portfolio_size"] = len(df)
+except Exception as e:
+    st.session_state["portfolio_preloaded"] = False
+    st.session_state["portfolio_error"] = str(e)
+
+# ========================================
 # Claude Code 스타일 CSS
 # ========================================
 st.markdown("""

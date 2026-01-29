@@ -18,6 +18,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import requests
+import streamlit as st
 
 from shared.logging_config import get_logger
 
@@ -89,7 +90,7 @@ def _airtable_enabled() -> bool:
     return bool(key and base)
 
 
-@lru_cache(maxsize=1)
+@st.cache_data(ttl=3600, show_spinner="포트폴리오 데이터 로드 중...")
 def _load_csv_dataframe() -> pd.DataFrame:
     """CSV 파일에서 DataFrame 로드 (fallback용)"""
     path = _ensure_data_file()
@@ -101,11 +102,16 @@ def _load_csv_dataframe() -> pd.DataFrame:
     return df
 
 
-@lru_cache(maxsize=1)
+@st.cache_data(ttl=3600, show_spinner="Airtable 데이터 로드 중...")
 def _fetch_all_airtable_records_as_dataframe() -> pd.DataFrame:
     """
     Airtable에서 모든 레코드를 가져와 pandas DataFrame으로 캐싱
     페이징 처리로 전체 데이터 로드 (289개 기업 전체)
+
+    **Streamlit 캐싱:**
+    - TTL: 1시간 (3600초)
+    - 앱 시작 시 자동 로드
+    - 모든 사용자가 캐시 공유
     """
     key, base, table = _get_airtable_config()
 
