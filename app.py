@@ -632,10 +632,15 @@ if user_input:
             agent = st.session_state.agent
 
             # 간단한 응답 생성
-            with st.spinner("생각 중..."):
-                try:
-                    # 대화 히스토리 컴팩션: 15개 이상 시 요약하여 컨텍스트 유지
-                    if len(st.session_state.unified_messages) >= 15:
+            try:
+                # 대화 히스토리 컴팩션: 15개 이상 시 요약하여 컨텍스트 유지
+                if len(st.session_state.unified_messages) >= 15:
+                    # 컴팩션 중 명확한 시각적 피드백
+                    with st.status("📝 대화 내용 요약 중...", expanded=True) as status:
+                        status.write("💬 15개 이상의 메시지를 압축하고 있습니다.")
+                        status.write("⏳ Claude Haiku API로 이전 대화를 요약하는 중입니다...")
+                        status.write("🔒 잠시만 기다려주세요. (중복 요청 방지)")
+
                         api_key = st.session_state.get("user_api_key", "")
                         compacted_messages, success = compact_conversation(
                             st.session_state.unified_messages,
@@ -643,16 +648,20 @@ if user_input:
                         )
                         st.session_state.unified_messages = compacted_messages
 
-                        # 컴팩션 성공 시 알림
                         if success:
+                            status.update(label="✅ 대화 요약 완료!", state="complete", expanded=False)
                             st.toast("대화가 길어져 이전 내용을 요약했습니다", icon="📝")
+                        else:
+                            status.update(label="⚠️ 요약 실패 (기존 방식 사용)", state="error", expanded=False)
 
+                # 응답 생성 중 표시
+                with st.spinner("🤖 생각 중..."):
                     # 동기 chat 메서드 사용 (returns string)
                     full_response = agent.chat_sync(full_message, mode="unified")
                     tool_logs = []  # chat_sync doesn't return tool logs
-                except Exception as e:
-                    full_response = f"오류가 발생했습니다: {str(e)}"
-                    tool_logs = []
+            except Exception as e:
+                full_response = f"오류가 발생했습니다: {str(e)}"
+                tool_logs = []
 
             response_placeholder.markdown(full_response)
 
