@@ -285,25 +285,92 @@ div[data-testid="stButton"] button:hover {
 # ========================================
 # 헤더
 # ========================================
-col_left, col_right = st.columns([4, 1])
+# 헤더: 3컬럼 레이아웃 (제목, 팀 선택, 새 대화 버튼)
+col_left, col_mid, col_right = st.columns([3, 2, 1])
+
 with col_left:
     st.markdown("""
     <div class="claude-header">
         <div class="claude-header__logo">
-            <span>메리 VC 에이전트</span>
-            <span class="claude-header__badge">
-                <span style="width: 6px; height: 6px; background: #10b981; border-radius: 50%; display: inline-block;"></span>
-                Claude Opus 4.5
-            </span>
+            <span>Merry</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+with col_mid:
+    # 팀 드롭다운
+    team_options = [
+        "CIC 봄날",
+        "CIC 스템",
+        "CIC 썬",
+        "CIC 모모",
+        "LS그룹",
+        "CI그룹",
+        "대표이사실"
+    ]
+    current_team = st.session_state.get("current_team", "CIC 봄날")
+    selected_team = st.selectbox(
+        "팀 선택",
+        options=team_options,
+        index=team_options.index(current_team) if current_team in team_options else 0,
+        key="team_selector",
+        label_visibility="collapsed"
+    )
+    if selected_team != current_team:
+        st.session_state.current_team = selected_team
+        st.rerun()
 
 with col_right:
     if st.button("새 대화", key="new_chat", help="대화 초기화"):
         st.session_state.unified_messages = []
         st.session_state.unified_files = []
         st.rerun()
+
+# ========================================
+# 대화 기록 불러오기
+# ========================================
+from shared.conversation_history import list_conversations, load_conversation, save_conversation
+
+current_team = st.session_state.get("current_team", "CIC 봄날")
+
+# 대화 ID 초기화
+if "current_conversation_id" not in st.session_state:
+    st.session_state.current_conversation_id = None
+
+# 대화 기록 expander
+with st.expander("📚 대화 기록", expanded=False):
+    conversations = list_conversations(current_team, limit=10)
+
+    if conversations:
+        st.caption(f"최근 {len(conversations)}개 대화")
+
+        for conv in conversations:
+            conv_id = conv["conversation_id"]
+            preview = conv["preview"]
+            msg_count = conv["message_count"]
+            created = conv["created_at"][:16]  # YYYY-MM-DD HH:MM
+
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                if st.button(
+                    f"💬 {preview} ({msg_count}개)",
+                    key=f"load_{conv_id}",
+                    help=f"생성: {created}",
+                    use_container_width=True
+                ):
+                    # 대화 불러오기
+                    messages, metadata = load_conversation(current_team, conv_id)
+                    if messages:
+                        st.session_state.unified_messages = messages
+                        st.session_state.current_conversation_id = conv_id
+                        st.toast(f"✅ 대화 불러오기 완료 ({msg_count}개 메시지)")
+                        st.rerun()
+            with col2:
+                st.caption(f"{created[5:]}")  # MM-DD HH:MM
+    else:
+        st.info("저장된 대화 기록이 없습니다")
+
+st.markdown("---")
 
 # ========================================
 # 에이전트 초기화
@@ -671,6 +738,21 @@ if user_input:
                 "content": full_response,
                 "tool_logs": tool_logs
             })
+
+            # 대화 자동 저장 (백그라운드)
+            try:
+                current_team = st.session_state.get("current_team", "CIC 봄날")
+                current_conv_id = st.session_state.get("current_conversation_id")
+                new_conv_id = save_conversation(
+                    current_team,
+                    st.session_state.unified_messages,
+                    conversation_id=current_conv_id
+                )
+                if not current_conv_id and new_conv_id:
+                    # 첫 저장
+                    st.session_state.current_conversation_id = new_conv_id
+            except Exception as e:
+                logger.warning(f"대화 자동 저장 실패: {e}")
 
     st.rerun()
 
