@@ -1241,373 +1241,630 @@ for col, key in zip(cols, ["todo", "in_progress", "done"]):
 st.divider()
 
 # ========================================
-# 홈 안내 챗봇
+# 통합 에이전트 (BoltStyle UI)
 # ========================================
-st.markdown("## 메리 안내 데스크")
-st.caption("필요한 업무를 말하면 해당 모듈로 안내합니다.")
+
+# BoltStyle CSS
+st.markdown("""
+<style>
+/* Unified Agent Chat Container */
+.unified-chat-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 16px 0;
+}
+
+.unified-chat-header h2 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--graph-ink);
+}
+
+.unified-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, rgba(26, 140, 134, 0.15), rgba(208, 138, 46, 0.15));
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--graph-muted);
+}
+
+.unified-badge::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--graph-accent-teal);
+    animation: pulse-dot 2s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.2); }
+}
+
+/* Suggestion Cards */
+.suggestion-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    padding: 16px 0;
+}
+
+.suggestion-card {
+    background: var(--graph-node-bg);
+    border: 1px solid var(--graph-node-border);
+    border-radius: 14px;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.suggestion-card:hover {
+    border-color: rgba(26, 140, 134, 0.4);
+    box-shadow: 0 8px 24px rgba(26, 140, 134, 0.12);
+    transform: translateY(-2px);
+}
+
+.suggestion-card__icon {
+    font-size: 20px;
+}
+
+.suggestion-card__title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--graph-ink);
+}
+
+.suggestion-card__desc {
+    font-size: 11px;
+    color: var(--graph-muted);
+    line-height: 1.4;
+}
+
+/* Quick Action Pills */
+.quick-action-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 12px 0;
+}
+
+.quick-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(28, 25, 20, 0.12);
+    background: rgba(255, 255, 255, 0.8);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--graph-ink);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.quick-pill:hover {
+    background: rgba(26, 140, 134, 0.1);
+    border-color: rgba(26, 140, 134, 0.3);
+}
+
+.quick-pill--primary {
+    background: linear-gradient(135deg, #1a8c86, #1a7a75);
+    color: white;
+    border-color: transparent;
+}
+
+.quick-pill--primary:hover {
+    background: linear-gradient(135deg, #1a7a75, #166d68);
+}
+
+/* File Attachment Preview */
+.file-attachment-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 0;
+}
+
+.file-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: rgba(208, 138, 46, 0.1);
+    border: 1px solid rgba(208, 138, 46, 0.2);
+    font-size: 11px;
+    color: var(--graph-ink);
+}
+
+.file-chip__icon {
+    font-size: 14px;
+}
+
+.file-chip__remove {
+    margin-left: 4px;
+    padding: 2px;
+    border-radius: 50%;
+    background: rgba(28, 25, 20, 0.1);
+    cursor: pointer;
+    font-size: 10px;
+    line-height: 1;
+}
+
+.file-chip__remove:hover {
+    background: rgba(204, 58, 43, 0.2);
+}
+
+/* Tool Execution Card */
+.tool-execution-card {
+    background: linear-gradient(135deg, rgba(26, 140, 134, 0.08), rgba(208, 138, 46, 0.08));
+    border: 1px solid rgba(26, 140, 134, 0.2);
+    border-radius: 12px;
+    padding: 12px 16px;
+    margin: 8px 0;
+}
+
+.tool-execution-card__header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--graph-accent-teal);
+}
+
+.tool-execution-card__status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--graph-muted);
+    margin-top: 8px;
+}
+
+.tool-execution-card__spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid rgba(26, 140, 134, 0.2);
+    border-top-color: var(--graph-accent-teal);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Welcome Message Enhanced */
+.welcome-container {
+    padding: 24px;
+    text-align: center;
+}
+
+.welcome-title {
+    font-size: 24px;
+    font-weight: 600;
+    color: var(--graph-ink);
+    margin-bottom: 8px;
+}
+
+.welcome-subtitle {
+    font-size: 14px;
+    color: var(--graph-muted);
+    margin-bottom: 24px;
+}
+
+.capability-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin: 24px 0;
+}
+
+.capability-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.6);
+    border-radius: 12px;
+    border: 1px solid rgba(28, 25, 20, 0.08);
+}
+
+.capability-item__icon {
+    font-size: 24px;
+}
+
+.capability-item__label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--graph-ink);
+}
+
+/* Input Area Enhancement */
+div[data-testid="stChatInput"] {
+    border-radius: 16px !important;
+    border: 1px solid rgba(28, 25, 20, 0.12) !important;
+    box-shadow: 0 4px 16px rgba(25, 18, 9, 0.08) !important;
+    transition: all 0.2s ease !important;
+}
+
+div[data-testid="stChatInput"]:focus-within {
+    border-color: rgba(26, 140, 134, 0.4) !important;
+    box-shadow: 0 4px 24px rgba(26, 140, 134, 0.12) !important;
+}
+
+/* Keyboard Hint */
+.keyboard-hint {
+    display: flex;
+    justify-content: center;
+    gap: 16px;
+    padding: 8px 0;
+    font-size: 11px;
+    color: var(--graph-muted);
+}
+
+.keyboard-hint kbd {
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(28, 25, 20, 0.08);
+    border: 1px solid rgba(28, 25, 20, 0.12);
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 10px;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# 헤더
+st.markdown("""
+<div class="unified-chat-header">
+    <h2>메리 통합 에이전트</h2>
+    <span class="unified-badge">AI 활성</span>
+</div>
+""", unsafe_allow_html=True)
+st.caption("파일을 업로드하거나 질문하면 자동으로 적절한 도구를 실행합니다.")
+
+import asyncio
+from shared.config import initialize_agent
+from shared.file_utils import (
+    ALLOWED_EXTENSIONS_PDF,
+    ALLOWED_EXTENSIONS_EXCEL,
+    cleanup_user_temp_files,
+    get_secure_upload_path,
+    validate_upload,
+)
+
+# 에이전트 초기화
+initialize_agent()
 
 avatar_image = get_avatar_image()
 user_avatar_image = get_user_avatar_image()
 
-ROUTE_DEFS = [
-    {
-        "id": "collab",
-        "label": "협업 허브",
-        "page": "pages/0_Collaboration_Hub.py",
-        "summary": "팀 과업, 서류, 일정, 코멘트를 통합 관리합니다.",
-        "next_step": "협업 허브로 이동해 팀 상태를 확인하세요.",
-        "strong_keywords": ["협업", "허브", "팀", "과업", "캘린더"],
-        "keywords": [
-            "협업", "허브", "팀", "과업", "업무", "일정", "캘린더", "코멘트",
-            "docs", "문서", "체크리스트", "drive", "업로드", "collab", "hub",
-        ],
-    },
-    {
-        "id": "exit",
-        "label": "Exit 프로젝션",
-        "page": "pages/1_Exit_Projection.py",
-        "summary": "엑셀 기반 Exit/IRR/멀티플 분석 요청에 적합합니다.",
-        "next_step": "투자검토 엑셀을 업로드하고 \"파일 분석해줘\"라고 입력하세요.",
-        "strong_keywords": ["exit", "프로젝션", "irr", "멀티플"],
-        "keywords": [
-            "exit", "프로젝션", "irr", "멀티플", "multiple", "valuation",
-            "safe", "cap", "captable", "투자조건", "엑셀", "excel", "xlsx", "기업가치",
-        ],
-    },
-    {
-        "id": "peer",
-        "label": "Peer PER 분석",
-        "page": "pages/2_Peer_PER_Analysis.py",
-        "summary": "유사 상장기업 PER/벤치마크 비교에 적합합니다.",
-        "next_step": "PDF를 업로드하거나 티커를 바로 입력하세요.",
-        "strong_keywords": ["peer", "per", "유사기업", "비교기업"],
-        "keywords": [
-            "peer", "per", "유사", "비교", "벤치", "상장", "티커", "yahoo",
-            "comparables", "기업소개서", "ir", "pdf",
-        ],
-    },
-    {
-        "id": "diagnosis",
-        "label": "기업현황 진단시트",
-        "page": "pages/3_Company_Diagnosis.py",
-        "summary": "진단시트 기반 컨설턴트 보고서 작성에 적합합니다.",
-        "next_step": "진단시트 엑셀을 업로드하고 \"분석해줘\"라고 입력하세요.",
-        "strong_keywords": ["진단", "기업현황", "체크리스트"],
-        "keywords": [
-            "진단", "기업현황", "체크리스트", "자가진단", "컨설턴트", "diagnosis",
-            "점수", "reportdraft",
-        ],
-    },
-    {
-        "id": "report",
-        "label": "투자심사 보고서",
-        "page": "pages/4_Investment_Report.py",
-        "summary": "시장규모 근거 추출 및 인수인의견 스타일 초안에 적합합니다.",
-        "next_step": "기업 자료(PDF/엑셀)를 업로드하고 근거 정리를 요청하세요.",
-        "strong_keywords": ["투자심사", "인수인의견", "시장규모", "보고서", "DART", "증권신고서"],
-        "keywords": [
-            "투자심사", "인수인의견", "보고서", "시장규모", "근거", "report",
-            "증거", "시장", "draft",
-            "dart", "공시", "증권신고서", "수요예측", "공모", "underwriter",
-        ],
-    },
-    {
-        "id": "contract",
-        "label": "계약서 리서치",
-        "page": "pages/7_Contract_Review.py",
-        "summary": "텀싯/투자계약서 검토 및 내용 일치 확인에 적합합니다.",
-        "next_step": "텀싯/투자계약서 PDF·DOCX를 업로드하세요.",
-        "strong_keywords": ["계약", "계약서", "텀싯", "투자계약"],
-        "keywords": [
-            "계약", "계약서", "텀싯", "termsheet", "투자계약", "주주간",
-            "청산", "희석", "보호", "조항",
-        ],
-    },
-]
-
-ROUTE_MAP = {}
-for route in ROUTE_DEFS:
-    label_compact = re.sub(r"[\\s\\-_/]+", "", route["label"].lower())
-    route["label_compact"] = label_compact
-    route["keywords_compact"] = [
-        re.sub(r"[\\s\\-_/]+", "", kw.lower()) for kw in route["keywords"] if kw
-    ]
-    route["strong_keywords_compact"] = [
-        re.sub(r"[\\s\\-_/]+", "", kw.lower()) for kw in route.get("strong_keywords", []) if kw
-    ]
-    ROUTE_MAP[route["id"]] = route
+# 세션 상태 초기화
+if "unified_messages" not in st.session_state:
+    st.session_state.unified_messages = []
+if "unified_files" not in st.session_state:
+    st.session_state.unified_files = []
+if "unified_show_welcome" not in st.session_state:
+    st.session_state.unified_show_welcome = True
 
 
-def _compact_text(text: str) -> str:
-    return re.sub(r"[\\s\\-_/]+", "", (text or "").lower())
+def save_uploaded_file(uploaded_file) -> str:
+    """업로드된 파일을 temp 디렉토리에 저장"""
+    user_id = st.session_state.get("user_id", "anonymous")
+    all_extensions = ALLOWED_EXTENSIONS_PDF | ALLOWED_EXTENSIONS_EXCEL | {".docx", ".doc"}
+
+    is_valid, error = validate_upload(
+        filename=uploaded_file.name,
+        file_size=uploaded_file.size,
+        allowed_extensions=all_extensions,
+    )
+    if not is_valid:
+        st.error(error)
+        return None
+
+    file_path = get_secure_upload_path(user_id=user_id, original_filename=uploaded_file.name)
+    with open(file_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+
+    cleanup_user_temp_files(user_id, max_files=10)
+    return str(file_path)
 
 
-def _looks_like_dart_query(text: str) -> bool:
-    lowered = (text or "").lower()
-    dart_keywords = [
-        "dart", "공시", "증권신고서", "인수의견", "인수인의견",
-        "underwriter", "수요예측", "공모", "상장",
-    ]
-    return any(keyword in lowered for keyword in dart_keywords)
+# 파일 업로드 영역 (개선된 디자인)
+upload_label = f"📎 파일 ({len(st.session_state.unified_files)})" if st.session_state.unified_files else "📎 파일 업로드"
+with st.expander(upload_label, expanded=len(st.session_state.unified_files) == 0):
+    st.markdown("""
+    <div style="padding: 8px 0; font-size: 13px; color: var(--graph-muted);">
+        투자검토 엑셀, 기업소개서 PDF, 진단시트 등을 업로드하세요
+    </div>
+    """, unsafe_allow_html=True)
 
-
-def _detect_dart_category(text: str) -> Optional[str]:
-    lowered = (text or "").lower()
-    if any(k in lowered for k in ["시장규모", "시장 규모", "tam", "sam", "som", "cagr", "성장률"]):
-        return "market_size"
-    if any(k in lowered for k in ["비교기업", "유사기업", "comparables", "peer"]):
-        return "comparables"
-    if any(k in lowered for k in ["공모가", "공모가격", "per", "pbr", "psr", "ev/ebitda", "valuation", "밸류"]):
-        return "valuation"
-    if any(k in lowered for k in ["수요예측", "수요 예측"]):
-        return "demand_forecast"
-    if any(k in lowered for k in ["리스크", "위험", "불확실", "불확실성"]):
-        return "risk"
-    return None
-
-
-def _dart_status_message(path: Optional[str], error: Optional[str] = None) -> str:
-    if error:
-        return (
-            "DART 인수인의견 데이터셋을 찾지 못했습니다.\n\n"
-            f"사유: {error}\n\n"
-            "해결 방법:\n"
-            "- `python scripts/dart_extract_underwriter_opinion.py --out temp/dart_underwriter_opinion_latest` 실행\n"
-            "- 또는 `UNDERWRITER_DATA_PATH` 환경변수로 JSONL 경로 지정\n"
-            "- temp/ 하위에 `underwriter_opinion.jsonl` 파일이 있어야 합니다."
-        )
-    if not path:
-        return (
-            "DART 인수인의견 데이터셋을 찾지 못했습니다.\n\n"
-            "해결 방법:\n"
-            "- `python scripts/dart_extract_underwriter_opinion.py --out temp/dart_underwriter_opinion_latest` 실행\n"
-            "- 또는 `UNDERWRITER_DATA_PATH` 환경변수로 JSONL 경로 지정"
-        )
-    try:
-        size_mb = Path(path).stat().st_size / (1024 * 1024)
-        size_text = f"{size_mb:.1f}MB"
-    except OSError:
-        size_text = "알 수 없음"
-    return (
-        "DART 인수인의견 데이터셋이 준비되어 있습니다.\n\n"
-        f"- 경로: {path}\n"
-        f"- 파일 크기: {size_text}\n\n"
-        "원하시는 키워드를 알려주시면 해당 문장을 바로 찾아드릴게요. "
-        "예: \"시장규모 근거\", \"비교기업 선정\", \"수요예측\""
+    uploaded_files = st.file_uploader(
+        "분석할 파일을 선택하세요 (PDF, 엑셀, DOCX)",
+        type=["pdf", "xlsx", "xls", "docx", "doc"],
+        accept_multiple_files=True,
+        key="unified_file_uploader",
+        label_visibility="collapsed",
+        help="PDF, Excel, Word 파일을 지원합니다"
     )
 
+    if uploaded_files:
+        for uploaded_file in uploaded_files:
+            file_path = save_uploaded_file(uploaded_file)
+            if file_path and file_path not in st.session_state.unified_files:
+                st.session_state.unified_files.append(file_path)
+                st.toast(f"✅ {uploaded_file.name} 업로드 완료", icon="📎")
 
-def _handle_dart_query(user_text: str) -> str:
-    try:
-        from agent.tools import _resolve_underwriter_data_path, execute_search_underwriter_opinion_similar
-    except Exception:
-        return (
-            "DART 인수인의견 검색 모듈을 불러오지 못했습니다.\n\n"
-            "투자심사 보고서 모듈에서 다시 시도해 주세요."
-        )
+    if st.session_state.unified_files:
+        st.markdown("**업로드된 파일**")
+        for i, fpath in enumerate(st.session_state.unified_files):
+            fname = Path(fpath).name
+            ext = Path(fpath).suffix.lower()
+            icon = "📊" if ext in [".xlsx", ".xls"] else "📄" if ext == ".pdf" else "📝"
 
-    resolved_path, resolve_error = _resolve_underwriter_data_path(None)
-    lowered = (user_text or "").lower()
-    status_only = any(token in lowered for token in ["데이터", "데이터셋", "dataset", "어디", "파일", "경로"])
-    wants_snippet = any(token in lowered for token in ["근거", "문장", "찾", "검색", "인용", "요약"])
+            file_col, btn_col = st.columns([5, 1])
+            with file_col:
+                st.markdown(f"{icon} **{fname}**")
+            with btn_col:
+                if st.button("✕", key=f"remove_unified_{i}", help="파일 제거"):
+                    st.session_state.unified_files.pop(i)
+                    st.rerun()
 
-    if not resolved_path or resolve_error:
-        st.session_state.home_route_target = "pages/4_Investment_Report.py"
-        st.session_state.home_route_label = "투자심사 보고서"
-        return _dart_status_message(resolved_path, resolve_error)
+# 업로드된 파일 표시 (Chip 스타일)
+if st.session_state.unified_files:
+    file_chips_html = []
+    for fpath in st.session_state.unified_files:
+        fname = Path(fpath).name
+        ext = Path(fpath).suffix.lower()
+        icon = "📊" if ext in [".xlsx", ".xls"] else "📄" if ext == ".pdf" else "📝"
+        file_chips_html.append(f'<span class="file-chip"><span class="file-chip__icon">{icon}</span>{fname}</span>')
 
-    if status_only and not wants_snippet:
-        st.session_state.home_route_target = "pages/4_Investment_Report.py"
-        st.session_state.home_route_label = "투자심사 보고서"
-        return _dart_status_message(resolved_path, None)
+    st.markdown(f"""
+    <div class="file-attachment-row">
+        {"".join(file_chips_html)}
+    </div>
+    """, unsafe_allow_html=True)
 
-    category = _detect_dart_category(user_text)
-    result = execute_search_underwriter_opinion_similar(
-        query=user_text,
-        category=category,
-        top_k=3,
-        max_chars=420,
-        min_score=0.08,
-        return_patterns=True,
-    )
+    # 빠른 액션 버튼 (Pill 스타일)
+    st.markdown("**빠른 실행**")
 
-    if not result.get("success"):
-        st.session_state.home_route_target = "pages/4_Investment_Report.py"
-        st.session_state.home_route_label = "투자심사 보고서"
-        return _dart_status_message(resolved_path, result.get("error"))
+    # HTML로 빠른 액션 힌트 표시
+    st.markdown("""
+    <div class="keyboard-hint">
+        <span><kbd>Enter</kbd> 전송</span>
+        <span><kbd>Shift+Enter</kbd> 줄바꿈</span>
+    </div>
+    """, unsafe_allow_html=True)
 
-    results = result.get("results", [])
-    patterns = result.get("patterns", [])
-    if not results:
-        st.session_state.home_route_target = "pages/4_Investment_Report.py"
-        st.session_state.home_route_label = "투자심사 보고서"
-        return (
-            "DART 인수인의견 데이터셋에서 관련 문장을 찾지 못했습니다.\n\n"
-            "다른 키워드로 다시 요청해 주세요. "
-            "예: \"시장규모 근거\", \"비교기업 선정\", \"수요예측\""
-        )
+    quick_cols = st.columns(4)
 
-    lines = ["DART 인수인의견 데이터셋에서 관련 근거를 찾았습니다.\n"]
-    for idx, item in enumerate(results, 1):
-        corp = item.get("corp_name", "미상")
-        report = item.get("report_nm", "")
-        title = item.get("section_title", "")
-        snippet = (item.get("snippet") or "").strip()
-        lines.append(f"{idx}. {corp} | {report} | {title}")
-        if snippet:
-            lines.append(f"   - {snippet}")
+    with quick_cols[0]:
+        if st.button("🔍 파일 분석", type="primary", use_container_width=True, key="quick_analyze"):
+            paths_str = ", ".join(st.session_state.unified_files)
+            st.session_state.unified_quick_cmd = f"다음 파일들을 분석해줘: {paths_str}"
 
-    if patterns:
-        lines.append("\n일반화 패턴:")
-        for pattern in patterns[:3]:
-            lines.append(f"- {pattern}")
+    with quick_cols[1]:
+        if st.button("📈 Exit 프로젝션", use_container_width=True, key="quick_exit"):
+            paths_str = ", ".join(st.session_state.unified_files)
+            st.session_state.unified_quick_cmd = f"{paths_str} 파일로 Exit 프로젝션을 생성해줘. PER 10, 20, 30배로."
 
-    st.session_state.home_route_target = "pages/4_Investment_Report.py"
-    st.session_state.home_route_label = "투자심사 보고서"
-    lines.append("\n더 정밀한 분석은 아래 버튼으로 이동해 진행할 수 있습니다.")
-    return "\n".join(lines)
+    with quick_cols[2]:
+        if st.button("🏢 Peer PER", use_container_width=True, key="quick_peer"):
+            st.session_state.unified_quick_cmd = "유사기업 PER 분석을 해줘"
 
+    with quick_cols[3]:
+        if st.button("🔎 포트폴리오", use_container_width=True, key="quick_portfolio"):
+            st.session_state.unified_quick_cmd = "투자기업 포트폴리오를 검색해줘"
 
-def _resolve_candidate_choice(compact_text: str, candidate_ids: list[str]):
-    if compact_text.isdigit():
-        idx = int(compact_text) - 1
-        if 0 <= idx < len(candidate_ids):
-            return ROUTE_MAP.get(candidate_ids[idx])
-    for route_id in candidate_ids:
-        route = ROUTE_MAP.get(route_id)
-        if not route:
-            continue
-        if route["label_compact"] in compact_text or route_id in compact_text:
-            return route
-    return None
+# 채팅 컨테이너
+chat_container = st.container(border=True, height=480)
 
-
-def _score_routes(compact_text: str) -> list[tuple[int, dict]]:
-    scored = []
-    for route in ROUTE_DEFS:
-        score = 0
-        for kw in route.get("strong_keywords_compact", []):
-            if kw and kw in compact_text:
-                score += 2
-        for kw in route.get("keywords_compact", []):
-            if kw and kw in compact_text:
-                score += 1
-        if score:
-            scored.append((score, route))
-    scored.sort(key=lambda item: item[0], reverse=True)
-    return scored
-
-
-def _route_message(user_text: str) -> str:
-    compact_text = _compact_text(user_text)
-    state = st.session_state.home_router_state
-    candidates = state.get("candidates", [])
-
-    if _looks_like_dart_query(user_text):
-        return _handle_dart_query(user_text)
-
-    if candidates:
-        selection = _resolve_candidate_choice(compact_text, candidates)
-        if selection:
-            state["candidates"] = []
-            st.session_state.home_route_target = selection["page"]
-            st.session_state.home_route_label = selection["label"]
-            return (
-                f"추천 모듈: {selection['label']}\n\n"
-                f"이유: {selection['summary']}\n\n"
-                f"다음: {selection['next_step']}\n\n"
-                "아래 바로 이동 버튼을 눌러주세요."
-            )
-        if any(word in compact_text for word in ["아니", "다른", "none", "no"]):
-            state["candidates"] = []
-            st.session_state.home_route_target = None
-            st.session_state.home_route_label = ""
-            return "원하는 업무를 한 줄로 다시 알려주세요. 예: \"텀싯 검토\", \"PER 비교\", \"투자심사 보고서\""
-
-    if not compact_text:
-        st.session_state.home_route_target = None
-        st.session_state.home_route_label = ""
-        return "원하는 업무를 한 줄로 알려주세요. 예: \"텀싯 검토\", \"PER 비교\", \"투자심사 보고서\""
-
-    scored = _score_routes(compact_text)
-    if not scored:
-        st.session_state.home_route_target = None
-        st.session_state.home_route_label = ""
-        return (
-            "아직 어떤 업무인지 파악하기 어려워요.\n\n"
-            "예시:\n"
-            "- \"투자검토 엑셀 Exit 분석\"\n"
-            "- \"유사기업 PER 비교\"\n"
-            "- \"팀 과업/서류 관리\"\n"
-            "- \"투자계약서 내용 일치 확인\"\n"
-            "- \"시장규모 근거 정리\""
-        )
-
-    top_score = scored[0][0]
-    top_routes = [route for score, route in scored if score == top_score]
-    if len(top_routes) == 1 or top_score >= 2:
-        selection = top_routes[0]
-        st.session_state.home_route_target = selection["page"]
-        st.session_state.home_route_label = selection["label"]
-        st.session_state.home_router_state["candidates"] = []
-        return (
-            f"추천 모듈: {selection['label']}\n\n"
-            f"이유: {selection['summary']}\n\n"
-            f"다음: {selection['next_step']}\n\n"
-            "아래 바로 이동 버튼을 눌러주세요."
-        )
-
-    candidate_ids = [route["id"] for route in top_routes[:3]]
-    st.session_state.home_router_state["candidates"] = candidate_ids
-    st.session_state.home_route_target = None
-    st.session_state.home_route_label = ""
-    options = "\n".join(
-        [f"{idx + 1}. {ROUTE_MAP[candidate]['label']}" for idx, candidate in enumerate(candidate_ids)]
-    )
-    return (
-        "어떤 업무인지 조금만 더 알려주세요. 아래 중 번호로 선택해 주세요.\n\n"
-        f"{options}"
-    )
-
-
-chat_container = st.container(border=True, height=420)
 with chat_container:
-    chat_area = st.container(height=320)
-    with chat_area:
-        if not st.session_state.home_messages:
-            with st.chat_message("assistant", avatar=avatar_image):
-                st.markdown(
-                    "안녕하세요. 필요한 업무를 말해주시면 적절한 모듈로 안내하겠습니다.\n\n"
-                    "예: \"텀싯 검토\", \"PER 비교\", \"Exit 프로젝션\""
-                )
+    chat_area = st.container(height=400)
 
-        for msg in st.session_state.home_messages:
-            role = msg.get("role")
+    with chat_area:
+        # 웰컴 메시지 (BoltStyle)
+        if st.session_state.unified_show_welcome and not st.session_state.unified_messages:
+            st.markdown("""
+            <div class="welcome-container">
+                <div class="welcome-title">무엇을 도와드릴까요?</div>
+                <div class="welcome-subtitle">파일을 업로드하거나 아래 제안을 선택하세요</div>
+
+                <div class="capability-grid">
+                    <div class="capability-item">
+                        <span class="capability-item__icon">📊</span>
+                        <span class="capability-item__label">Exit 프로젝션</span>
+                    </div>
+                    <div class="capability-item">
+                        <span class="capability-item__icon">🔍</span>
+                        <span class="capability-item__label">Peer 분석</span>
+                    </div>
+                    <div class="capability-item">
+                        <span class="capability-item__icon">📁</span>
+                        <span class="capability-item__label">포트폴리오</span>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+            # 제안 카드들
+            st.markdown("**시작하기**")
+            suggest_cols = st.columns(3)
+
+            with suggest_cols[0]:
+                if st.button("📈 Exit 프로젝션 생성\n투자검토 엑셀 분석", key="suggest_exit", use_container_width=True):
+                    st.session_state.unified_quick_cmd = "Exit 프로젝션을 생성하고 싶어요. 어떻게 시작하면 될까요?"
+                    st.rerun()
+
+            with suggest_cols[1]:
+                if st.button("🏢 유사기업 PER 분석\n상장사 벤치마킹", key="suggest_peer", use_container_width=True):
+                    st.session_state.unified_quick_cmd = "유사기업 PER 분석을 하고 싶어요. 도와주세요."
+                    st.rerun()
+
+            with suggest_cols[2]:
+                if st.button("🔎 포트폴리오 검색\n투자기업 조회", key="suggest_portfolio", use_container_width=True):
+                    st.session_state.unified_quick_cmd = "투자기업 포트폴리오를 검색하고 싶어요."
+                    st.rerun()
+
+            st.markdown("---")
+
+            # 추가 제안
+            more_cols = st.columns(2)
+            with more_cols[0]:
+                if st.button("📋 진단시트 분석", key="suggest_diagnosis", use_container_width=True):
+                    st.session_state.unified_quick_cmd = "진단시트를 분석해서 컨설턴트 보고서를 만들고 싶어요."
+                    st.rerun()
+            with more_cols[1]:
+                if st.button("📄 정책자료 분석", key="suggest_policy", use_container_width=True):
+                    st.session_state.unified_quick_cmd = "정책 PDF를 분석해서 유망 산업을 추천받고 싶어요."
+                    st.rerun()
+
+            st.session_state.unified_show_welcome = False
+
+        # 대화 기록 표시
+        for msg in st.session_state.unified_messages:
+            role = msg.get("role", "")
             content = msg.get("content", "")
+
             if role == "user":
                 with st.chat_message("user", avatar=user_avatar_image):
                     st.markdown(content)
-            else:
+            elif role == "assistant":
                 with st.chat_message("assistant", avatar=avatar_image):
                     st.markdown(content)
+                    tool_logs = msg.get("tool_logs") or []
+                    if tool_logs:
+                        with st.expander("실행 로그", expanded=False):
+                            for line in tool_logs:
+                                st.caption(line)
 
-    user_input = st.chat_input("필요한 업무를 한 줄로 알려주세요.", key="home_chat_input")
+    user_input = st.chat_input("질문을 입력하세요...", key="unified_chat_input")
 
+# 빠른 명령어 처리
+if "unified_quick_cmd" in st.session_state:
+    user_input = st.session_state.unified_quick_cmd
+    del st.session_state.unified_quick_cmd
+
+# 메시지 처리
 if user_input:
-    st.session_state.home_messages.append({"role": "user", "content": user_input})
-    if _looks_like_dart_query(user_input):
-        with st.spinner("DART 인수인의견 데이터셋 검색 중..."):
-            response = _route_message(user_input)
-    else:
-        response = _route_message(user_input)
-    st.session_state.home_messages.append({"role": "assistant", "content": response})
+    # 파일 컨텍스트 추가
+    context_info = ""
+    if st.session_state.unified_files:
+        paths_str = ", ".join(st.session_state.unified_files)
+        if "파일" not in user_input and "분석" not in user_input:
+            context_info = f"\n[업로드된 파일: {paths_str}]"
+
+    full_message = user_input + context_info
+    st.session_state.unified_messages.append({"role": "user", "content": user_input})
+
+    with chat_area:
+        with st.chat_message("assistant", avatar=avatar_image):
+            response_placeholder = st.empty()
+            tool_container = st.container()
+
+    async def stream_unified_response():
+        full_response = ""
+        tool_messages = []
+        tool_status = None
+        current_tool = None
+
+        async for chunk in st.session_state.agent.chat(full_message, mode="unified"):
+            if "**도구:" in chunk:
+                tool_messages.append(chunk.strip())
+                # 도구 이름 추출
+                tool_name = chunk.replace("**도구:", "").replace("**", "").strip().split()[0] if "**도구:" in chunk else "분석"
+
+                with tool_container:
+                    if tool_status is None:
+                        tool_status = st.status(f"🔧 {tool_name} 실행 중...", expanded=True, state="running")
+
+                    # 도구 실행 카드 스타일로 표시
+                    tool_status.markdown(f"""
+                    <div class="tool-execution-card">
+                        <div class="tool-execution-card__header">
+                            🛠️ {chunk.replace("**도구:", "").replace("**", "").strip()}
+                        </div>
+                        <div class="tool-execution-card__status">
+                            <div class="tool-execution-card__spinner"></div>
+                            처리 중...
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                    current_tool = tool_name
+            else:
+                full_response += chunk
+                # 타이핑 효과를 위한 커서
+                response_placeholder.markdown(full_response + "▌")
+
+        # 최종 응답 (커서 제거)
+        response_placeholder.markdown(full_response)
+
+        if tool_status is not None:
+            has_error = any("실패" in m or "오류" in m for m in tool_messages)
+            final_state = "error" if has_error else "complete"
+            final_label = f"❌ 도구 실행 실패" if has_error else f"✅ {len(tool_messages)}개 도구 실행 완료"
+            tool_status.update(label=final_label, state=final_state, expanded=False)
+
+        return full_response, tool_messages
+
+    assistant_response, tool_messages = asyncio.run(stream_unified_response())
+    st.session_state.unified_messages.append({
+        "role": "assistant",
+        "content": assistant_response,
+        "tool_logs": tool_messages
+    })
     st.rerun()
 
-route_target = st.session_state.get("home_route_target")
-route_label = st.session_state.get("home_route_label")
-if route_target and route_label:
-    if st.button(f"{route_label} 바로 이동", type="primary", use_container_width=True, key="home_route_jump"):
-        st.switch_page(route_target)
+# 하단 컨트롤 영역
+st.markdown("""
+<div class="keyboard-hint" style="margin-top: 8px;">
+    <span>💡 파일을 업로드하면 자동으로 분석 도구를 추천합니다</span>
+</div>
+""", unsafe_allow_html=True)
+
+col1, col2, col3 = st.columns([1, 1, 4])
+
+with col1:
+    if st.button("🔄 대화 초기화", use_container_width=True, key="unified_reset_chat"):
+        st.session_state.unified_messages = []
+        st.session_state.unified_show_welcome = True
+        if st.session_state.get("agent"):
+            st.session_state.agent.conversation_history = []
+        st.rerun()
+
+with col2:
+    if st.button("🗑️ 전체 초기화", use_container_width=True, type="secondary", key="unified_reset_all"):
+        st.session_state.unified_messages = []
+        st.session_state.unified_files = []
+        st.session_state.unified_show_welcome = True
+        if st.session_state.get("agent"):
+            st.session_state.agent.reset()
+        st.rerun()
+
+with col3:
+    # 현재 상태 표시
+    msg_count = len(st.session_state.unified_messages)
+    file_count = len(st.session_state.unified_files)
+    status_parts = []
+    if msg_count > 0:
+        status_parts.append(f"💬 {msg_count}개 메시지")
+    if file_count > 0:
+        status_parts.append(f"📎 {file_count}개 파일")
+    if status_parts:
+        st.caption(" · ".join(status_parts))
 
 # ========================================
 # 사용 가이드
