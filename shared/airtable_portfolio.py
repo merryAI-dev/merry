@@ -47,15 +47,36 @@ def _get_airtable_config() -> Tuple[Optional[str], Optional[str], str]:
     key = os.getenv("AIRTABLE_API_KEY")
     base = os.getenv("AIRTABLE_BASE_ID")
     table = os.getenv("AIRTABLE_TABLE_NAME") or "투자기업"
+
     try:
         import streamlit as st
 
-        secrets = getattr(st, "secrets", None) or {}
-        key = key or secrets.get("AIRTABLE_API_KEY") or secrets.get("airtable_api_key") or secrets.get("airtable", {}).get("api_key")
-        base = base or secrets.get("AIRTABLE_BASE_ID") or secrets.get("airtable_base_id") or secrets.get("airtable", {}).get("base_id")
-        table = table or secrets.get("AIRTABLE_TABLE_NAME") or secrets.get("airtable_table_name") or secrets.get("airtable", {}).get("table_name") or table
-    except Exception:
-        pass
+        # Streamlit secrets에서 확인
+        try:
+            if hasattr(st, "secrets"):
+                key = key or st.secrets.get("AIRTABLE_API_KEY")
+                base = base or st.secrets.get("AIRTABLE_BASE_ID")
+                table = table or st.secrets.get("AIRTABLE_TABLE_NAME") or table
+        except Exception as e:
+            logger.debug(f"Streamlit secrets 읽기 실패: {e}")
+
+        # 세션 상태에서도 확인 (로그인 시 저장된 API 키)
+        try:
+            if hasattr(st, "session_state"):
+                key = key or st.session_state.get("airtable_api_key")
+                base = base or st.session_state.get("airtable_base_id")
+                table = table or st.session_state.get("airtable_table_name") or table
+        except Exception as e:
+            logger.debug(f"Session state 읽기 실패: {e}")
+
+    except Exception as e:
+        logger.debug(f"Streamlit import 실패: {e}")
+
+    if key and base:
+        logger.debug(f"Airtable config loaded: base={base}, table={table}, key={'***' + key[-8:] if key else 'None'}")
+    else:
+        logger.debug("Airtable config not found, will use CSV fallback")
+
     return key, base, table
 
 
@@ -115,11 +136,12 @@ def _build_airtable_formula(query: Optional[str], filters: Optional[Dict[str, An
                 clauses.append(f"{{{column}}} = \"{_escape_airtable_value(str(value))}\"")
 
     if query:
-        query_lower = query.strip()
+        query_lower = query.strip().lower()  # 검색어도 소문자로!
         if query_lower:
             ors = []
             for column in SEARCH_COLUMNS:
-                ors.append(f"FIND(\"{_escape_airtable_value(query_lower)}\", {{{column}}})")
+                # SEARCH()는 대소문자 구분 없이 검색 (FIND보다 유연함)
+                ors.append(f"SEARCH(\"{_escape_airtable_value(query_lower)}\", LOWER({{{column}}}))")
             clauses.append(f"OR({', '.join(ors)})")
 
     if not clauses:
@@ -151,12 +173,17 @@ def _fetch_airtable_records(
     formula = _build_airtable_formula(query=query, filters=filters)
     if formula:
         params["filterByFormula"] = formula
+        logger.debug(f"Airtable formula: {formula[:200]}...")
     if sort_by:
         params["sort[0][field]"] = sort_by
         params["sort[0][direction]"] = "asc" if sort_order.lower() == "asc" else "desc"
 
     try:
+        logger.debug(f"Airtable request params: {params}")
         response = requests.get(url, headers=headers, params=params, timeout=15)
+        logger.debug(f"Airtable response status: {response.status_code}")
+        if response.status_code != 200:
+            logger.warning(f"Airtable response error: {response.text[:500]}")
         response.raise_for_status()
     except Exception as exc:
         logger.warning("Airtable 요청 실패: %s", exc)
@@ -164,6 +191,7 @@ def _fetch_airtable_records(
 
     payload = response.json()
     raw_records = payload.get("records", []) or []
+    logger.debug(f"Airtable returned {len(raw_records)} records")
     normalized = []
     for entry in raw_records[: limit or DEFAULT_LIMIT]:
         fields = entry.get("fields", {})

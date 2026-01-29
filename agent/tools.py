@@ -4337,6 +4337,55 @@ def execute_query_investment_portfolio(
             sort_by=sort_by,
             sort_order=sort_order or "desc",
         )
+
+        # 검색 결과가 없을 때 대안 제안
+        if not records and query:
+            from shared.airtable_portfolio import search_portfolio_records as search_all
+
+            # 전체 포트폴리오에서 카테고리/키워드 샘플링
+            all_records = search_all(limit=50)
+            if all_records:
+                # 카테고리 추출
+                categories = set()
+                keywords = set()
+                for r in all_records:
+                    cat1 = r.get("카테고리1", "").strip()
+                    if cat1:
+                        categories.add(cat1)
+
+                    # Business 키워드
+                    biz_kw = r.get("키워드\n(Business)", "").strip()
+                    if biz_kw:
+                        for kw in biz_kw.split("#"):
+                            kw = kw.strip()
+                            if kw and len(kw) > 1:
+                                keywords.add(kw[:20])  # 최대 20자
+
+                # 상위 5개씩만
+                top_categories = sorted(list(categories))[:5]
+                top_keywords = sorted(list(keywords))[:8]
+
+                suggestion = f"""검색어 '{query}'에 대한 결과가 없습니다.
+
+**대안 검색어를 제안합니다:**
+
+**카테고리로 검색:**
+{', '.join([f'"{c}"' for c in top_categories])}
+
+**키워드로 검색:**
+{', '.join([f'"{k}"' for k in top_keywords])}
+
+예시: "AI 기업 5개 보여줘" 또는 "헬스케어 카테고리 기업 조회"
+"""
+
+                return {
+                    "success": False,
+                    "no_results": True,
+                    "error": suggestion,
+                    "suggested_categories": top_categories,
+                    "suggested_keywords": top_keywords,
+                }
+
         summary = summarize_portfolio_records(records, query=query or "", filters=filters or {})
         return {
             "success": True,
