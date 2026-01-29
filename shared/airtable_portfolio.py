@@ -1,7 +1,11 @@
 """
 Airtable 초기화된 투자기업 포트폴리오 조회 모듈
-기본적으로 로컬 CSV를 사용하지만, 환경 변수 또는 secrets에 Airtable API 키/베이스/테이블이 있으면
-AirTable REST API로 실시간 조회를 수행하고 CSV는 fallback으로 동작합니다.
+
+**새로운 아키텍처 (2026-01-29):**
+- Airtable SEARCH() 문법은 한국어 텍스트에서 작동하지 않음
+- 대신: 모든 데이터를 한 번 가져와서 pandas DataFrame으로 캐싱
+- 모든 검색은 pandas 연산으로 수행 (str.contains, isin 등)
+- Airtable API는 데이터 fetch만 담당, 검색 로직은 pandas가 담당
 """
 
 from __future__ import annotations
@@ -86,7 +90,8 @@ def _airtable_enabled() -> bool:
 
 
 @lru_cache(maxsize=1)
-def _load_dataframe() -> pd.DataFrame:
+def _load_csv_dataframe() -> pd.DataFrame:
+    """CSV 파일에서 DataFrame 로드 (fallback용)"""
     path = _ensure_data_file()
     if not path:
         return pd.DataFrame(columns=SEARCH_COLUMNS)
@@ -96,29 +101,104 @@ def _load_dataframe() -> pd.DataFrame:
     return df
 
 
+@lru_cache(maxsize=1)
+def _fetch_all_airtable_records_as_dataframe() -> pd.DataFrame:
+    """
+    Airtable에서 모든 레코드를 가져와 pandas DataFrame으로 캐싱
+    페이징 처리로 전체 데이터 로드 (289개 기업 전체)
+    """
+    key, base, table = _get_airtable_config()
+
+    if not key or not base:
+        logger.debug("Airtable 설정 없음, CSV fallback 사용")
+        return _load_csv_dataframe()
+
+    url = f"https://api.airtable.com/v0/{base}/{table}"
+    headers = {"Authorization": f"Bearer {key}"}
+
+    all_records = []
+    offset = None
+
+    try:
+        # 페이징 처리로 모든 데이터 가져오기
+        while True:
+            params: Dict[str, Any] = {"pageSize": 100}
+            if offset:
+                params["offset"] = offset
+
+            logger.debug(f"Airtable fetch (offset={offset})")
+            response = requests.get(url, headers=headers, params=params, timeout=15)
+
+            if response.status_code != 200:
+                logger.warning(f"Airtable 응답 오류: {response.text[:500]}")
+                break
+
+            response.raise_for_status()
+            payload = response.json()
+
+            records = payload.get("records", [])
+            for entry in records:
+                fields = entry.get("fields", {})
+                all_records.append({
+                    k: str(v).strip() if v not in (None, float("nan")) else ""
+                    for k, v in fields.items()
+                })
+
+            offset = payload.get("offset")
+            if not offset:
+                break  # 더 이상 페이지 없음
+
+        logger.info(f"Airtable에서 총 {len(all_records)}개 레코드 로드 완료")
+
+        if not all_records:
+            logger.warning("Airtable 레코드가 비어있음, CSV fallback 사용")
+            return _load_csv_dataframe()
+
+        # DataFrame 생성 및 정규화
+        df = pd.DataFrame(all_records)
+        df = df.fillna("")
+
+        # 컬럼명 정규화 (줄바꿈 제거)
+        df.columns = [col.replace("\n", " ").strip() for col in df.columns]
+
+        return df
+
+    except Exception as exc:
+        logger.warning(f"Airtable 데이터 로드 실패: {exc}, CSV fallback 사용")
+        return _load_csv_dataframe()
+
+
+def _get_cached_dataframe() -> pd.DataFrame:
+    """
+    메모리에 캐싱된 DataFrame 반환
+    Airtable 우선, 실패 시 CSV fallback
+    """
+    if _airtable_enabled():
+        return _fetch_all_airtable_records_as_dataframe()
+    return _load_csv_dataframe()
+
+
 def get_portfolio_columns() -> List[str]:
     """사용자에게 표시할 수 있는 컬럼 리스트"""
-    if _airtable_enabled():
-        columns = _get_airtable_columns()
-        if columns:
-            return columns
-    return _load_dataframe().columns.tolist()
+    df = _get_cached_dataframe()
+    return df.columns.tolist()
 
 
-@lru_cache(maxsize=1)
-def _get_airtable_columns() -> List[str]:
-    records = _fetch_airtable_records(limit=1)
-    if not records:
-        return []
-    first = records[0]
-    return list(first.keys())
-
+# ==========================================
+# DEPRECATED 함수들 (Airtable SEARCH() 문법 사용)
+# 2026-01-29: pandas 기반 검색으로 완전 전환
+# ==========================================
 
 def _escape_airtable_value(value: str) -> str:
+    """DEPRECATED: Airtable formula용 이스케이프 (더 이상 사용 안 함)"""
     return value.replace('"', '\\"').replace("'", "\\'")
 
 
 def _build_airtable_formula(query: Optional[str], filters: Optional[Dict[str, Any]]) -> Optional[str]:
+    """
+    DEPRECATED: Airtable SEARCH() formula 생성
+    한국어 텍스트에서 작동하지 않아 사용 중단
+    """
     clauses = []
 
     if filters:
@@ -136,11 +216,10 @@ def _build_airtable_formula(query: Optional[str], filters: Optional[Dict[str, An
                 clauses.append(f"{{{column}}} = \"{_escape_airtable_value(str(value))}\"")
 
     if query:
-        query_lower = query.strip().lower()  # 검색어도 소문자로!
+        query_lower = query.strip().lower()
         if query_lower:
             ors = []
             for column in SEARCH_COLUMNS:
-                # SEARCH()는 대소문자 구분 없이 검색 (FIND보다 유연함)
                 ors.append(f"SEARCH(\"{_escape_airtable_value(query_lower)}\", LOWER({{{column}}}))")
             clauses.append(f"OR({', '.join(ors)})")
 
@@ -160,6 +239,11 @@ def _fetch_airtable_records(
     sort_by: Optional[str] = None,
     sort_order: str = "desc",
 ) -> List[Dict[str, str]]:
+    """
+    DEPRECATED: Airtable API 직접 호출로 검색
+    한국어 SEARCH() 문제로 사용 중단
+    대신 _fetch_all_airtable_records_as_dataframe() 사용
+    """
     key, base, table = _get_airtable_config()
 
     if not key or not base:
@@ -230,18 +314,35 @@ def _apply_filters(df: pd.DataFrame, filters: Dict[str, Any]) -> pd.DataFrame:
 
 
 def _apply_query_mask(df: pd.DataFrame, query: str) -> pd.DataFrame:
+    """
+    텍스트 검색 (pandas str.contains 사용)
+    기업명 검색 시 정규화된 변형도 자동으로 검색
+    """
     if not query:
         return df
     query_lower = query.strip().lower()
     if not query_lower:
         return df
 
+    # 기업명 정규화 변형 생성 (㈜ ↔ (주) ↔ 주식회사)
+    query_variants = [query_lower]
+    try:
+        from shared.company_name_normalizer import normalize_company_name
+        variants = normalize_company_name(query)
+        query_variants.extend([v.lower() for v in variants if v.lower() not in query_variants])
+    except Exception as e:
+        logger.debug(f"기업명 정규화 실패: {e}")
+
     masks = []
     for column in SEARCH_COLUMNS:
         if column not in df.columns:
             continue
         column_series = df[column].astype(str).str.lower()
-        masks.append(column_series.str.contains(query_lower, regex=False, na=False))
+
+        # 각 변형에 대해 검색
+        for variant in query_variants:
+            masks.append(column_series.str.contains(variant, regex=False, na=False))
+
     if not masks:
         return df
 
@@ -273,26 +374,49 @@ def search_portfolio_records(
     sort_order: str = "desc",
 ) -> List[Dict[str, str]]:
     """
-    투자기업 조회. Airtable이 활성화된 경우 REST 호출, 아니면 CSV 검색.
-    """
-    if _airtable_enabled():
-        records = _fetch_airtable_records(
-            query=query,
-            filters=filters or {},
-            limit=limit,
-            sort_by=sort_by,
-            sort_order=sort_order,
-        )
-        return [_normalize_record(record) for record in records]
+    투자기업 조회 (완전 pandas 기반)
 
-    df = _load_dataframe()
+    **새로운 아키텍처:**
+    - Airtable/CSV에서 모든 데이터를 한 번 로드 (캐싱됨)
+    - 모든 검색/필터링은 pandas 연산으로 수행
+    - 기업명 정규화 자동 적용 (㈜ ↔ (주) ↔ 주식회사)
+
+    Args:
+        query: 텍스트 검색어
+        filters: 컬럼별 필터 (예: {"카테고리1": "AI"})
+        limit: 최대 결과 수
+        sort_by: 정렬 컬럼
+        sort_order: "asc" 또는 "desc"
+
+    Returns:
+        검색 결과 레코드 리스트
+    """
+    # 1. 캐싱된 DataFrame 가져오기 (Airtable 또는 CSV)
+    df = _get_cached_dataframe()
+
+    logger.debug(f"검색 시작 - query={query}, filters={filters}, 전체={len(df)}개")
+
+    # 2. 필터 적용
     df = _apply_filters(df, filters or {})
+    logger.debug(f"필터 적용 후: {len(df)}개")
+
+    # 3. 텍스트 검색 (기업명 정규화 포함)
     df = _apply_query_mask(df, query or "")
+    logger.debug(f"텍스트 검색 후: {len(df)}개")
+
+    # 4. 정렬
     df = _order_dataframe(df, sort_by, sort_order)
+
+    # 5. 제한
     if limit is None:
         limit = DEFAULT_LIMIT
     result_rows = df.head(limit)
-    return [_normalize_record(row) for _, row in result_rows.iterrows()]
+
+    # 6. Dict 형태로 변환
+    results = [_normalize_record(row) for _, row in result_rows.iterrows()]
+    logger.debug(f"최종 결과: {len(results)}개 반환")
+
+    return results
 
 
 def summarize_portfolio_records(

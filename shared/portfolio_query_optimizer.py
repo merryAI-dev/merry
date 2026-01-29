@@ -25,12 +25,17 @@ CATEGORY_SYNONYMS = {
 
 # 지역 동의어 매핑
 LOCATION_SYNONYMS = {
-    "서울": ["서울", "강남", "강북", "서초", "마포", "성동", "종로", "영등포"],
-    "경기": ["경기", "성남", "수원", "용인", "고양", "부천"],
-    "강원": ["강원", "춘천", "원주", "강릉"],
-    "제주": ["제주", "제주도"],
+    "서울": ["서울", "강남", "강북", "서초", "마포", "성동", "종로", "영등포", "서울시"],
+    "경기": ["경기", "경기도", "성남", "수원", "용인", "고양", "부천", "안산", "양주", "이천", "하남"],
+    "강원": ["강원", "강원도", "춘천", "원주", "강릉", "양양"],
+    "제주": ["제주", "제주도", "서귀포"],
     "대전": ["대전", "유성"],
-    "전북": ["전북", "전주"],
+    "전북": ["전북", "전주", "익산"],
+    "경남": ["경남", "김해", "양산", "진주"],
+    "경북": ["경북", "포항"],
+    "부산": ["부산", "기장", "해운대"],
+    "인천": ["인천", "남동", "연수"],
+    "충남": ["충남", "천안"],
 }
 
 # SDGs 키워드 매핑
@@ -92,8 +97,8 @@ def optimize_query(user_query: str) -> Dict[str, Any]:
     for canonical, synonyms in LOCATION_SYNONYMS.items():
         for syn in synonyms:
             if syn in query_lower:
-                detected_location = syn
-                result["fallback_query"] = syn  # query로 검색 (filters 대신)
+                detected_location = canonical  # canonical 지역명 사용 (예: "경기")
+                result["fallback_query"] = canonical  # query로 검색 (filters 대신)
                 result["confidence"] = max(result["confidence"], 0.8)
                 break
         if detected_location:

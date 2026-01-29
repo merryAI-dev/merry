@@ -4331,7 +4331,28 @@ def execute_query_investment_portfolio(
                     "message": f"{search_plan}\n\n위 검색 계획에 동의하시면 '네' 또는 '진행'이라고 말씀해주세요."
                 }
 
-        # 일반 검색 모드 (기존)
+        # 일반 검색 모드 (query optimizer 통합)
+        from shared.portfolio_query_optimizer import optimize_query, generate_fallback_filters
+
+        # Query 최적화 (사용자 쿼리 분석)
+        if query and not filters:
+            logger.debug(f"Query optimizer: 분석 시작 - '{query}'")
+            optimization = optimize_query(query)
+
+            # 자동 감지된 필터 사용
+            if optimization["filters"] and optimization["confidence"] >= 0.7:
+                logger.info(f"Query optimizer: 필터 자동 감지 - {optimization['filters']}")
+                filters = optimization["filters"]
+                if optimization.get("sort_by"):
+                    sort_by = optimization["sort_by"]
+                    sort_order = optimization.get("sort_order", "desc")
+                query = None  # 필터로 전환했으므로 query 제거
+
+            # 지역/텍스트 검색은 그대로 pandas str.contains()로 처리됨
+            # 예: "경기" → "경기(고양)", "경기(안산)" 등 자동 매칭
+            # 예: "(주)요벨" → 정규화된 "㈜요벨"도 자동 검색
+
+        # 검색 실행
         records = search_portfolio_records(
             query=query,
             filters=filters or {},
