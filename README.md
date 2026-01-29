@@ -22,6 +22,9 @@
 
 ```bash
 echo "ANTHROPIC_API_KEY=your-api-key-here" > .env
+echo "AIRTABLE_API_KEY=pat_xxx" >> .env
+echo "AIRTABLE_BASE_ID=app_xxx" >> .env
+echo "AIRTABLE_TABLE_NAME=투자기업" >> .env
 ```
 
 **그게 끝입니다!** 🎉

@@ -15,6 +15,10 @@ from typing import Any, Dict, List, Callable, Optional
 
 from shared.logging_config import get_logger
 from shared.cache_utils import compute_file_hash, compute_payload_hash, get_cache_dir, load_json, save_json
+from shared.airtable_portfolio import (
+    search_portfolio_records,
+    summarize_portfolio_records,
+)
 
 logger = get_logger("tools")
 
@@ -1172,6 +1176,36 @@ def register_tools() -> List[Dict[str, Any]]:
                     }
                 },
                 "required": ["tickers"]
+            }
+        },
+        {
+            "name": "query_investment_portfolio",
+            "description": "투자기업 CSV(투자기업-Grid view.csv)를 조회합니다. 질문/필터/정렬 조건을 주면 해당하는 기업 리스트와 요약을 반환합니다.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "검색어 (기업명/서비스/키워드 등)"
+                    },
+                    "filters": {
+                        "type": "object",
+                        "description": "컬럼명-값 맵 (값은 문자열 또는 문자열 리스트). 예: {\"본점 소재지\": \"강원\", \"카테고리1\": [\"푸드\", \"환경\"]}"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "최대 조회할 결과 개수 (기본: 5)"
+                    },
+                    "sort_by": {
+                        "type": "string",
+                        "description": "정렬 기준 컬럼명"
+                    },
+                    "sort_order": {
+                        "type": "string",
+                        "enum": ["asc", "desc"],
+                        "description": "정렬 방향 (기본: desc)"
+                    }
+                }
             }
         },
         # ========================================
@@ -4181,6 +4215,35 @@ def execute_analyze_peer_per(
         }
 
 
+def execute_query_investment_portfolio(
+    query: str = None,
+    filters: Dict[str, Any] = None,
+    limit: int = None,
+    sort_by: str = None,
+    sort_order: str = "desc",
+) -> Dict[str, Any]:
+    """투자기업 CSV 기반 조회"""
+
+    try:
+        records = search_portfolio_records(
+            query=query,
+            filters=filters or {},
+            limit=limit,
+            sort_by=sort_by,
+            sort_order=sort_order or "desc",
+        )
+        summary = summarize_portfolio_records(records, query=query or "", filters=filters or {})
+        return {
+            "success": True,
+            "summary": summary,
+            "records": records,
+        }
+    except FileNotFoundError as exc:
+        return {"success": False, "error": str(exc)}
+    except Exception as exc:
+        return {"success": False, "error": f"투자기업 조회 실패: {str(exc)}"}
+
+
 def _format_large_number(value) -> str:
     """큰 숫자를 읽기 쉬운 형식으로 변환"""
     if value is None:
@@ -4236,6 +4299,7 @@ TOOL_EXECUTORS = {
     "read_pdf_as_text": execute_read_pdf_as_text,
     "get_stock_financials": execute_get_stock_financials,
     "analyze_peer_per": execute_analyze_peer_per,
+    "query_investment_portfolio": execute_query_investment_portfolio,
     "search_underwriter_opinion_similar": execute_search_underwriter_opinion_similar,
     "extract_pdf_market_evidence": execute_extract_pdf_market_evidence,
     "fetch_underwriter_opinion_data": execute_fetch_underwriter_opinion_data,
