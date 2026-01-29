@@ -12,10 +12,13 @@ from anthropic import Anthropic
 
 
 TEAM_OPTIONS = {
-    "Team 1": "team_1",
-    "Team 2": "team_2",
-    "Team 3": "team_3",
-    "Team 4": "team_4",
+    "CIC 봄날": "team_1",
+    "CIC 스템": "team_2",
+    "CIC 썬": "team_3",
+    "CIC 모모": "team_4",
+    "LS그룹": "team_5",
+    "CI그룹": "team_6",
+    "대표이사실": "team_7",
 }
 
 

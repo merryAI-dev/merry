@@ -708,8 +708,8 @@ G2B 나라장터 API로 입찰 공고를 검색합니다.
    - 예: `query_investment_portfolio(sort_by="투자금액", sort_order="desc", limit=5)`
 
 2. **카테고리 검색** ("AI 기업", "헬스케어 기업", "푸드테크")
-   - 파라미터: `filters={"카테고리1": "AI"}`, `limit=5`
-   - 예: `query_investment_portfolio(filters={"카테고리1": "헬스케어"}, limit=5)`
+   - 파라미터: `filters={{"카테고리1": "AI"}}`, `limit=5`
+   - 예: `query_investment_portfolio(filters={{"카테고리1": "헬스케어"}}, limit=5)`
 
 3. **지역 검색** ("경기도 소재", "강원도 소재", "서울 소재")
    - 파라미터: `query="경기"`, `limit=10`
@@ -762,7 +762,7 @@ G2B 나라장터 API로 입찰 공고를 검색합니다.
 ```
 사용자: "AI 기업 5개 보여줘"
 에이전트:
-1. query_investment_portfolio(filters={"카테고리1": "AI"}, limit=5) 실행
+1. query_investment_portfolio(filters={{"카테고리1": "AI"}}, limit=5) 실행
 2. 결과 반환
 ```
 
