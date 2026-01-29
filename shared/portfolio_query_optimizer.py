@@ -92,14 +92,18 @@ def optimize_query(user_query: str) -> Dict[str, Any]:
         if detected_category:
             break
 
-    # 2. 지역 감지
+    # 2. 지역 감지 (본점 소재지 filter로 변환)
     detected_location = None
     for canonical, synonyms in LOCATION_SYNONYMS.items():
         for syn in synonyms:
             if syn in query_lower:
-                detected_location = canonical  # canonical 지역명 사용 (예: "경기")
-                result["fallback_query"] = canonical  # query로 검색 (filters 대신)
-                result["confidence"] = max(result["confidence"], 0.8)
+                detected_location = canonical
+                # 지역 검색은 본점 소재지 필터로 처리
+                result["filters"]["본점 소재지_contains"] = canonical
+                result["confidence"] = max(result["confidence"], 0.9)
+                # query에서 지역명 제거 (나머지 키워드만 검색)
+                query_without_location = query_lower.replace(syn, "").strip()
+                result["fallback_query"] = query_without_location if query_without_location else None
                 break
         if detected_location:
             break

@@ -300,22 +300,54 @@ def _normalize_record(record: Dict[str, Any]) -> Dict[str, str]:
 
 
 def _apply_filters(df: pd.DataFrame, filters: Dict[str, Any]) -> pd.DataFrame:
+    """
+    필터 적용 (정확 일치 + contains 지원)
+
+    **특수 필터:**
+    - `컬럼명_contains`: 부분 일치 검색 (예: "본점 소재지_contains": "경기")
+    """
     if not filters:
         return df
 
     mask = pd.Series(True, index=df.index)
-    for column, value in filters.items():
-        if column not in df.columns:
-            continue
-        if value is None or (isinstance(value, str) and not value.strip()):
-            continue
-        values = value if isinstance(value, (list, tuple)) else [value]
-        values = [str(v).strip().lower() for v in values if str(v).strip()]
-        if not values:
-            continue
-        column_series = df[column].astype(str).str.lower()
-        column_mask = column_series.isin(values)
-        mask &= column_mask
+    for filter_key, value in filters.items():
+        # 특수 필터: _contains suffix
+        if filter_key.endswith("_contains"):
+            column = filter_key.replace("_contains", "")
+            if column not in df.columns:
+                logger.warning(f"컬럼 '{column}'이 존재하지 않음 (contains 필터)")
+                continue
+
+            # 부분 일치 검색
+            if value is None or (isinstance(value, str) and not value.strip()):
+                continue
+
+            column_series = df[column].astype(str).str.lower()
+            search_value = str(value).strip().lower()
+            column_mask = column_series.str.contains(search_value, regex=False, na=False)
+            mask &= column_mask
+            logger.info(f"[DEBUG] Contains 필터 적용: {column} contains '{search_value}' → {column_mask.sum()}개")
+
+        # 일반 필터: 정확 일치
+        else:
+            column = filter_key
+            if column not in df.columns:
+                logger.warning(f"컬럼 '{column}'이 존재하지 않음")
+                continue
+
+            if value is None or (isinstance(value, str) and not value.strip()):
+                continue
+
+            values = value if isinstance(value, (list, tuple)) else [value]
+            values = [str(v).strip().lower() for v in values if str(v).strip()]
+            if not values:
+                continue
+
+            column_series = df[column].astype(str).str.lower()
+            column_mask = column_series.isin(values)
+            mask &= column_mask
+            logger.info(f"[DEBUG] 정확 일치 필터 적용: {column} in {values} → {column_mask.sum()}개")
+
     return df[mask]
 
 

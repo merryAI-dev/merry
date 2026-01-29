@@ -4343,14 +4343,20 @@ def execute_query_investment_portfolio(
             if optimization["filters"] and optimization["confidence"] >= 0.7:
                 logger.info(f"Query optimizer: 필터 자동 감지 - {optimization['filters']}")
                 filters = optimization["filters"]
+
+                # 정렬 조건
                 if optimization.get("sort_by"):
                     sort_by = optimization["sort_by"]
                     sort_order = optimization.get("sort_order", "desc")
-                query = None  # 필터로 전환했으므로 query 제거
 
-            # 지역/텍스트 검색은 그대로 pandas str.contains()로 처리됨
-            # 예: "경기" → "경기(고양)", "경기(안산)" 등 자동 매칭
-            # 예: "(주)요벨" → 정규화된 "㈜요벨"도 자동 검색
+                # fallback_query가 있으면 그걸 query로 사용 (나머지 키워드)
+                if optimization.get("fallback_query"):
+                    query = optimization["fallback_query"]
+                    logger.info(f"Query optimizer: 지역 제외 나머지 검색어 - '{query}'")
+                else:
+                    query = None  # 완전히 필터로 전환
+
+                logger.info(f"Query optimizer: 최종 - filters={filters}, query={query}, sort={sort_by}")
 
         # 검색 실행
         records = search_portfolio_records(

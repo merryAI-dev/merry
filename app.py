@@ -48,12 +48,24 @@ from shared.airtable_portfolio import _get_cached_dataframe
 # 앱 시작 시 DataFrame 미리 로드 (첫 검색부터 빠르게)
 # @st.cache_data로 캐싱되므로 한 번만 실행됨
 try:
-    df = _get_cached_dataframe()
-    st.session_state["portfolio_preloaded"] = True
-    st.session_state["portfolio_size"] = len(df)
+    with st.spinner("📊 투자 데이터 로딩 중..."):
+        df = _get_cached_dataframe()
+        portfolio_size = len(df)
+
+        st.session_state["portfolio_preloaded"] = True
+        st.session_state["portfolio_size"] = portfolio_size
+
+        # 성공 메시지 (2초 후 사라짐)
+        success_container = st.empty()
+        success_container.success(f"✅ 투자 데이터 로딩 완료! ({portfolio_size}개 기업)")
+        import time
+        time.sleep(2)
+        success_container.empty()
+
 except Exception as e:
     st.session_state["portfolio_preloaded"] = False
     st.session_state["portfolio_error"] = str(e)
+    st.error(f"❌ 데이터 로딩 실패: {str(e)}")
 
 # ========================================
 # Claude Code 스타일 CSS
