@@ -4306,28 +4306,30 @@ def execute_query_investment_portfolio(
                 try:
                     import streamlit as st
                     api_key = st.session_state.get("user_api_key")
-                except:
-                    pass
+                except Exception as e:
+                    logger.debug(f"세션 상태에서 API 키 가져오기 실패: {e}")
 
             if not api_key:
+                logger.warning("시멘틱 검색: API 키 없음, 일반 검색으로 폴백")
+                # API 키 없으면 일반 검색으로 폴백
+                use_semantic_search = False
+                # pass through to regular search below
+            else:
+                logger.debug(f"시멘틱 검색: API 키 확인 완료")
+
+                # 쿼리 확장
+                expanded = expand_portfolio_query(query, api_key)
+
+                # 검색 계획을 사용자에게 보여주기 위해 반환
+                search_plan = format_search_plan(expanded)
+
                 return {
-                    "success": False,
-                    "error": "시멘틱 검색을 위한 API 키가 필요합니다"
+                    "success": True,
+                    "requires_confirmation": True,  # 사용자 확인 필요
+                    "search_plan": search_plan,
+                    "expanded_query": expanded,  # 에이전트가 다음 단계에서 사용
+                    "message": f"{search_plan}\n\n위 검색 계획에 동의하시면 '네' 또는 '진행'이라고 말씀해주세요."
                 }
-
-            # 쿼리 확장
-            expanded = expand_portfolio_query(query, api_key)
-
-            # 검색 계획을 사용자에게 보여주기 위해 반환
-            search_plan = format_search_plan(expanded)
-
-            return {
-                "success": True,
-                "requires_confirmation": True,  # 사용자 확인 필요
-                "search_plan": search_plan,
-                "expanded_query": expanded,  # 에이전트가 다음 단계에서 사용
-                "message": f"{search_plan}\n\n위 검색 계획에 동의하시면 '네' 또는 '진행'이라고 말씀해주세요."
-            }
 
         # 일반 검색 모드 (기존)
         records = search_portfolio_records(
