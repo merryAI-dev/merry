@@ -240,17 +240,25 @@ div[data-testid="stButton"] button:hover {
 # ========================================
 # 헤더
 # ========================================
-st.markdown("""
-<div class="claude-header">
-    <div class="claude-header__logo">
-        <span>메리 VC 에이전트</span>
-        <span class="claude-header__badge">
-            <span style="width: 6px; height: 6px; background: #10b981; border-radius: 50%; display: inline-block;"></span>
-            Claude Opus 4.5
-        </span>
+col_left, col_right = st.columns([4, 1])
+with col_left:
+    st.markdown("""
+    <div class="claude-header">
+        <div class="claude-header__logo">
+            <span>메리 VC 에이전트</span>
+            <span class="claude-header__badge">
+                <span style="width: 6px; height: 6px; background: #10b981; border-radius: 50%; display: inline-block;"></span>
+                Claude Opus 4.5
+            </span>
+        </div>
     </div>
-</div>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
+
+with col_right:
+    if st.button("새 대화", key="new_chat", help="대화 초기화"):
+        st.session_state.unified_messages = []
+        st.session_state.unified_files = []
+        st.rerun()
 
 # ========================================
 # 에이전트 초기화
@@ -468,6 +476,13 @@ if user_input:
             # 간단한 응답 생성
             with st.spinner("생각 중..."):
                 try:
+                    # 대화 히스토리 제한: 최근 20개 메시지만 유지 (토큰 제한 방지)
+                    # 200개 기업 데이터 등 큰 응답이 쌓여도 안전
+                    MAX_HISTORY = 20
+                    if len(st.session_state.unified_messages) > MAX_HISTORY:
+                        # 가장 오래된 메시지 제거 (최근 20개만 유지)
+                        st.session_state.unified_messages = st.session_state.unified_messages[-MAX_HISTORY:]
+
                     # 동기 chat 메서드 사용 (returns string)
                     full_response = agent.chat_sync(full_message, mode="unified")
                     tool_logs = []  # chat_sync doesn't return tool logs
