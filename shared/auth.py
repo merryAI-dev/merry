@@ -269,15 +269,12 @@ def check_authentication() -> bool:
     st.markdown("""
     <div class="auth-capability-grid">
         <div class="auth-capability-item">
-            <span class="auth-capability-item__icon">📊</span>
             <span class="auth-capability-item__label">Exit 프로젝션</span>
         </div>
         <div class="auth-capability-item">
-            <span class="auth-capability-item__icon">🔍</span>
             <span class="auth-capability-item__label">Peer 분석</span>
         </div>
         <div class="auth-capability-item">
-            <span class="auth-capability-item__icon">📁</span>
             <span class="auth-capability-item__label">포트폴리오</span>
         </div>
     </div>
@@ -366,9 +363,9 @@ def check_authentication() -> bool:
     st.markdown("")
     cols = st.columns([1, 3, 1])
     with cols[1]:
-        st.caption("💡 **메리의 역할**: Exit 프로젝션, Peer PER 분석, 계약서 검토")
-        st.caption("🔒 API 키는 세션 동안만 사용됩니다.")
-        st.caption("🔑 [Anthropic Console](https://console.anthropic.com/)에서 API 키를 발급받을 수 있습니다.")
+        st.caption("**메리의 역할**: Exit 프로젝션, Peer PER 분석, 계약서 검토")
+        st.caption("API 키는 세션 동안만 사용됩니다.")
+        st.caption("[Anthropic Console](https://console.anthropic.com/)에서 API 키를 발급받을 수 있습니다.")
 
     st.stop()
 

@@ -31,7 +31,7 @@ setup_logging()
 # 페이지 설정
 st.set_page_config(
     page_title="메리 | VC 에이전트",
-    page_icon="🤖",
+    page_icon="M",
     layout="wide",
     initial_sidebar_state="collapsed"  # 사이드바 숨김
 )
@@ -236,7 +236,6 @@ div[data-testid="stButton"] button:hover {
 st.markdown("""
 <div class="claude-header">
     <div class="claude-header__logo">
-        <span>🤖</span>
         <span>메리 VC 에이전트</span>
         <span class="claude-header__badge">
             <span style="width: 6px; height: 6px; background: #10b981; border-radius: 50%; display: inline-block;"></span>
@@ -301,51 +300,51 @@ if not st.session_state.unified_messages:
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        if st.button("📊 Exit 프로젝션", key="pill_exit", use_container_width=True):
+        if st.button("Exit 프로젝션", key="pill_exit", use_container_width=True):
             st.session_state.quick_cmd = "투자검토 엑셀 파일을 분석해서 Exit 프로젝션을 만들어줘"
             st.rerun()
 
     with col2:
-        if st.button("🏢 Peer PER 분석", key="pill_peer", use_container_width=True):
+        if st.button("Peer PER 분석", key="pill_peer", use_container_width=True):
             st.session_state.quick_cmd = "유사기업 PER을 비교 분석해줘"
             st.rerun()
 
     with col3:
-        if st.button("📋 기업 진단", key="pill_diagnosis", use_container_width=True):
+        if st.button("기업 진단", key="pill_diagnosis", use_container_width=True):
             st.session_state.quick_cmd = "진단시트를 분석하고 컨설턴트 보고서를 작성해줘"
             st.rerun()
 
     col4, col5, col6 = st.columns(3)
     with col4:
-        if st.button("📄 투자보고서", key="pill_report", use_container_width=True):
+        if st.button("투자보고서", key="pill_report", use_container_width=True):
             st.session_state.quick_cmd = "PDF에서 시장 근거를 추출하고 투자보고서를 써줘"
             st.rerun()
 
     with col5:
-        if st.button("🚀 스타트업 발굴", key="pill_discovery", use_container_width=True):
+        if st.button("스타트업 발굴", key="pill_discovery", use_container_width=True):
             st.session_state.quick_cmd = "정책 PDF를 분석해서 유망 산업을 추천해줘"
             st.rerun()
 
     with col6:
-        if st.button("📝 계약서 검토", key="pill_contract", use_container_width=True):
+        if st.button("계약서 검토", key="pill_contract", use_container_width=True):
             st.session_state.quick_cmd = "계약서를 분석하고 주요 조항을 검토해줘"
             st.rerun()
 
     col7, col8 = st.columns(2)
     with col7:
-        if st.button("🤝 팀 협업", key="pill_collab", use_container_width=True):
+        if st.button("팀 협업", key="pill_collab", use_container_width=True):
             st.session_state.quick_cmd = "팀 과업 현황을 보여줘"
             st.rerun()
 
     with col8:
-        if st.button("🔍 공공입찰 검색", key="pill_bid", use_container_width=True):
+        if st.button("공공입찰 검색", key="pill_bid", use_container_width=True):
             st.session_state.quick_cmd = "나라장터에서 관련 입찰 공고를 찾아줘"
             st.rerun()
 
 # ========================================
 # 파일 업로드 (Expander)
 # ========================================
-with st.expander("📎 파일 첨부", expanded=False):
+with st.expander("파일 첨부", expanded=False):
     uploaded_files = st.file_uploader(
         "분석할 파일을 선택하세요 (PDF, 엑셀, DOCX)",
         type=["pdf", "xlsx", "xls", "docx", "doc"],
@@ -359,21 +358,19 @@ with st.expander("📎 파일 첨부", expanded=False):
             file_path = save_uploaded_file(uploaded_file)
             if file_path and file_path not in st.session_state.unified_files:
                 st.session_state.unified_files.append(file_path)
-                st.toast(f"✅ {uploaded_file.name} 업로드 완료", icon="📎")
+                st.toast(f"{uploaded_file.name} 업로드 완료")
 
 # 첨부된 파일 표시
 if st.session_state.unified_files:
     st.markdown("**업로드된 파일**")
     for i, fpath in enumerate(st.session_state.unified_files):
         fname = Path(fpath).name
-        ext = Path(fpath).suffix.lower()
-        icon = "📊" if ext in [".xlsx", ".xls"] else "📄" if ext == ".pdf" else "📝"
 
         col1, col2 = st.columns([5, 1])
         with col1:
             st.markdown(f"""
             <div class="file-chip">
-                {icon} {fname}
+                {fname}
             </div>
             """, unsafe_allow_html=True)
         with col2:
@@ -407,7 +404,7 @@ with chat_container:
                             st.markdown(f"""
                             <div class="tool-card tool-card--running">
                                 <div class="tool-card__header">
-                                    🔧 {tool_name}
+                                    {tool_name}
                                     <div class="tool-spinner"></div>
                                 </div>
                                 <div class="tool-card__body">
@@ -423,6 +420,14 @@ with chat_container:
                     with st.expander("실행 로그", expanded=False):
                         for line in tool_logs:
                             st.caption(line)
+
+# Auto-scroll to bottom
+if st.session_state.unified_messages:
+    st.markdown("""
+    <script>
+    window.scrollTo(0, document.body.scrollHeight);
+    </script>
+    """, unsafe_allow_html=True)
 
 # ========================================
 # 채팅 입력
@@ -456,10 +461,9 @@ if user_input:
             # 간단한 응답 생성
             with st.spinner("생각 중..."):
                 try:
-                    # 동기 chat 메서드 사용
-                    response = agent.chat_sync(full_message, mode="unified")
-                    full_response = response.get("content", "응답을 생성할 수 없습니다.")
-                    tool_logs = response.get("tool_logs", [])
+                    # 동기 chat 메서드 사용 (returns string)
+                    full_response = agent.chat_sync(full_message, mode="unified")
+                    tool_logs = []  # chat_sync doesn't return tool logs
                 except Exception as e:
                     full_response = f"오류가 발생했습니다: {str(e)}"
                     tool_logs = []

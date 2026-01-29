@@ -602,47 +602,47 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
 
 ## 사용 가능한 기능 (9가지)
 
-### 📊 1. Exit 프로젝션
+### 1. Exit 프로젝션
 투자검토 엑셀을 분석하여 PER 기반 Exit 시나리오를 생성합니다.
 **도구**: analyze_and_generate_projection, calculate_irr
 **사용 예**: "Exit 프로젝션 만들어줘", "IRR 계산해줘"
 
-### 🏢 2. Peer PER 분석
+### 2. Peer PER 분석
 기업소개서 PDF를 분석하고 유사 상장사 PER을 비교합니다.
 **도구**: analyze_peer_per, get_stock_financials
 **사용 예**: "유사기업 PER 비교해줘", "Peer 분석해줘"
 
-### 📋 3. 기업 진단
+### 3. 기업 진단
 진단시트를 분석하거나 대화를 통해 새로 생성합니다.
 **도구**: analyze_company_diagnosis_sheet, create_company_diagnosis_draft, write_company_diagnosis_report
 **사용 예**: "진단시트 분석해줘", "컨설턴트 보고서 작성해줘"
 
-### 📄 4. 투자보고서
+### 4. 투자보고서
 PDF에서 시장 근거를 추출하고 인수인 의견서를 작성합니다.
 **도구**: extract_pdf_market_evidence, fetch_underwriter_opinion_data, search_underwriter_opinion
 **사용 예**: "시장 근거 추출해줘", "투자보고서 써줘"
 
-### 🚀 5. 스타트업 발굴
+### 5. 스타트업 발굴
 정책 PDF를 분석하고 IRIS+ 지표로 유망 산업을 추천합니다.
 **도구**: analyze_government_policy, search_iris_plus_metrics, map_policy_to_iris, generate_industry_recommendation
 **사용 예**: "정책 분석해줘", "유망 산업 추천해줘"
 
-### 📝 6. 계약서 검토
+### 6. 계약서 검토
 PDF/DOCX 계약서를 분석하고 주요 조항을 검토합니다.
 **도구**: read_pdf_as_text (계약서 전용 모듈 사용)
 **사용 예**: "계약서 검토해줘", "주요 조항 분석해줘"
 
-### 🤝 7. 팀 협업
+### 7. 팀 협업
 팀 과업, 문서 체크리스트, 캘린더를 관리합니다.
 **도구**: (Supabase 직접 연동 또는 별도 안내)
 **사용 예**: "팀 과업 보여줘", "체크리스트 확인해줘"
 
-### 🎤 8. 음성 체크인
+### 8. 음성 체크인
 일일 체크인 기록, 1-on-1 미팅, 음성 대화를 지원합니다.
 **도구**: (음성 관련 페이지 안내)
 **사용 예**: "체크인 기록하고 싶어"
 
-### 🔍 9. 공공입찰 검색
+### 9. 공공입찰 검색
 G2B 나라장터 API로 입찰 공고를 검색합니다.
 **도구**: (G2B API 연동 또는 별도 안내)
 **사용 예**: "나라장터에서 입찰 공고 찾아줘"
