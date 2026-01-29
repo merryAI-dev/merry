@@ -1150,6 +1150,8 @@ if st.session_state.discovery_policy_analysis or st.session_state.discovery_reco
         if mode == "비판적 검토":
             st.info("비판적 검토 모드: `feedback:`으로 시작하면 사용자 피드백을 비판적으로 검토합니다.")
 
+        st.caption("정책/포트폴리오 질문을 자연어로 입력하면 Discovery Agent가 정보를 종합해 답하고, 필요하면 투자기업 데이터를 조회합니다.")
+
         with st.expander("리서치 트래커", expanded=False):
             st.caption(build_discovery_context())
 

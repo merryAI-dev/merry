@@ -74,9 +74,13 @@ DISCOVERY_SYSTEM_PROMPT = """당신은 **AC(액셀러레이터) 스타트업 발
    - SDG 연계 확인
 
 3. **추천 생성 단계**
-   - 정책 + 임팩트 점수 종합 (generate_industry_recommendation)
-   - 관심 분야 가중치 적용
-   - 상위 5개 산업 추천
+    - 정책 + 임팩트 점수 종합 (generate_industry_recommendation)
+    - 관심 분야 가중치 적용
+    - 상위 5개 산업 추천
+
+4. **투자기업 포트폴리오 조회**
+    - query_investment_portfolio 툴을 써서 Airtable/CSV 기반 포트폴리오에서 조건에 맞는 기업을 찾습니다.
+    - 지역/카테고리/SDG/투자단계 등을 자연어로 요청하면 요약과 리스트를 제공합니다.
 
 ## 사용 가능한 도구
 
@@ -94,9 +98,14 @@ DISCOVERY_SYSTEM_PROMPT = """당신은 **AC(액셀러레이터) 스타트업 발
    - target_industries: 타겟 산업 리스트
 
 4. **generate_industry_recommendation**: 산업 추천 생성
-   - policy_analysis: 정책 분석 결과
-   - iris_mapping: IRIS+ 매핑 결과
-   - interest_areas: 사용자 관심 분야
+    - policy_analysis: 정책 분석 결과
+    - iris_mapping: IRIS+ 매핑 결과
+    - interest_areas: 사용자 관심 분야
+
+5. **query_investment_portfolio**: 투자기업 포트폴리오 검색
+     - query: 검색어 (예: "강원도 소재 기업", "농식품 관련 스타트업")
+     - filters: {\"본점 소재지\": \"강원도\", \"카테고리1\": [\"푸드\"]} 형태로 키와 값을 전달
+     - limit / sort_by / sort_order로 결과 수/정렬을 제어할 수 있습니다.
 
 ## 출력 형식
 
@@ -199,6 +208,7 @@ class DiscoveryAgent:
             "map_policy_to_iris",
             "generate_industry_recommendation",
             "read_pdf_as_text",  # PDF 직접 읽기용
+            "query_investment_portfolio",
         ]
         return [t for t in all_tools if t["name"] in discovery_tool_names]
 
