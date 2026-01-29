@@ -47,17 +47,17 @@ st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
-/* 전역 스타일 */
+/* 전역 스타일 - 다크 테마 */
 :root {
-    --bg-primary: #ffffff;
-    --bg-secondary: #f9fafb;
-    --border-color: #e5e7eb;
-    --text-primary: #111827;
-    --text-secondary: #6b7280;
-    --accent: #2563eb;
-    --accent-hover: #1d4ed8;
-    --tool-bg: #f3f4f6;
-    --tool-border: #d1d5db;
+    --bg-primary: #0f0f0f;
+    --bg-secondary: #1a1a1a;
+    --border-color: #2a2a2a;
+    --text-primary: #e4e4e7;
+    --text-secondary: #a1a1aa;
+    --accent: #3b82f6;
+    --accent-hover: #2563eb;
+    --tool-bg: #1a1a1a;
+    --tool-border: #2a2a2a;
     --success: #10b981;
     --warning: #f59e0b;
 }
@@ -65,6 +65,7 @@ st.markdown("""
 html, body, [class*="css"] {
     font-family: 'Inter', 'Noto Sans KR', sans-serif;
     color: var(--text-primary);
+    background-color: var(--bg-primary) !important;
 }
 
 /* 사이드바 완전히 숨김 */
@@ -74,7 +75,7 @@ html, body, [class*="css"] {
 
 /* 메인 컨테이너 */
 .stApp {
-    background-color: var(--bg-primary);
+    background-color: var(--bg-primary) !important;
 }
 
 .main .block-container {

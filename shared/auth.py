@@ -100,28 +100,27 @@ def check_authentication() -> bool:
         @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
         :root {
-            --graph-bg: #f7f2ea;
-            --graph-ink: #1c1914;
-            --graph-muted: #60554b;
-            --graph-node-bg: rgba(255, 255, 255, 0.9);
-            --graph-node-border: rgba(28, 25, 20, 0.14);
-            --graph-accent-teal: #1a8c86;
-            --graph-accent-amber: #d08a2e;
+            --graph-bg: #0f0f0f;
+            --graph-ink: #e4e4e7;
+            --graph-muted: #a1a1aa;
+            --graph-node-bg: rgba(26, 26, 26, 0.9);
+            --graph-node-border: rgba(42, 42, 42, 0.8);
+            --graph-accent-teal: #10b981;
+            --graph-accent-amber: #f59e0b;
         }
 
         .stApp {
-            background-color: var(--graph-bg);
+            background-color: var(--graph-bg) !important;
             background-image:
-                radial-gradient(circle at 15% 10%, rgba(255, 247, 236, 0.9), rgba(255, 247, 236, 0) 40%),
-                radial-gradient(circle at 85% 20%, rgba(255, 232, 218, 0.7), rgba(255, 232, 218, 0) 35%),
-                repeating-linear-gradient(0deg, rgba(28, 25, 20, 0.06), rgba(28, 25, 20, 0.06) 1px, transparent 1px, transparent 28px),
-                repeating-linear-gradient(90deg, rgba(28, 25, 20, 0.06), rgba(28, 25, 20, 0.06) 1px, transparent 1px, transparent 28px);
+                radial-gradient(circle at 15% 10%, rgba(26, 26, 26, 0.5), rgba(26, 26, 26, 0) 40%),
+                radial-gradient(circle at 85% 20%, rgba(42, 42, 42, 0.3), rgba(42, 42, 42, 0) 35%);
             background-attachment: fixed;
         }
 
         html, body, [class*="css"] {
             font-family: "Space Grotesk", "Noto Sans KR", sans-serif;
             color: var(--graph-ink);
+            background-color: var(--graph-bg) !important;
         }
 
         .auth-welcome-container {
@@ -192,9 +191,9 @@ def check_authentication() -> bool:
             align-items: center;
             gap: 8px;
             padding: 16px;
-            background: rgba(255, 255, 255, 0.6);
+            background: rgba(26, 26, 26, 0.8);
             border-radius: 12px;
-            border: 1px solid rgba(28, 25, 20, 0.08);
+            border: 1px solid var(--graph-node-border);
         }
 
         .auth-capability-item__icon {
@@ -214,7 +213,7 @@ def check_authentication() -> bool:
             padding: 28px 36px;
             max-width: 520px;
             margin: 0 auto 24px auto;
-            box-shadow: 0 12px 32px rgba(25, 18, 9, 0.08);
+            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
         }
 
         .auth-section-title {
@@ -231,20 +230,22 @@ def check_authentication() -> bool:
         div[data-testid="stTextInput"] input,
         div[data-testid="stSelectbox"] > div {
             border-radius: 10px !important;
-            border: 1px solid rgba(28, 25, 20, 0.14) !important;
-            background: #fffaf3 !important;
+            border: 1px solid var(--graph-node-border) !important;
+            background: #1a1a1a !important;
+            color: var(--graph-ink) !important;
         }
 
         div[data-testid="stButton"] button[kind="primary"] {
-            background: linear-gradient(135deg, #1a8c86, #1a7a75) !important;
+            background: linear-gradient(135deg, #10b981, #059669) !important;
             border: none !important;
             border-radius: 10px !important;
             font-weight: 600 !important;
             padding: 10px 24px !important;
+            color: white !important;
         }
 
         div[data-testid="stButton"] button[kind="primary"]:hover {
-            background: linear-gradient(135deg, #1a7a75, #166d68) !important;
+            background: linear-gradient(135deg, #059669, #047857) !important;
         }
         </style>
         """,
