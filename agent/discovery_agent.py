@@ -195,6 +195,9 @@ class DiscoveryAgent:
         # 대화 히스토리
         self.conversation_history = []
 
+        # 마지막 포트폴리오 툴 결과
+        self.last_portfolio_result = None
+
         # 메모리
         self.memory = ChatMemory(user_id=self.user_id)
         self.session_store = DiscoveryRecordStore(self.user_id)
@@ -211,6 +214,33 @@ class DiscoveryAgent:
             "query_investment_portfolio",
         ]
         return [t for t in all_tools if t["name"] in discovery_tool_names]
+
+    def _prepare_tool_input(self, tool_name: str, tool_input: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        payload = dict(tool_input or {})
+        if tool_name in {"analyze_government_policy", "generate_industry_recommendation"}:
+            payload.setdefault("api_key", self.api_key)
+        return payload
+
+    def _record_portfolio_result(self, tool_name: str, tool_input: Dict[str, Any], tool_result: Dict[str, Any]):
+        if tool_name != "query_investment_portfolio":
+            return
+        records = tool_result.get("records") or []
+        summary = tool_result.get("summary") or tool_result.get("error") or "조회 결과가 없습니다."
+        self.last_portfolio_result = {
+            "summary": summary,
+            "records": records,
+            "query": tool_input.get("query"),
+            "filters": tool_input.get("filters"),
+            "limit": tool_input.get("limit"),
+            "sort_by": tool_input.get("sort_by"),
+            "sort_order": tool_input.get("sort_order"),
+        }
+
+    def _execute_tool_use(self, tool_name: str, tool_input: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        prepared_input = self._prepare_tool_input(tool_name, tool_input)
+        result = execute_tool(tool_name, prepared_input)
+        self._record_portfolio_result(tool_name, prepared_input, result)
+        return result
 
     def _get_context_string(self) -> str:
         """현재 컨텍스트 문자열 생성"""
@@ -564,6 +594,11 @@ class DiscoveryAgent:
                             full_response += text
                             yield text
 
+                    elif event.type == 'tool_use':
+                        tool_result = self._execute_tool_use(event.name, getattr(event, 'input', {}))
+                        tool_text = f"\n[도구 실행: {event.name}]\n{json.dumps(tool_result, ensure_ascii=False, indent=2)}"
+                        full_response += tool_text
+                        yield tool_text
                     elif event.type == 'message_stop':
                         break
 
@@ -589,14 +624,10 @@ class DiscoveryAgent:
         for block in response.content:
             if hasattr(block, 'text'):
                 full_response += block.text
-            elif hasattr(block, 'type') and block.type == 'tool_use':
-                # 도구 실행
-                tool_input = dict(block.input or {})
-                if block.name in {"analyze_government_policy", "generate_industry_recommendation"}:
-                    tool_input.setdefault("api_key", self.api_key)
-                tool_result = execute_tool(block.name, tool_input)
-                full_response += f"\n[도구 실행: {block.name}]\n"
-                full_response += json.dumps(tool_result, ensure_ascii=False, indent=2)
+                elif hasattr(block, 'type') and block.type == 'tool_use':
+                    tool_result = self._execute_tool_use(block.name, getattr(block, "input", {}))
+                    full_response += f"\n[도구 실행: {block.name}]\n"
+                    full_response += json.dumps(tool_result, ensure_ascii=False, indent=2)
 
         # 히스토리에 추가
         if full_response:

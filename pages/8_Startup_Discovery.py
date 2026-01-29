@@ -11,7 +11,6 @@ import json
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
-from typing import Any, Dict
 
 # 공통 모듈 임포트
 from shared.config import initialize_session_state, get_avatar_image, get_user_avatar_image, inject_custom_css
@@ -92,97 +91,24 @@ if "discovery_fusion_proposals" not in st.session_state:
 if "discovery_fusion_feedback" not in st.session_state:
     st.session_state.discovery_fusion_feedback = {}
 
-if "portfolio_query_history" not in st.session_state:
-    st.session_state.portfolio_query_history = []
+# Discovery 전용 포트폴리오 결과 캐시
+if "discovery_portfolio_result" not in st.session_state:
+    st.session_state.discovery_portfolio_result = None
 
 
-def _parse_portfolio_filters(raw_value: str) -> Dict[str, Any]:
-    filters: Dict[str, Any] = {}
-    if not raw_value:
-        return filters
-
-    for part in raw_value.split(","):
-        pair = part.strip()
-        if not pair or "=" not in pair:
-            continue
-        key, value = pair.split("=", 1)
-        key = key.strip()
-        if not key:
-            continue
-        value_parts = [segment.strip() for segment in value.split("|") if segment.strip()]
-        if not value_parts:
-            continue
-        filters[key] = value_parts[0] if len(value_parts) == 1 else value_parts
-    return filters
-
-
-def _format_filter_summary(filters: Dict[str, Any]) -> str:
-    if not filters:
-        return "필터 없음"
-    return ", ".join(
-        f"{col}={','.join(val) if isinstance(val, (list, tuple)) else val}"
-        for col, val in filters.items()
-    )
-
-
-def _render_portfolio_query_section() -> None:
-    """투자기업 포트폴리오 쿼리 UI"""
-    st.markdown("### 투자기업 포트폴리오 검색")
-    st.caption("강원도 소재기업이나 농식품 분야처럼 조건을 입력하면 CSV에서 자동으로 매칭되는 기업을 보여줍니다.")
-    available_columns = get_portfolio_columns()
-
-    with st.form("portfolio_query_form"):
-        query = st.text_input("검색어", placeholder="예) 강원도, 푸드, ESG", key="portfolio_query")
-        filter_hint = "예) 본점 소재지=강원도, 카테고리1=푸드|환경"
-        raw_filters = st.text_input("필터 (컬럼=값 또는 컬럼=값1|값2)", placeholder=filter_hint, key="portfolio_filter")
-        limit = st.slider("결과 개수", min_value=1, max_value=15, value=5, key="portfolio_limit")
-        sort_by_options = ["(정렬 없음)"] + available_columns
-        sort_by_choice = st.selectbox("정렬 기준", options=sort_by_options, index=0, key="portfolio_sort_by")
-        sort_order = st.radio("정렬 방향", options=["desc", "asc"], index=0, key="portfolio_sort_order")
-        submitted = st.form_submit_button("조회 요청")
-
-    if submitted:
-        filters = _parse_portfolio_filters(raw_filters)
-        tool_input = {
-            "query": query or "",
-            "filters": filters,
-            "limit": limit,
-            "sort_by": None if sort_by_choice == "(정렬 없음)" else sort_by_choice,
-            "sort_order": sort_order,
-        }
-        result = execute_tool("query_investment_portfolio", tool_input)
-
-        if result.get("success"):
-            summary = result.get("summary", "결과를 가져왔습니다.")
-            records = result.get("records", [])
-            st.success(summary)
-
-            if records:
-                st.dataframe(pd.DataFrame(records))
-            else:
-                st.info("조건에 맞는 기업이 없습니다.")
-
-            st.session_state.portfolio_query_history.append({
-                "query": query,
-                "filters": filters,
-                "summary": summary,
-                "records": records,
-            })
-        else:
-            st.error(result.get("error", "조회에 실패했습니다."))
-
-    if st.session_state.portfolio_query_history:
-        with st.expander("최근 포트폴리오 조회 기록", expanded=False):
-            for entry in reversed(st.session_state.portfolio_query_history[-5:]):
-                st.markdown(f"- **질문:** {entry.get('query') or '없음'} · **필터:** {_format_filter_summary(entry.get('filters', {}))}")
-                st.caption(entry.get("summary", ""))
-                if entry.get("records"):
-                    st.write("최근 결과 샘플:")
-                    st.table(pd.DataFrame(entry["records"]).head(3))
-
-
-_render_portfolio_query_section()
-
+def _render_portfolio_result_section():
+    result = st.session_state.get("discovery_portfolio_result")
+    if not result:
+        return
+    st.markdown("### 투자기업 포트폴리오 검색 결과")
+    summary = result.get("summary")
+    if summary:
+        st.caption(summary)
+    records = result.get("records") or []
+    if not records:
+        st.info("조건에 맞는 기업이 없습니다.")
+        return
+    st.dataframe(pd.DataFrame(records).head(15))
 
 def get_discovery_agent():
     """Discovery 에이전트 초기화 또는 반환"""
@@ -1242,10 +1168,11 @@ if st.session_state.discovery_policy_analysis or st.session_state.discovery_reco
 
             with st.chat_message("assistant", avatar=avatar_image):
                 research_status = st.status("리서치 진행 중...", expanded=False, state="running")
-                try:
-                    response_placeholder = st.empty()
-                    response_container = [""]  # mutable container for async closure
+                response_placeholder = st.empty()
+                response_container = [""]  # mutable container for async closure
+                agent_for_portfolio = None
 
+                try:
                     if mode == "비판적 검토":
                         critic_agent = get_critic_agent()
                         critic_agent.set_context(build_discovery_context())
@@ -1259,8 +1186,8 @@ if st.session_state.discovery_policy_analysis or st.session_state.discovery_reco
                         asyncio.run(get_response())
                     else:
                         agent = get_discovery_agent()
+                        agent_for_portfolio = agent
 
-                        # 컨텍스트 설정
                         agent.policy_analysis = st.session_state.discovery_policy_analysis
                         agent.iris_mapping = st.session_state.discovery_iris_mapping
                         agent.recommendations = st.session_state.discovery_recommendations
@@ -1282,6 +1209,8 @@ if st.session_state.discovery_policy_analysis or st.session_state.discovery_reco
                         "role": "assistant",
                         "content": response_container[0]
                     })
+                    if agent_for_portfolio:
+                        st.session_state.discovery_portfolio_result = getattr(agent_for_portfolio, "last_portfolio_result", None)
                     research_status.update(label="리서치 완료", state="complete")
 
                 except Exception as e:
@@ -1289,6 +1218,8 @@ if st.session_state.discovery_policy_analysis or st.session_state.discovery_reco
                     st.error(f"오류 발생: {str(e)}")
 
             st.rerun()
+
+        _render_portfolio_result_section()
 
 # 분석 결과 없을 때 대화 탭만 표시
 elif st.session_state.discovery_messages:
