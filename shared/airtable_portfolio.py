@@ -322,7 +322,11 @@ def _apply_filters(df: pd.DataFrame, filters: Dict[str, Any]) -> pd.DataFrame:
 def _apply_query_mask(df: pd.DataFrame, query: str) -> pd.DataFrame:
     """
     텍스트 검색 (pandas str.contains 사용)
-    기업명 검색 시 정규화된 변형도 자동으로 검색
+    - 여러 단어는 AND 조건으로 검색
+    - 기업명 검색 시 정규화된 변형도 자동으로 검색
+
+    Example:
+        "경기 사회적 기업" → "경기" AND "사회적" AND "기업"
     """
     if not query:
         return df
@@ -330,32 +334,63 @@ def _apply_query_mask(df: pd.DataFrame, query: str) -> pd.DataFrame:
     if not query_lower:
         return df
 
-    # 기업명 정규화 변형 생성 (㈜ ↔ (주) ↔ 주식회사)
-    query_variants = [query_lower]
-    try:
-        from shared.company_name_normalizer import normalize_company_name
-        variants = normalize_company_name(query)
-        query_variants.extend([v.lower() for v in variants if v.lower() not in query_variants])
-    except Exception as e:
-        logger.debug(f"기업명 정규화 실패: {e}")
+    # 1. 공백으로 split (여러 단어 = AND 조건)
+    keywords = [kw for kw in query_lower.split() if kw]
 
-    masks = []
-    for column in SEARCH_COLUMNS:
-        if column not in df.columns:
-            continue
-        column_series = df[column].astype(str).str.lower()
+    # 2. 각 키워드별로 정규화 변형 생성 (키워드별로 독립적)
+    keyword_variants_map = {}
+    for keyword in keywords:
+        variants = [keyword]  # 원본 포함
 
-        # 각 변형에 대해 검색
-        for variant in query_variants:
-            masks.append(column_series.str.contains(variant, regex=False, na=False))
+        # 기업명 정규화 (㈜ ↔ (주) ↔ 주식회사)
+        try:
+            from shared.company_name_normalizer import normalize_company_name
+            normalized = normalize_company_name(keyword)
+            for v in normalized:
+                v_lower = v.lower()
+                if v_lower != keyword and v_lower not in variants:
+                    variants.append(v_lower)
+        except Exception as e:
+            logger.debug(f"기업명 정규화 실패: {e}")
 
-    if not masks:
+        keyword_variants_map[keyword] = variants
+
+    # 3. 각 키워드에 대해 OR 검색 (컬럼 전체)
+    keyword_match_results = []
+    for keyword in keywords:
+        # 이 키워드와 그 변형들
+        variants = keyword_variants_map[keyword]
+
+        # 이 키워드가 어느 컬럼에라도 있으면 OK
+        keyword_masks = []
+
+        for column in SEARCH_COLUMNS:
+            if column not in df.columns:
+                continue
+            column_series = df[column].astype(str).str.lower()
+
+            # 이 키워드의 모든 변형으로 검색
+            for variant in variants:
+                keyword_masks.append(
+                    column_series.str.contains(variant, regex=False, na=False)
+                )
+
+        if keyword_masks:
+            # 이 키워드에 대한 OR 결과
+            keyword_match = keyword_masks[0].copy()
+            for mask in keyword_masks[1:]:
+                keyword_match |= mask
+            keyword_match_results.append(keyword_match)
+
+    if not keyword_match_results:
         return df
 
-    combined = masks[0].copy()
-    for mask in masks[1:]:
-        combined |= mask
-    return df[combined]
+    # 4. 모든 키워드 AND 조건
+    final_mask = keyword_match_results[0].copy()
+    for mask in keyword_match_results[1:]:
+        final_mask &= mask  # AND
+
+    return df[final_mask]
 
 
 def _order_dataframe(
@@ -400,6 +435,14 @@ def search_portfolio_records(
     # 1. 캐싱된 DataFrame 가져오기 (Airtable 또는 CSV)
     df = _get_cached_dataframe()
 
+    # 디버깅: DataFrame 상태 확인
+    logger.info(f"[DEBUG] DataFrame 로드 완료 - 전체 {len(df)}개 레코드")
+    if len(df) == 0:
+        logger.error("[DEBUG] DataFrame이 비어있음! Airtable 연결 또는 CSV 파일 확인 필요")
+        logger.error(f"[DEBUG] Airtable enabled: {_airtable_enabled()}")
+        return []
+
+    logger.info(f"[DEBUG] 검색 파라미터 - query={query}, filters={filters}, sort_by={sort_by}")
     logger.debug(f"검색 시작 - query={query}, filters={filters}, 전체={len(df)}개")
 
     # 2. 필터 적용
