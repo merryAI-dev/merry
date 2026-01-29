@@ -234,6 +234,51 @@ div[data-testid="stButton"] button:hover {
     border-color: var(--accent) !important;
     color: var(--accent) !important;
 }
+
+/* 게임 로딩 팁 배너 */
+.loading-tips-banner {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    background: linear-gradient(90deg, #1a1a1a 0%, #2a2a2a 50%, #1a1a1a 100%);
+    border-top: 1px solid var(--border-color);
+    padding: 0.75rem 1rem;
+    z-index: 999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.75rem;
+}
+
+.loading-tips-banner__icon {
+    color: var(--success);
+    font-size: 1rem;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+.loading-tips-banner__text {
+    color: var(--text-secondary);
+    font-size: 0.8125rem;
+    max-width: 800px;
+    text-align: center;
+    transition: opacity 0.5s ease-in-out;
+}
+
+/* 시스템 메시지 (요약) 스타일 */
+.system-message {
+    background: rgba(59, 130, 246, 0.1);
+    border-left: 3px solid var(--accent);
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    margin: 1rem 0;
+    font-size: 0.875rem;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -295,6 +340,75 @@ def save_uploaded_file(uploaded_file) -> str:
 
     cleanup_user_temp_files(user_id, max_files=10)
     return str(file_path)
+
+
+def compact_conversation(messages: list, api_key: str) -> tuple[list, bool]:
+    """
+    대화 히스토리를 요약하여 컴팩트
+
+    Args:
+        messages: 현재 메시지 리스트
+        api_key: Claude API 키
+
+    Returns:
+        (컴팩트된 메시지 리스트, 컴팩션 성공 여부)
+    """
+    COMPACTION_TRIGGER = 15
+    COMPACTION_TARGET = 10
+
+    if len(messages) < COMPACTION_TRIGGER:
+        return messages, False
+
+    # 요약할 메시지 (첫 10개)
+    to_compact = messages[:COMPACTION_TARGET]
+    remaining = messages[COMPACTION_TARGET:]
+
+    # 요약 생성
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=api_key)
+
+        # 대화 내용을 텍스트로 변환 (system 메시지는 제외)
+        conversation_text = "\n\n".join([
+            f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['content'][:500]}"  # 긴 응답 잘라내기
+            for msg in to_compact
+            if msg['role'] != 'system'
+        ])
+
+        # Claude에게 요약 요청
+        response = client.messages.create(
+            model="claude-3-5-haiku-20241022",  # 빠르고 저렴한 모델
+            max_tokens=500,
+            messages=[{
+                "role": "user",
+                "content": f"""다음은 VC 투자 분석 대화의 일부입니다.
+이 대화를 간결하게 요약해주세요. 핵심 정보만 포함하고, 3-5문장으로 작성해주세요.
+
+{conversation_text}
+
+요약:"""
+            }]
+        )
+
+        summary = response.content[0].text.strip()
+
+        # 요약을 시스템 메시지로 추가
+        compacted = [{
+            "role": "system",
+            "content": f"[이전 대화 요약]\n{summary}"
+        }]
+
+        # 나머지 메시지 추가
+        compacted.extend(remaining)
+
+        return compacted, True
+
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"대화 컴팩션 실패: {e}")
+        # 요약 실패 시 기존 방식 (단순 삭제)
+        return messages[-COMPACTION_TRIGGER:], False
 
 
 # ========================================
@@ -370,6 +484,17 @@ with chat_container:
         if role == "user":
             with st.chat_message("user", avatar=user_avatar_image):
                 st.markdown(content)
+
+        elif role == "system":
+            # 시스템 메시지 (대화 요약)
+            st.markdown(f"""
+            <div class="system-message">
+                <strong>📝 {content.split(']')[0]}]</strong>
+                <div style="margin-top: 0.5rem; color: var(--text-secondary);">
+                    {content.split(']', 1)[1] if ']' in content else content}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
         elif role == "assistant":
             with st.chat_message("assistant", avatar=avatar_image):
@@ -476,12 +601,18 @@ if user_input:
             # 간단한 응답 생성
             with st.spinner("생각 중..."):
                 try:
-                    # 대화 히스토리 제한: 최근 20개 메시지만 유지 (토큰 제한 방지)
-                    # 200개 기업 데이터 등 큰 응답이 쌓여도 안전
-                    MAX_HISTORY = 20
-                    if len(st.session_state.unified_messages) > MAX_HISTORY:
-                        # 가장 오래된 메시지 제거 (최근 20개만 유지)
-                        st.session_state.unified_messages = st.session_state.unified_messages[-MAX_HISTORY:]
+                    # 대화 히스토리 컴팩션: 15개 이상 시 요약하여 컨텍스트 유지
+                    if len(st.session_state.unified_messages) >= 15:
+                        api_key = st.session_state.get("user_api_key", "")
+                        compacted_messages, success = compact_conversation(
+                            st.session_state.unified_messages,
+                            api_key
+                        )
+                        st.session_state.unified_messages = compacted_messages
+
+                        # 컴팩션 성공 시 알림
+                        if success:
+                            st.toast("대화가 길어져 이전 내용을 요약했습니다", icon="📝")
 
                     # 동기 chat 메서드 사용 (returns string)
                     full_response = agent.chat_sync(full_message, mode="unified")
@@ -502,10 +633,67 @@ if user_input:
     st.rerun()
 
 # ========================================
+# 팁 로테이션 배너
+# ========================================
+st.markdown("""
+<div class="loading-tips-banner">
+    <span class="loading-tips-banner__icon">💡</span>
+    <div class="loading-tips-banner__text"></div>
+</div>
+
+<script>
+// 팁 목록
+const tips = [
+    "💡 200개 한 번에 출력해달라고 하지 마세요. 최근 3-4개의 대화를 기억하고 있어서 최대 20만 토큰까지만 응답이 가능합니다.",
+    "📁 파일을 먼저 업로드한 후 분석을 요청하면 더 정확한 결과를 얻을 수 있습니다.",
+    "🎯 복잡한 요청은 단계별로 나누어 주시면 더 빠르게 처리할 수 있습니다.",
+    "🔍 포트폴리오 조회 시 구체적인 키워드를 사용하면 검색 정확도가 높아집니다.",
+    "📊 Exit 프로젝션은 투자검토 엑셀 파일이 필요합니다.",
+    "🏢 Peer 분석은 기업소개서 PDF를 첨부해주세요.",
+    "💬 최근 대화만 기억하므로, 이전 내용을 참조하려면 다시 언급해주세요.",
+    "⚡ 대화가 15개 이상 쌓이면 자동으로 이전 내용을 요약합니다.",
+    "🎨 '새 대화' 버튼으로 언제든 대화를 초기화할 수 있습니다."
+];
+
+let currentTipIndex = 0;
+
+function rotateTips() {
+    const tipElement = document.querySelector('.loading-tips-banner__text');
+    if (tipElement) {
+        // Fade out
+        tipElement.style.opacity = '0';
+
+        setTimeout(() => {
+            // Change text
+            tipElement.textContent = tips[currentTipIndex];
+            currentTipIndex = (currentTipIndex + 1) % tips.length;
+
+            // Fade in
+            tipElement.style.opacity = '1';
+        }, 500);
+    }
+}
+
+// 페이지 로드 시 즉시 첫 번째 팁 표시
+setTimeout(() => {
+    const tipElement = document.querySelector('.loading-tips-banner__text');
+    if (tipElement) {
+        tipElement.textContent = tips[0];
+        tipElement.style.opacity = '1';
+        currentTipIndex = 1;
+    }
+}, 100);
+
+// 7초마다 팁 변경
+setInterval(rotateTips, 7000);
+</script>
+""", unsafe_allow_html=True)
+
+# ========================================
 # 푸터
 # ========================================
 st.markdown("""
-<div style="text-align: center; color: #9ca3af; font-size: 0.75rem; margin-top: 4rem; padding: 2rem 0;">
+<div style="text-align: center; color: #9ca3af; font-size: 0.75rem; margin-top: 4rem; padding: 2rem 0; margin-bottom: 3rem;">
     Powered by Claude Opus 4.5 | 메리 VC 에이전트 v2.0
 </div>
 """, unsafe_allow_html=True)
