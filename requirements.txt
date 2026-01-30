@@ -12,7 +12,7 @@ requests>=2.28.0
 click>=8.1.0
 
 # Web interface
-streamlit>=1.42.0  # 웹 UI (st.login() OAuth 지원)
+streamlit  # 웹 UI (st.login() OAuth 지원)
 altair>=5.0.0  # 차트 시각화
 
 # Authentication

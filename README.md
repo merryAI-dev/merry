@@ -182,7 +182,8 @@ Claude Code가 실행되면:
 - [CLAUDE.md](CLAUDE.md) - Claude Code 사용 가이드
 - [AGENT_SDK_DESIGN.md](AGENT_SDK_DESIGN.md) - Agent 아키텍처 설계
 - [DEPLOYMENT.md](DEPLOYMENT.md) - 배포 전략
-- [SECURITY_FAQ.md](SECURITY_FAQ.md) - 보안 FAQ
+- `web/` - Next.js + Vercel UI/API scaffolding (new migration target)
+- `backend/` - FastAPI bridge exposing `/chat` and `/portfolio-search`
 
 ## 설치
 

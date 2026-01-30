@@ -42,6 +42,10 @@ SEARCH_COLUMNS = [
 ]
 
 AIRTABLE_MAX_PAGE_SIZE = 100
+PLACEHOLDER_VALUES = {
+    "key": "pat_placeholder_value",
+    "base": "app_placeholder_value",
+}
 
 
 def _ensure_data_file() -> Optional[Path]:
@@ -77,12 +81,21 @@ def _get_airtable_config() -> Tuple[Optional[str], Optional[str], str]:
     except Exception as e:
         logger.debug(f"Streamlit import 실패: {e}")
 
-    if key and base:
+    if key and base and not _is_placeholder(key, base, table):
         logger.debug(f"Airtable config loaded: base={base}, table={table}, key={'***' + key[-8:] if key else 'None'}")
     else:
         logger.debug("Airtable config not found, will use CSV fallback")
 
     return key, base, table
+
+
+def _is_placeholder(key: Optional[str], base: Optional[str], table: Optional[str]) -> bool:
+    """Placeholder 값이면 Airtable을 실제로 사용하지 않도록 한다."""
+    if key and key == PLACEHOLDER_VALUES["key"]:
+        return True
+    if base and base == PLACEHOLDER_VALUES["base"]:
+        return True
+    return False
 
 
 def _airtable_enabled() -> bool:
