@@ -9,6 +9,7 @@ import os
 from typing import Dict, Iterable, Optional, Tuple
 from urllib.parse import quote
 
+import math
 import pandas as pd
 import requests
 import streamlit as st
@@ -28,6 +29,18 @@ def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     df = df.fillna("")
     df.columns = [str(col).replace("\n", " ").strip() for col in df.columns]
     return df
+
+
+def _clean_airtable_value(value: object) -> object:
+    if value is None:
+        return ""
+    if isinstance(value, float) and math.isnan(value):
+        return ""
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        return value
+    return str(value).strip()
 
 
 def _is_placeholder(key: Optional[str], base: Optional[str]) -> bool:
@@ -106,10 +119,9 @@ def _fetch_airtable_tables_cached(
                 records = payload.get("records", [])
                 for entry in records:
                     fields = entry.get("fields", {})
-                    all_records.append({
-                        k: str(v).strip() if v not in (None, float("nan")) else ""
-                        for k, v in fields.items()
-                    })
+                    row = {k: _clean_airtable_value(v) for k, v in fields.items()}
+                    row["_record_id"] = entry.get("id", "")
+                    all_records.append(row)
 
                 offset = payload.get("offset")
                 if not offset:

@@ -137,6 +137,28 @@ def _normalize_join_key(value: str) -> str:
     return text
 
 
+def _extract_record_ids(value: object) -> list[str]:
+    if isinstance(value, list):
+        return [v for v in value if isinstance(v, str)]
+    if isinstance(value, str):
+        return re.findall(r"rec[A-Za-z0-9]+", value)
+    return []
+
+
+def _resolve_fund_names(value: object, id_to_name: Dict[str, str]) -> list[str]:
+    ids = _extract_record_ids(value)
+    if ids:
+        names = [id_to_name.get(rec_id) for rec_id in ids if id_to_name.get(rec_id)]
+        if names:
+            return names
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    text = str(value).strip()
+    return [text] if text else []
+
+
 def _to_number(value: object) -> Optional[float]:
     if value is None:
         return None
@@ -324,8 +346,22 @@ def prepare_dashboard_views(data: DashboardData) -> Dict[str, pd.DataFrame]:
     else:
         funds["join_key"] = ""
 
+    id_to_name: Dict[str, str] = {}
+    if "_record_id" in funds.columns and "투자 조합명" in funds.columns:
+        id_to_name = {
+            str(row["_record_id"]): str(row["투자 조합명"]).strip()
+            for _, row in funds.iterrows()
+            if row.get("_record_id") and str(row.get("투자 조합명", "")).strip()
+        }
+
     if "투자조합 정보" in obligations.columns:
-        obligations["join_key"] = obligations["투자조합 정보"].apply(_normalize_join_key)
+        obligations["fund_names"] = obligations["투자조합 정보"].apply(
+            lambda value: _resolve_fund_names(value, id_to_name)
+        )
+        obligations["펀드명"] = obligations["fund_names"].apply(
+            lambda names: ", ".join(names) if names else ""
+        )
+        obligations["join_key"] = obligations["펀드명"].apply(_normalize_join_key)
     else:
         obligations["join_key"] = ""
 
@@ -387,8 +423,9 @@ def _aggregate_compliance(obligations: pd.DataFrame) -> pd.DataFrame:
         )
 
     grouped = obligations.groupby("join_key", dropna=False)
+    name_col = "펀드명" if "펀드명" in obligations.columns else "투자조합 정보"
     summary = grouped.agg(
-        펀드명=("투자조합 정보", "first"),
+        펀드명=(name_col, "first"),
         의무투자_건수=("의무투자", "count"),
         투자금액_합계=("투자금액_num", "sum"),
         기준금액_합계=("기준 금액_num", "sum"),

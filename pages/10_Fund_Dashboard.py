@@ -155,6 +155,31 @@ funds_with_compliance = views["funds_with_compliance"]
 compliance_summary = views["compliance_summary"]
 portfolio_latest = views["portfolio_latest"]
 
+fund_name_col = "투자 조합명" if "투자 조합명" in funds.columns else None
+fund_options = []
+if fund_name_col:
+    fund_options = sorted([name for name in funds[fund_name_col].unique() if str(name).strip()])
+elif "펀드명" in compliance_summary.columns:
+    fund_options = sorted([name for name in compliance_summary["펀드명"].unique() if str(name).strip()])
+
+selected_fund = st.selectbox("펀드 선택", ["전체"] + fund_options)
+
+if selected_fund != "전체" and fund_name_col:
+    funds_filtered = funds[funds[fund_name_col] == selected_fund]
+    funds_with_compliance = funds_with_compliance[funds_with_compliance[fund_name_col] == selected_fund]
+else:
+    funds_filtered = funds
+
+if selected_fund != "전체" and "펀드명" in obligations.columns:
+    obligations = obligations[obligations["펀드명"].str.contains(selected_fund, na=False)]
+
+if selected_fund != "전체" and "펀드명" in compliance_summary.columns:
+    compliance_summary = compliance_summary[compliance_summary["펀드명"].str.contains(selected_fund, na=False)]
+
+if selected_fund != "전체" and "포폴사-투자사 연계" in portfolio_latest.columns:
+    portfolio_latest = portfolio_latest[
+        portfolio_latest["포폴사-투자사 연계"].astype(str).str.contains(selected_fund, na=False)
+    ]
 
 if funds.empty:
     st.error("펀드 데이터가 비어 있습니다. CSV 또는 Airtable 설정을 확인해 주세요.")
@@ -200,11 +225,11 @@ def _render_kpi_cards(kpis: list[Dict[str, str]]):
     st.markdown(cards_html, unsafe_allow_html=True)
 
 
-fund_count = len(funds)
-commit_total = funds.get("약정총액_num", pd.Series(dtype=float)).sum()
-invest_total = funds.get("총 투자금액(누적)_num", pd.Series(dtype=float)).sum()
-return_total = funds.get("회수수익_num", pd.Series(dtype=float)).sum()
-multiple_avg = funds.get("multiple(x) (투자수익배수)_num", pd.Series(dtype=float)).mean()
+fund_count = len(funds_filtered)
+commit_total = funds_filtered.get("약정총액_num", pd.Series(dtype=float)).sum()
+invest_total = funds_filtered.get("총 투자금액(누적)_num", pd.Series(dtype=float)).sum()
+return_total = funds_filtered.get("회수수익_num", pd.Series(dtype=float)).sum()
+multiple_avg = funds_filtered.get("multiple(x) (투자수익배수)_num", pd.Series(dtype=float)).mean()
 
 compliance_rate = None
 if not compliance_summary.empty:
@@ -233,7 +258,7 @@ tabs = st.tabs(["펀드 요약", "의무투자 컴플라이언스", "포폴사 �
 
 with tabs[0]:
     st.markdown("### 펀드 투자/회수 흐름")
-    chart_df = funds[["투자 조합명", "총 투자금액(누적)_num", "회수수익_num"]].copy()
+    chart_df = funds_filtered[["투자 조합명", "총 투자금액(누적)_num", "회수수익_num"]].copy()
     chart_df = chart_df.rename(columns={
         "총 투자금액(누적)_num": "총 투자금액",
         "회수수익_num": "회수수익",
@@ -255,9 +280,9 @@ with tabs[0]:
     st.altair_chart(fund_chart, use_container_width=True)
 
     st.markdown("### 투자수익배수 분포")
-    if "multiple(x) (투자수익배수)_num" in funds.columns:
+    if "multiple(x) (투자수익배수)_num" in funds_filtered.columns:
         dist_chart = (
-            alt.Chart(funds)
+            alt.Chart(funds_filtered)
             .mark_bar(color="#7a5c43")
             .encode(
                 x=alt.X("multiple(x) (투자수익배수)_num:Q", bin=alt.Bin(maxbins=10), title="multiple(x)"),
@@ -271,7 +296,12 @@ with tabs[0]:
         st.info("multiple(x) 컬럼이 없어 분포를 표시할 수 없습니다.")
 
     st.markdown("### 펀드 상세 테이블")
-    st.dataframe(funds_with_compliance, use_container_width=True)
+    fund_search = st.text_input("펀드 검색", value=selected_fund if selected_fund != "전체" else "")
+    if fund_search:
+        funds_with_compliance = funds_with_compliance[
+            funds_with_compliance["투자 조합명"].astype(str).str.contains(fund_search, na=False)
+        ]
+    st.dataframe(funds_with_compliance, use_container_width=True, hide_index=True)
 
 with tabs[1]:
     if obligations.empty:
@@ -311,13 +341,23 @@ with tabs[1]:
             st.info("달성율 데이터가 없어 차트를 표시할 수 없습니다.")
 
         st.markdown("### 의무투자 상세")
-        st.dataframe(obligations, use_container_width=True)
+        obligation_search = st.text_input("의무투자 검색", value=selected_fund if selected_fund != "전체" else "")
+        if obligation_search and "펀드명" in obligations.columns:
+            obligations = obligations[
+                obligations["펀드명"].astype(str).str.contains(obligation_search, na=False)
+            ]
+        st.dataframe(obligations, use_container_width=True, hide_index=True)
 
 with tabs[2]:
     if portfolio_latest.empty:
         st.warning("포폴사 결산 데이터가 비어 있습니다.")
     else:
         st.markdown("### 포폴사 결산 요약 (최근 제출 기준)")
+        portfolio_search = st.text_input("포폴 검색", value=selected_fund if selected_fund != "전체" else "")
+        if portfolio_search and "법인명" in portfolio_latest.columns:
+            portfolio_latest = portfolio_latest[
+                portfolio_latest["법인명"].astype(str).str.contains(portfolio_search, na=False)
+            ]
         summary_cols = [
             "법인명",
             "제출일",
@@ -329,7 +369,7 @@ with tabs[2]:
             "자본총계 (백만원)",
         ]
         existing_cols = [col for col in summary_cols if col in portfolio_latest.columns]
-        st.dataframe(portfolio_latest[existing_cols], use_container_width=True)
+        st.dataframe(portfolio_latest[existing_cols], use_container_width=True, hide_index=True)
 
         if "매출액 (백만원)_num" in portfolio_latest.columns:
             top_sales = portfolio_latest.sort_values("매출액 (백만원)_num", ascending=False).head(10)
