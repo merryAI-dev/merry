@@ -70,20 +70,23 @@ def airtable_enabled() -> bool:
 
 
 @st.cache_data(ttl=600, show_spinner="Airtable 데이터 로드 중...")
-def fetch_airtable_tables(
+def _fetch_airtable_tables_cached(
     base_id: str,
     api_key: str,
     table_names: Tuple[str, ...],
-) -> Dict[str, pd.DataFrame]:
-    """여러 테이블을 Airtable에서 로드하여 DataFrame dict 반환"""
+) -> Tuple[Dict[str, pd.DataFrame], Dict[str, Dict[str, object]]]:
+    """여러 테이블을 Airtable에서 로드하고 상태 정보를 함께 반환"""
     headers = {"Authorization": f"Bearer {api_key}"}
     results: Dict[str, pd.DataFrame] = {}
+    status: Dict[str, Dict[str, object]] = {}
 
     for table in table_names:
         table_encoded = quote(table, safe="")
         url = f"https://api.airtable.com/v0/{base_id}/{table_encoded}"
         all_records = []
         offset = None
+        error_text = None
+        status_code = None
 
         try:
             while True:
@@ -92,8 +95,10 @@ def fetch_airtable_tables(
                     params["offset"] = offset
 
                 resp = requests.get(url, headers=headers, params=params, timeout=15)
+                status_code = resp.status_code
                 if resp.status_code != 200:
-                    logger.warning("Airtable 응답 오류: %s", resp.text[:300])
+                    error_text = resp.text[:300]
+                    logger.warning("Airtable 응답 오류(%s): %s", table, error_text)
                     break
                 resp.raise_for_status()
                 payload = resp.json()
@@ -113,13 +118,42 @@ def fetch_airtable_tables(
             df = pd.DataFrame(all_records)
             df = _normalize_columns(df)
             results[table] = df
+            status[table] = {
+                "rows": len(df),
+                "status_code": status_code,
+                "error": error_text,
+            }
             logger.info("Airtable 테이블 로드 완료: %s (%d rows)", table, len(df))
 
         except Exception as exc:
             logger.warning("Airtable 테이블 로드 실패(%s): %s", table, exc)
             results[table] = pd.DataFrame()
+            status[table] = {
+                "rows": 0,
+                "status_code": status_code,
+                "error": str(exc),
+            }
 
+    return results, status
+
+
+def fetch_airtable_tables(
+    base_id: str,
+    api_key: str,
+    table_names: Tuple[str, ...],
+) -> Dict[str, pd.DataFrame]:
+    """여러 테이블을 Airtable에서 로드하여 DataFrame dict 반환"""
+    results, _ = _fetch_airtable_tables_cached(base_id, api_key, table_names)
     return results
+
+
+def fetch_airtable_tables_with_status(
+    base_id: str,
+    api_key: str,
+    table_names: Tuple[str, ...],
+) -> Tuple[Dict[str, pd.DataFrame], Dict[str, Dict[str, object]]]:
+    """여러 테이블을 Airtable에서 로드하여 DataFrame + 상태 반환"""
+    return _fetch_airtable_tables_cached(base_id, api_key, table_names)
 
 
 def load_airtable_tables(table_names: Iterable[str]) -> Dict[str, pd.DataFrame]:
@@ -131,3 +165,15 @@ def load_airtable_tables(table_names: Iterable[str]) -> Dict[str, pd.DataFrame]:
     if not names:
         return {}
     return fetch_airtable_tables(base_id=base, api_key=key, table_names=names)
+
+
+def load_airtable_tables_with_status(
+    table_names: Iterable[str],
+) -> Tuple[Dict[str, pd.DataFrame], Dict[str, Dict[str, object]]]:
+    key, base = get_airtable_config()
+    if not key or not base:
+        return {}, {}
+    names = tuple(table_names)
+    if not names:
+        return {}, {}
+    return fetch_airtable_tables_with_status(base_id=base, api_key=key, table_names=names)

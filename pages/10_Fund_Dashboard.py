@@ -156,6 +156,8 @@ if funds.empty:
         f"의무투자 테이블: {table_map['obligations']} · "
         f"포폴 결산 테이블: {table_map['portfolio']}"
     )
+    with st.expander("디버그 정보", expanded=True):
+        st.json(data.debug)
     st.stop()
 
 

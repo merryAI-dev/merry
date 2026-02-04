@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Tuple
 
@@ -13,7 +13,11 @@ import os
 import pandas as pd
 import streamlit as st
 
-from shared.airtable_multi import airtable_enabled, load_airtable_tables
+from shared.airtable_multi import (
+    airtable_enabled,
+    load_airtable_tables,
+    load_airtable_tables_with_status,
+)
 from shared.logging_config import get_logger
 
 logger = get_logger("fund_dashboard_data")
@@ -63,6 +67,7 @@ class DashboardData:
     funds: pd.DataFrame
     obligations: pd.DataFrame
     portfolio: pd.DataFrame
+    debug: Dict[str, Dict[str, object]] = field(default_factory=dict)
 
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
@@ -138,6 +143,22 @@ def _load_from_csv(csv_dir: str) -> Dict[str, pd.DataFrame]:
     return data
 
 
+def _load_from_csv_with_debug(csv_dir: str) -> Tuple[Dict[str, pd.DataFrame], Dict[str, Dict[str, object]]]:
+    base = Path(csv_dir)
+    data = _load_from_csv(str(base))
+    debug: Dict[str, Dict[str, object]] = {}
+    for key, filename in DEFAULT_CSV_FILES.items():
+        path = base / filename
+        df = data.get(key, pd.DataFrame())
+        debug[key] = {
+            "file": str(path),
+            "exists": path.exists(),
+            "rows": len(df),
+            "columns": list(df.columns)[:6],
+        }
+    return data, debug
+
+
 @st.cache_data(ttl=600, show_spinner="펀드 데이터 로드 중...")
 def _load_from_airtable(table_map: Tuple[Tuple[str, str], ...]) -> Dict[str, pd.DataFrame]:
     table_map_dict = dict(table_map)
@@ -146,6 +167,27 @@ def _load_from_airtable(table_map: Tuple[Tuple[str, str], ...]) -> Dict[str, pd.
     for key, table_name in table_map_dict.items():
         data[key] = raw.get(table_name, pd.DataFrame())
     return data
+
+
+def _load_from_airtable_with_debug(
+    table_map: Tuple[Tuple[str, str], ...],
+) -> Tuple[Dict[str, pd.DataFrame], Dict[str, Dict[str, object]]]:
+    table_map_dict = dict(table_map)
+    raw, status = load_airtable_tables_with_status(table_map_dict.values())
+    data = {}
+    debug: Dict[str, Dict[str, object]] = {}
+    for key, table_name in table_map_dict.items():
+        df = raw.get(table_name, pd.DataFrame())
+        data[key] = df
+        table_status = status.get(table_name, {})
+        debug[key] = {
+            "table": table_name,
+            "rows": len(df),
+            "status_code": table_status.get("status_code"),
+            "error": table_status.get("error"),
+            "columns": list(df.columns)[:6],
+        }
+    return data, debug
 
 
 def load_dashboard_tables(
@@ -160,6 +202,7 @@ def load_dashboard_tables(
 
     used_source = source
     data: Dict[str, pd.DataFrame]
+    debug: Dict[str, Dict[str, object]] = {}
 
     if source == "auto":
         if airtable_enabled():
@@ -168,9 +211,9 @@ def load_dashboard_tables(
             used_source = "csv"
 
     if used_source == "airtable":
-        data = _load_from_airtable(tuple(table_map.items()))
+        data, debug = _load_from_airtable_with_debug(tuple(table_map.items()))
     else:
-        data = _load_from_csv(str(csv_dir))
+        data, debug = _load_from_csv_with_debug(str(csv_dir))
         used_source = "csv"
 
     return DashboardData(
@@ -178,6 +221,7 @@ def load_dashboard_tables(
         funds=data.get("funds", pd.DataFrame()),
         obligations=data.get("obligations", pd.DataFrame()),
         portfolio=data.get("portfolio", pd.DataFrame()),
+        debug=debug,
     )
 
 
