@@ -353,6 +353,16 @@ with col_right:
         st.session_state.unified_files = []
         st.rerun()
 
+# 빠른 페이지 이동 (사이드바 숨김 보완)
+st.markdown("### 바로가기")
+nav_cols = st.columns(3)
+with nav_cols[0]:
+    st.page_link("pages/10_Fund_Dashboard.py", label="펀드 대시보드", icon="📊")
+with nav_cols[1]:
+    st.page_link("pages/0_Collaboration_Hub.py", label="협업 허브", icon="🧭")
+with nav_cols[2]:
+    st.page_link("pages/8_Startup_Discovery.py", label="스타트업 발굴", icon="🔍")
+
 # ========================================
 # 대화 기록 불러오기
 # ========================================
