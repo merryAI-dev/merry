@@ -120,15 +120,22 @@ if source == "airtable" and not airtable_enabled():
     st.warning("Airtable 설정이 없어 CSV로 대체합니다.")
     source = "csv"
 
+table_map = DEFAULT_TABLE_MAP.copy()
+if source == "airtable":
+    with st.sidebar.expander("Airtable 테이블 설정", expanded=False):
+        table_map["funds"] = st.text_input("펀드 테이블", value=table_map["funds"])
+        table_map["obligations"] = st.text_input("의무투자 테이블", value=table_map["obligations"])
+        table_map["portfolio"] = st.text_input("포폴 결산 테이블", value=table_map["portfolio"])
+        st.caption("테이블명이 실제 Airtable 탭과 정확히 일치해야 합니다.")
 
-data = load_dashboard_tables(source=source)
+data = load_dashboard_tables(source=source, table_map=table_map)
 if source == "csv" and data.funds.empty and airtable_enabled():
     st.warning("CSV 데이터가 비어 있어 Airtable로 전환합니다.")
-    data = load_dashboard_tables(source="airtable")
+    data = load_dashboard_tables(source="airtable", table_map=table_map)
     source = "airtable"
 if source == "airtable" and data.funds.empty:
     st.warning("Airtable 데이터가 비어 있어 CSV로 전환합니다.")
-    data = load_dashboard_tables(source="csv")
+    data = load_dashboard_tables(source="csv", table_map=table_map)
     source = "csv"
 views = prepare_dashboard_views(data)
 
@@ -141,6 +148,12 @@ portfolio_latest = views["portfolio_latest"]
 
 if funds.empty:
     st.error("펀드 데이터가 비어 있습니다. CSV 또는 Airtable 설정을 확인해 주세요.")
+    st.caption(
+        f"현재 소스: {source.upper()} · "
+        f"펀드 테이블: {table_map['funds']} · "
+        f"의무투자 테이블: {table_map['obligations']} · "
+        f"포폴 결산 테이블: {table_map['portfolio']}"
+    )
     st.stop()
 
 
