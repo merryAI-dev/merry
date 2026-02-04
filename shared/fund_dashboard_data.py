@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, Optional, Tuple
 
+import os
 import pandas as pd
 import streamlit as st
 
@@ -31,6 +32,29 @@ DEFAULT_CSV_FILES = {
     "obligations": "의무 투자-Grid view.csv",
     "portfolio": "포폴사 결산 자료-Grid view.csv",
 }
+
+
+def get_dashboard_table_map(defaults: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    """Airtable 테이블명 설정 (env/secrets 우선 적용)"""
+    table_map = (defaults or DEFAULT_TABLE_MAP).copy()
+    env_overrides = {
+        "funds": os.getenv("AIRTABLE_FUND_TABLE"),
+        "obligations": os.getenv("AIRTABLE_OBLIGATION_TABLE"),
+        "portfolio": os.getenv("AIRTABLE_PORTFOLIO_TABLE"),
+    }
+    for key, value in env_overrides.items():
+        if value:
+            table_map[key] = value
+
+    try:
+        if hasattr(st, "secrets"):
+            table_map["funds"] = st.secrets.get("AIRTABLE_FUND_TABLE", table_map["funds"])
+            table_map["obligations"] = st.secrets.get("AIRTABLE_OBLIGATION_TABLE", table_map["obligations"])
+            table_map["portfolio"] = st.secrets.get("AIRTABLE_PORTFOLIO_TABLE", table_map["portfolio"])
+    except Exception as exc:
+        logger.debug("Streamlit secrets 읽기 실패: %s", exc)
+
+    return table_map
 
 
 @dataclass

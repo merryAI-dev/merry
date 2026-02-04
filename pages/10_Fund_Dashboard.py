@@ -17,6 +17,7 @@ from shared.fund_dashboard_data import (
     load_dashboard_tables,
     prepare_dashboard_views,
     DEFAULT_TABLE_MAP,
+    get_dashboard_table_map,
 )
 from shared.airtable_multi import airtable_enabled
 
@@ -120,13 +121,14 @@ if source == "airtable" and not airtable_enabled():
     st.warning("Airtable 설정이 없어 CSV로 대체합니다.")
     source = "csv"
 
-table_map = DEFAULT_TABLE_MAP.copy()
+table_map = get_dashboard_table_map(DEFAULT_TABLE_MAP)
 if source == "airtable":
     with st.sidebar.expander("Airtable 테이블 설정", expanded=False):
         table_map["funds"] = st.text_input("펀드 테이블", value=table_map["funds"])
         table_map["obligations"] = st.text_input("의무투자 테이블", value=table_map["obligations"])
         table_map["portfolio"] = st.text_input("포폴 결산 테이블", value=table_map["portfolio"])
         st.caption("테이블명이 실제 Airtable 탭과 정확히 일치해야 합니다.")
+        st.caption("secrets.toml 키: AIRTABLE_FUND_TABLE / AIRTABLE_OBLIGATION_TABLE / AIRTABLE_PORTFOLIO_TABLE")
 
 data = load_dashboard_tables(source=source, table_map=table_map)
 if source == "csv" and data.funds.empty and airtable_enabled():
