@@ -379,11 +379,11 @@ with tabs[1]:
                 alt.Chart(compliance_summary)
                 .mark_bar(color="#7a5c43")
                 .encode(
-                    y=alt.Y(f"{name_field}:N", sort="-x", title="펀드"),
-                    x=alt.X("최소_달성율:Q", title="최소 달성율(%)"),
+                    x=alt.X(f"{name_field}:N", sort="-y", title="펀드", axis=alt.Axis(labelAngle=-30)),
+                    y=alt.Y("최소_달성율:Q", title="최소 달성율(%)"),
                     tooltip=[name_field, "최소_달성율", "compliance_status"],
                 )
-                .properties(height=280)
+                .properties(height=320)
             )
             st.markdown("<div class='reveal'>", unsafe_allow_html=True)
             st.altair_chart(rate_chart, use_container_width=True)
