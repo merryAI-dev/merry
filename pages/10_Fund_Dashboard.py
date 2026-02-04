@@ -95,6 +95,19 @@ st.markdown(
         background: rgba(255, 255, 255, 0.9);
         box-shadow: 0 12px 24px rgba(25, 18, 9, 0.06);
     }
+    @keyframes swoosh {
+        0% { opacity: 0; transform: translateY(14px) scale(0.98); }
+        100% { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .reveal {
+        animation: swoosh 0.6s ease-out both;
+    }
+    .kpi-card {
+        animation: swoosh 0.6s ease-out both;
+    }
+    .kpi-card:nth-child(2) { animation-delay: 0.05s; }
+    .kpi-card:nth-child(3) { animation-delay: 0.1s; }
+    .kpi-card:nth-child(4) { animation-delay: 0.15s; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -282,12 +295,19 @@ with tabs[0]:
         )
         .properties(height=320)
     )
+    st.markdown("<div class='reveal'>", unsafe_allow_html=True)
     st.altair_chart(fund_chart, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     st.markdown("### 투자수익배수 분포")
     if "multiple(x) (투자수익배수)_num" in funds_filtered.columns:
+        dist_data = funds_filtered[["multiple(x) (투자수익배수)_num"]].copy()
+        dist_data["multiple(x) (투자수익배수)_num"] = pd.to_numeric(
+            dist_data["multiple(x) (투자수익배수)_num"], errors="coerce"
+        )
+        dist_data = dist_data.dropna()
         dist_chart = (
-            alt.Chart(funds_filtered)
+            alt.Chart(dist_data)
             .mark_bar(color="#7a5c43")
             .encode(
                 x=alt.X("multiple(x) (투자수익배수)_num:Q", bin=alt.Bin(maxbins=10), title="multiple(x)"),
@@ -296,7 +316,9 @@ with tabs[0]:
             )
             .properties(height=200)
         )
+        st.markdown("<div class='reveal'>", unsafe_allow_html=True)
         st.altair_chart(dist_chart, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
     else:
         st.info("multiple(x) 컬럼이 없어 분포를 표시할 수 없습니다.")
 
@@ -326,7 +348,9 @@ with tabs[1]:
             )
             .properties(height=200)
         )
+        st.markdown("<div class='reveal'>", unsafe_allow_html=True)
         st.altair_chart(status_chart, use_container_width=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
         st.markdown("### 펀드별 달성율")
         if not compliance_summary.empty and "최소_달성율" in compliance_summary.columns:
@@ -341,7 +365,9 @@ with tabs[1]:
                 )
                 .properties(height=280)
             )
+            st.markdown("<div class='reveal'>", unsafe_allow_html=True)
             st.altair_chart(rate_chart, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
         else:
             st.info("달성율 데이터가 없어 차트를 표시할 수 없습니다.")
 
@@ -400,8 +426,9 @@ with tabs[2]:
 
         if "매출액 (백만원)_num" in portfolio_latest.columns:
             top_sales = portfolio_latest.sort_values("매출액 (백만원)_num", ascending=False).head(10)
+            sales_data = top_sales[["법인명", "매출액 (백만원)_num"]].copy()
             sales_chart = (
-                alt.Chart(top_sales)
+                alt.Chart(sales_data)
                 .mark_bar(color="#7a5c43")
                 .encode(
                     y=alt.Y("법인명:N", sort="-x", title=None),
@@ -410,7 +437,9 @@ with tabs[2]:
                 )
                 .properties(height=300)
             )
+            st.markdown("<div class='reveal'>", unsafe_allow_html=True)
             st.altair_chart(sales_chart, use_container_width=True)
+            st.markdown("</div>", unsafe_allow_html=True)
 
         st.info("펀드-포트폴리오 연결 키가 추가되면 펀드별 재무 집계가 가능합니다.")
 
