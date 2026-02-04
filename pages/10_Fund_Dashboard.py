@@ -23,8 +23,10 @@ from shared.fund_dashboard_data import (
     build_fund_company_map,
     filter_portfolio_by_companies,
     to_display_dataframe,
+    filter_company_df,
 )
 from shared.airtable_multi import airtable_enabled
+from shared.airtable_portfolio import _get_cached_dataframe
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -181,7 +183,27 @@ if fund_name_col:
 elif "펀드명" in compliance_summary.columns:
     fund_options = sorted([name for name in compliance_summary["펀드명"].unique() if str(name).strip()])
 
-selected_fund = st.selectbox("펀드 선택", ["전체"] + fund_options)
+if "fund_selector_open" not in st.session_state:
+    st.session_state.fund_selector_open = False
+
+selector_cols = st.columns([1, 1, 3])
+with selector_cols[0]:
+    if st.button("펀드 목록 열기", use_container_width=True):
+        st.session_state.fund_selector_open = not st.session_state.fund_selector_open
+with selector_cols[1]:
+    st.caption(f"펀드 수 {len(fund_options)}개")
+with selector_cols[2]:
+    st.caption(f"데이터 소스: {data.source.upper()}")
+
+selected_fund = st.session_state.get("selected_fund", "전체")
+if st.session_state.fund_selector_open:
+    selected_fund = st.radio(
+        "펀드 선택",
+        ["전체"] + fund_options,
+        horizontal=True,
+        index=(["전체"] + fund_options).index(selected_fund) if selected_fund in ["전체"] + fund_options else 0,
+    )
+    st.session_state.selected_fund = selected_fund
 
 if selected_fund != "전체" and fund_name_col:
     funds_filtered = funds[funds[fund_name_col] == selected_fund]
@@ -279,6 +301,53 @@ if len(kpis) > 4:
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     _render_kpi_cards(kpis[4:])
 
+# 스타트업 전체/펀드 현황 요약
+startup_df = _get_cached_dataframe()
+startup_name_col = "기업명" if "기업명" in startup_df.columns else None
+startup_amount_col = None
+for col in ["투자금액", "투자금액(누적)", "투자금액 누적"]:
+    if col in startup_df.columns:
+        startup_amount_col = col
+        break
+
+def _parse_amount_series(series: pd.Series) -> pd.Series:
+    return (
+        series.astype(str)
+        .str.replace(",", "", regex=False)
+        .str.replace("(", "-", regex=False)
+        .str.replace(")", "", regex=False)
+        .str.replace(r"[^0-9\-.]", "", regex=True)
+        .replace("", pd.NA)
+        .astype(float)
+    )
+
+overall_count = len(startup_df)
+overall_amount = None
+if startup_amount_col:
+    overall_amount = _parse_amount_series(startup_df[startup_amount_col]).sum()
+
+fund_companies = fund_company_map.get(selected_fund, []) if selected_fund != "전체" else []
+fund_startup_df = startup_df
+if startup_name_col and fund_companies:
+    fund_startup_df = filter_company_df(startup_df, startup_name_col, fund_companies)
+fund_count_startups = len(fund_startup_df) if fund_companies else 0
+fund_amount = None
+if startup_amount_col and fund_companies:
+    fund_amount = _parse_amount_series(fund_startup_df[startup_amount_col]).sum()
+
+st.markdown("### 스타트업 현황")
+startup_cards = [
+    {"label": "전체 스타트업", "value": f"{overall_count}개", "sub": "투자기업 전체"},
+]
+if overall_amount is not None:
+    startup_cards.append({"label": "전체 투자금액", "value": _format_amount(overall_amount), "sub": "합계"})
+if selected_fund != "전체":
+    startup_cards.append({"label": f"{selected_fund} 스타트업", "value": f"{fund_count_startups}개", "sub": "펀드 기준"})
+    if fund_amount is not None:
+        startup_cards.append({"label": f"{selected_fund} 투자금액", "value": _format_amount(fund_amount), "sub": "합계"})
+
+_render_kpi_cards(startup_cards[:4])
+
 
 st.divider()
 
@@ -337,18 +406,18 @@ with tabs[0]:
     else:
         st.info("multiple(x) 컬럼이 없어 분포를 표시할 수 없습니다.")
 
-    st.markdown("### 펀드 상세 테이블")
-    fund_search = st.text_input("펀드 검색", value=selected_fund if selected_fund != "전체" else "")
-    if fund_search:
-        funds_with_compliance = funds_with_compliance[
-            funds_with_compliance["투자 조합명"].astype(str).str.contains(fund_search, na=False)
-        ]
-    funds_display = to_display_dataframe(funds_with_compliance)
-    funds_display = _format_currency_columns(
-        funds_display,
-        ["약정총액", "총 투자금액(누적)", "회수원금", "회수수익", "투자가용금액"],
-    )
-    st.dataframe(funds_display, use_container_width=True, hide_index=True)
+    with st.expander("펀드 상세 테이블 (필요 시 열기)", expanded=False):
+        fund_search = st.text_input("펀드 검색", value=selected_fund if selected_fund != "전체" else "")
+        if fund_search:
+            funds_with_compliance = funds_with_compliance[
+                funds_with_compliance["투자 조합명"].astype(str).str.contains(fund_search, na=False)
+            ]
+        funds_display = to_display_dataframe(funds_with_compliance)
+        funds_display = _format_currency_columns(
+            funds_display,
+            ["약정총액", "총 투자금액(누적)", "회수원금", "회수수익", "투자가용금액"],
+        )
+        st.dataframe(funds_display, use_container_width=True, hide_index=True)
 
 with tabs[1]:
     if obligations.empty:

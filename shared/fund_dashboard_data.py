@@ -202,6 +202,18 @@ def filter_portfolio_by_companies(portfolio: pd.DataFrame, company_names: list[s
     return portfolio[portfolio["company_key"].isin(keys)]
 
 
+def filter_company_df(df: pd.DataFrame, name_col: str, company_names: list[str]) -> pd.DataFrame:
+    if df.empty or not company_names or name_col not in df.columns:
+        return df
+    keys = {_normalize_company_key(name) for name in company_names if name}
+    if not keys:
+        return df
+    if "company_key" not in df.columns:
+        df = df.copy()
+        df["company_key"] = df[name_col].apply(_normalize_company_key)
+    return df[df["company_key"].isin(keys)]
+
+
 def to_display_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     """Arrow 변환 오류를 피하기 위해 비정형 컬럼을 문자열로 변환"""
     if df.empty:
