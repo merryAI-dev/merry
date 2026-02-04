@@ -41,10 +41,28 @@ DEFAULT_CSV_FILES = {
 def get_dashboard_table_map(defaults: Optional[Dict[str, str]] = None) -> Dict[str, str]:
     """Airtable 테이블명 설정 (env/secrets 우선 적용)"""
     table_map = (defaults or DEFAULT_TABLE_MAP).copy()
+    def _first(*values: Optional[str]) -> Optional[str]:
+        for value in values:
+            if value:
+                return value
+        return None
+
     env_overrides = {
-        "funds": os.getenv("AIRTABLE_FUND_TABLE"),
-        "obligations": os.getenv("AIRTABLE_OBLIGATION_TABLE"),
-        "portfolio": os.getenv("AIRTABLE_PORTFOLIO_TABLE"),
+        "funds": _first(
+            os.getenv("AIRTABLE_FUND_TABLE_ID"),
+            os.getenv("AIRTABLE_FUND_TABLE"),
+            os.getenv("AIRTABLE_FUND_TABLE_NAME"),
+        ),
+        "obligations": _first(
+            os.getenv("AIRTABLE_OBLIGATION_TABLE_ID"),
+            os.getenv("AIRTABLE_OBLIGATION_TABLE"),
+            os.getenv("AIRTABLE_OBLIGATION_TABLE_NAME"),
+        ),
+        "portfolio": _first(
+            os.getenv("AIRTABLE_PORTFOLIO_TABLE_ID"),
+            os.getenv("AIRTABLE_PORTFOLIO_TABLE"),
+            os.getenv("AIRTABLE_PORTFOLIO_TABLE_NAME"),
+        ),
     }
     for key, value in env_overrides.items():
         if value:
@@ -52,9 +70,24 @@ def get_dashboard_table_map(defaults: Optional[Dict[str, str]] = None) -> Dict[s
 
     try:
         if hasattr(st, "secrets"):
-            table_map["funds"] = st.secrets.get("AIRTABLE_FUND_TABLE", table_map["funds"])
-            table_map["obligations"] = st.secrets.get("AIRTABLE_OBLIGATION_TABLE", table_map["obligations"])
-            table_map["portfolio"] = st.secrets.get("AIRTABLE_PORTFOLIO_TABLE", table_map["portfolio"])
+            table_map["funds"] = _first(
+                st.secrets.get("AIRTABLE_FUND_TABLE_ID"),
+                st.secrets.get("AIRTABLE_FUND_TABLE"),
+                st.secrets.get("AIRTABLE_FUND_TABLE_NAME"),
+                table_map["funds"],
+            )
+            table_map["obligations"] = _first(
+                st.secrets.get("AIRTABLE_OBLIGATION_TABLE_ID"),
+                st.secrets.get("AIRTABLE_OBLIGATION_TABLE"),
+                st.secrets.get("AIRTABLE_OBLIGATION_TABLE_NAME"),
+                table_map["obligations"],
+            )
+            table_map["portfolio"] = _first(
+                st.secrets.get("AIRTABLE_PORTFOLIO_TABLE_ID"),
+                st.secrets.get("AIRTABLE_PORTFOLIO_TABLE"),
+                st.secrets.get("AIRTABLE_PORTFOLIO_TABLE_NAME"),
+                table_map["portfolio"],
+            )
     except Exception as exc:
         logger.debug("Streamlit secrets 읽기 실패: %s", exc)
 

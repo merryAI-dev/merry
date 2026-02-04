@@ -130,7 +130,7 @@ if source == "airtable":
         table_map["obligations"] = st.text_input("의무투자 테이블", value=table_map["obligations"])
         table_map["portfolio"] = st.text_input("포폴 결산 테이블", value=table_map["portfolio"])
         st.caption("테이블명이 실제 Airtable 탭과 정확히 일치해야 합니다.")
-        st.caption("secrets.toml 키: AIRTABLE_FUND_TABLE / AIRTABLE_OBLIGATION_TABLE / AIRTABLE_PORTFOLIO_TABLE")
+        st.caption("secrets.toml 키: AIRTABLE_*_TABLE_ID / AIRTABLE_*_TABLE / AIRTABLE_*_TABLE_NAME")
         st.caption("URL을 붙여넣으면 table ID로 자동 인식됩니다.")
 
 table_map_used = normalize_table_map(table_map)
