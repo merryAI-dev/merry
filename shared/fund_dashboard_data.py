@@ -468,6 +468,7 @@ def prepare_dashboard_views(data: DashboardData) -> Dict[str, pd.DataFrame]:
         "funds_with_compliance": funds_with_compliance,
         "compliance_summary": compliance_summary,
         "portfolio_latest": portfolio_latest,
+        "portfolio_all": portfolio,
     }
 
 
