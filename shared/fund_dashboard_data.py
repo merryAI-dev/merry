@@ -190,6 +190,46 @@ def build_fund_company_map(funds: pd.DataFrame) -> Dict[str, list[str]]:
     return mapping
 
 
+def build_fund_company_map_from_obligations(obligations: pd.DataFrame) -> Dict[str, list[str]]:
+    mapping: Dict[str, list[str]] = {}
+    if obligations.empty:
+        return mapping
+    fund_col = None
+    if "펀드명" in obligations.columns:
+        fund_col = "펀드명"
+    elif "투자조합 정보" in obligations.columns:
+        fund_col = "투자조합 정보"
+    company_col = "투자 기업 정보" if "투자 기업 정보" in obligations.columns else None
+    if not fund_col or not company_col:
+        return mapping
+    for _, row in obligations.iterrows():
+        fund_name = str(row.get(fund_col, "")).strip()
+        if not fund_name:
+            continue
+        companies = _parse_company_list(row.get(company_col))
+        if not companies:
+            continue
+        existing = mapping.get(fund_name, [])
+        merged = existing + [c for c in companies if c not in existing]
+        mapping[fund_name] = merged
+    return mapping
+
+
+def build_fund_company_map_combined(
+    funds: pd.DataFrame,
+    obligations: pd.DataFrame,
+) -> Dict[str, list[str]]:
+    mapping = build_fund_company_map(funds)
+    fallback = build_fund_company_map_from_obligations(obligations)
+    if not mapping:
+        return fallback
+    for fund_name, companies in fallback.items():
+        existing = mapping.get(fund_name, [])
+        merged = existing + [c for c in companies if c not in existing]
+        mapping[fund_name] = merged
+    return mapping
+
+
 def filter_portfolio_by_companies(portfolio: pd.DataFrame, company_names: list[str]) -> pd.DataFrame:
     if portfolio.empty or not company_names or "법인명" not in portfolio.columns:
         return portfolio

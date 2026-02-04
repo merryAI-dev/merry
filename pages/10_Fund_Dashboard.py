@@ -20,7 +20,7 @@ from shared.fund_dashboard_data import (
     get_dashboard_table_map,
     normalize_table_map,
     get_airtable_debug,
-    build_fund_company_map,
+    build_fund_company_map_combined,
     filter_portfolio_by_companies,
     to_display_dataframe,
     filter_company_df,
@@ -173,7 +173,7 @@ funds_with_compliance = views["funds_with_compliance"]
 compliance_summary = views["compliance_summary"]
 portfolio_latest = views["portfolio_latest"]
 
-fund_company_map = build_fund_company_map(funds)
+fund_company_map = build_fund_company_map_combined(funds, obligations)
 fund_company_options = sorted({name for companies in fund_company_map.values() for name in companies})
 
 fund_name_col = "투자 조합명" if "투자 조합명" in funds.columns else None
