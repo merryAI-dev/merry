@@ -98,6 +98,21 @@ st.markdown(
         background: rgba(255, 255, 255, 0.9);
         box-shadow: 0 12px 24px rgba(25, 18, 9, 0.06);
     }
+    .fund-overview button {
+        width: 100%;
+        text-align: left;
+        background: linear-gradient(135deg, #ffffff, #f7f4ef);
+        border-radius: 16px;
+        border: 1px solid rgba(31, 26, 20, 0.08);
+        padding: 14px 16px;
+        box-shadow: 0 12px 24px rgba(25, 18, 9, 0.06);
+        font-size: 16px;
+        font-weight: 600;
+        color: #1f1a14;
+    }
+    .fund-overview button:hover {
+        border-color: rgba(122, 92, 67, 0.5);
+    }
     @keyframes swoosh {
         0% { opacity: 0; transform: translateY(14px) scale(0.98); }
         100% { opacity: 1; transform: translateY(0) scale(1); }
@@ -281,6 +296,17 @@ commit_total = funds_filtered.get("약정총액_num", pd.Series(dtype=float)).su
 invest_total = funds_filtered.get("총 투자금액(누적)_num", pd.Series(dtype=float)).sum()
 return_total = funds_filtered.get("회수수익_num", pd.Series(dtype=float)).sum()
 multiple_avg = funds_filtered.get("multiple(x) (투자수익배수)_num", pd.Series(dtype=float)).mean()
+
+st.markdown("<div class='fund-overview'>", unsafe_allow_html=True)
+if st.button(
+    f"펀드 수 {fund_count}개 · 데이터 소스: {data.source.upper()} → 펀드 상세 보기",
+    key="fund_overview_card",
+):
+    try:
+        st.switch_page("pages/11_Fund_Company_View.py")
+    except Exception:
+        st.info("펀드/기업 상세 페이지로 이동해 주세요.")
+st.markdown("</div>", unsafe_allow_html=True)
 
 compliance_rate = None
 if not compliance_summary.empty:
