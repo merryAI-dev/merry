@@ -18,6 +18,7 @@ from shared.fund_dashboard_data import (
     prepare_dashboard_views,
     DEFAULT_TABLE_MAP,
     get_dashboard_table_map,
+    get_airtable_debug,
 )
 from shared.airtable_multi import airtable_enabled
 
@@ -131,6 +132,9 @@ if source == "airtable":
         st.caption("secrets.toml 키: AIRTABLE_FUND_TABLE / AIRTABLE_OBLIGATION_TABLE / AIRTABLE_PORTFOLIO_TABLE")
 
 data = load_dashboard_tables(source=source, table_map=table_map)
+airtable_debug = None
+if airtable_enabled():
+    airtable_debug = get_airtable_debug(table_map)
 if source == "csv" and data.funds.empty and airtable_enabled():
     st.warning("CSV 데이터가 비어 있어 Airtable로 전환합니다.")
     data = load_dashboard_tables(source="airtable", table_map=table_map)
@@ -157,7 +161,7 @@ if funds.empty:
         f"포폴 결산 테이블: {table_map['portfolio']}"
     )
     with st.expander("디버그 정보", expanded=True):
-        st.json(data.debug)
+        st.json({"source_debug": data.debug, "airtable_debug": airtable_debug})
     st.stop()
 
 

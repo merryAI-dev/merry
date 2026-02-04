@@ -225,6 +225,13 @@ def load_dashboard_tables(
     )
 
 
+def get_airtable_debug(table_map: Optional[Dict[str, str]] = None) -> Dict[str, Dict[str, object]]:
+    """Airtable 테이블 상태만 확인 (로딩 실패/상태코드/컬럼 확인용)"""
+    table_map = table_map or DEFAULT_TABLE_MAP
+    _, debug = _load_from_airtable_with_debug(tuple(table_map.items()))
+    return debug
+
+
 def prepare_dashboard_views(data: DashboardData) -> Dict[str, pd.DataFrame]:
     """정규화/조인/집계 결과 반환"""
     funds = _normalize_columns(data.funds.copy())
