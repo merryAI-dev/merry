@@ -20,6 +20,8 @@ from shared.fund_dashboard_data import (
     get_dashboard_table_map,
     normalize_table_map,
     get_airtable_debug,
+    build_fund_company_map,
+    filter_portfolio_by_companies,
 )
 from shared.airtable_multi import airtable_enabled
 
@@ -154,6 +156,9 @@ obligations = views["obligations"]
 funds_with_compliance = views["funds_with_compliance"]
 compliance_summary = views["compliance_summary"]
 portfolio_latest = views["portfolio_latest"]
+
+fund_company_map = build_fund_company_map(funds)
+fund_company_options = sorted({name for companies in fund_company_map.values() for name in companies})
 
 fund_name_col = "투자 조합명" if "투자 조합명" in funds.columns else None
 fund_options = []
@@ -353,7 +358,29 @@ with tabs[2]:
         st.warning("포폴사 결산 데이터가 비어 있습니다.")
     else:
         st.markdown("### 포폴사 결산 요약 (최근 제출 기준)")
-        portfolio_search = st.text_input("포폴 검색", value=selected_fund if selected_fund != "전체" else "")
+        if selected_fund != "전체":
+            companies_for_fund = fund_company_map.get(selected_fund, [])
+            if not companies_for_fund:
+                st.info("선택한 펀드의 투자기업 목록이 없어 전체 포폴을 표시합니다.")
+            else:
+                selected_companies = st.multiselect(
+                    "펀드 투자기업 선택",
+                    options=companies_for_fund,
+                    default=companies_for_fund,
+                )
+                if selected_companies:
+                    portfolio_latest = filter_portfolio_by_companies(portfolio_latest, selected_companies)
+        else:
+            if fund_company_options:
+                selected_companies = st.multiselect(
+                    "투자기업 선택(선택 시 필터링)",
+                    options=fund_company_options,
+                    default=[],
+                )
+                if selected_companies:
+                    portfolio_latest = filter_portfolio_by_companies(portfolio_latest, selected_companies)
+
+        portfolio_search = st.text_input("포폴 검색", value="")
         if portfolio_search and "법인명" in portfolio_latest.columns:
             portfolio_latest = portfolio_latest[
                 portfolio_latest["법인명"].astype(str).str.contains(portfolio_search, na=False)

@@ -137,6 +137,71 @@ def _normalize_join_key(value: str) -> str:
     return text
 
 
+def _normalize_company_key(value: object) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip().lower()
+    for prefix in ["(주)", "㈜", "주식회사", "주식회사 ", "(사)"]:
+        if text.startswith(prefix):
+            text = text.replace(prefix, "", 1).strip()
+    text = re.sub(r"\s+", "", text)
+    text = re.sub(r"[^\w가-힣]", "", text)
+    return text
+
+
+def _parse_company_list(value: object) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        raw = [str(v).strip() for v in value if str(v).strip()]
+    else:
+        text = str(value)
+        parts = re.split(r"[,\n;/]+", text)
+        raw = [part.strip() for part in parts if part.strip()]
+    cleaned = []
+    for item in raw:
+        if re.fullmatch(r"rec[A-Za-z0-9]+", item):
+            continue
+        cleaned.append(item)
+    seen = set()
+    deduped = []
+    for item in cleaned:
+        if item in seen:
+            continue
+        seen.add(item)
+        deduped.append(item)
+    return deduped
+
+
+def build_fund_company_map(funds: pd.DataFrame) -> Dict[str, list[str]]:
+    mapping: Dict[str, list[str]] = {}
+    if funds.empty:
+        return mapping
+    fund_col = "투자 조합명" if "투자 조합명" in funds.columns else None
+    company_col = "투자기업" if "투자기업" in funds.columns else None
+    if not fund_col or not company_col:
+        return mapping
+    for _, row in funds.iterrows():
+        fund_name = str(row.get(fund_col, "")).strip()
+        if not fund_name:
+            continue
+        companies = _parse_company_list(row.get(company_col))
+        mapping[fund_name] = companies
+    return mapping
+
+
+def filter_portfolio_by_companies(portfolio: pd.DataFrame, company_names: list[str]) -> pd.DataFrame:
+    if portfolio.empty or not company_names or "법인명" not in portfolio.columns:
+        return portfolio
+    keys = {_normalize_company_key(name) for name in company_names if name}
+    if not keys:
+        return portfolio
+    if "company_key" not in portfolio.columns:
+        portfolio = portfolio.copy()
+        portfolio["company_key"] = portfolio["법인명"].apply(_normalize_company_key)
+    return portfolio[portfolio["company_key"].isin(keys)]
+
+
 def _extract_record_ids(value: object) -> list[str]:
     if isinstance(value, list):
         return [v for v in value if isinstance(v, str)]
@@ -182,8 +247,14 @@ def _to_percent(value: object) -> Optional[float]:
     text = str(value).strip()
     if not text or text.lower() == "nan":
         return None
+    has_pct = "%" in text
     text = text.replace("%", "")
-    return _to_number(text)
+    num = _to_number(text)
+    if num is None:
+        return None
+    if not has_pct and 0 < num <= 1:
+        return num * 100
+    return num
 
 
 def _coerce_numeric(df: pd.DataFrame, columns: Iterable[str], percent_columns: Iterable[str] = ()) -> pd.DataFrame:
