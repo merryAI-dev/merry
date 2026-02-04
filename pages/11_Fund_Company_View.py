@@ -106,6 +106,23 @@ fund_options = sorted(fund_company_map.keys())
 if not fund_options and "투자 조합명" in funds.columns:
     fund_options = sorted([str(v).strip() for v in funds["투자 조합명"].unique() if str(v).strip()])
 
+with st.expander("펀드-기업 연동 상태", expanded=False):
+    if not fund_company_map:
+        st.info("연동된 펀드-기업 목록이 없습니다. 펀드/의무투자 탭의 기업 컬럼을 확인해 주세요.")
+    else:
+        rows = []
+        for fund_name, companies in fund_company_map.items():
+            sample = ", ".join(companies[:5]) if companies else "-"
+            rows.append(
+                {
+                    "펀드": fund_name,
+                    "기업 수": len(companies),
+                    "샘플 기업": sample,
+                }
+            )
+        status_df = pd.DataFrame(rows).sort_values("기업 수", ascending=False)
+        st.dataframe(status_df, use_container_width=True, hide_index=True)
+
 selected_fund = st.radio("펀드 선택", options=fund_options, horizontal=True)
 
 companies_for_fund = fund_company_map.get(selected_fund, [])
