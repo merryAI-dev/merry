@@ -355,7 +355,7 @@ with col_right:
 
 # 빠른 페이지 이동 (사이드바 숨김 보완)
 st.markdown("### 바로가기")
-nav_cols = st.columns(4)
+nav_cols = st.columns(5)
 with nav_cols[0]:
     st.page_link("pages/10_Fund_Dashboard.py", label="펀드 대시보드", icon="📊")
 with nav_cols[1]:
@@ -364,6 +364,8 @@ with nav_cols[2]:
     st.page_link("pages/8_Startup_Discovery.py", label="스타트업 발굴", icon="🔍")
 with nav_cols[3]:
     st.page_link("pages/11_Fund_Company_View.py", label="펀드/기업 상세", icon="🏷️")
+with nav_cols[4]:
+    st.page_link("pages/12_Fund_Newsletter.py", label="펀드 뉴스레터", icon="📰")
 
 # ========================================
 # 대화 기록 불러오기
