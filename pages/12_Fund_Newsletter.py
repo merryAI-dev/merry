@@ -58,11 +58,21 @@ def _format_number(value: Optional[float]) -> str:
     return f"{float(value):,.0f}"
 
 
+def _format_kpi(value: Optional[float]) -> str:
+    return _format_number(value)
+
+
 def _truncate(text: str, limit: int = 140) -> str:
     if not text:
         return ""
     compact = " ".join(str(text).split())
     return compact if len(compact) <= limit else compact[: limit - 1] + "…"
+
+
+def _format_kpi(value: Optional[float]) -> str:
+    if value is None or pd.isna(value):
+        return "-"
+    return f"{float(value):,.0f}"
 
 
 source = "airtable" if airtable_enabled() else "csv"
@@ -157,6 +167,41 @@ st.markdown(
         color: #6b5f53;
         margin-bottom: 8px;
     }}
+    .badge-row {{
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-top: 8px;
+    }}
+    .kpi-badge {{
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        background: #f3efe9;
+        font-size: 11px;
+        color: #1f1a14;
+        border: 1px solid rgba(31, 26, 20, 0.08);
+    }}
+    .kpi-badge--positive {{
+        background: #e8f5e9;
+        color: #1b5e20;
+        border-color: rgba(27, 94, 32, 0.2);
+    }}
+    .kpi-badge--negative {{
+        background: #ffebee;
+        color: #b71c1c;
+        border-color: rgba(183, 28, 28, 0.2);
+    }}
+    .highlight-card {{
+        border-radius: 16px;
+        border: 1px solid rgba(31, 26, 20, 0.08);
+        padding: 14px 16px;
+        background: #ffffff;
+        box-shadow: 0 12px 24px rgba(31, 26, 20, 0.06);
+        margin-bottom: 12px;
+    }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -197,6 +242,37 @@ summary_html += "</div>"
 st.markdown(summary_html, unsafe_allow_html=True)
 
 if fund_companies:
+    st.markdown("### 이달의 하이라이트")
+    if portfolio_fund_latest.empty:
+        st.info("하이라이트를 생성할 결산 데이터가 없습니다. (없으면 취합이 필요합니다)")
+    else:
+        highlight_blocks = []
+        if "매출액 (백만원)_num" in portfolio_fund_latest.columns:
+            top_sales = portfolio_fund_latest.sort_values("매출액 (백만원)_num", ascending=False).head(1)
+            if not top_sales.empty:
+                row = top_sales.iloc[0]
+                highlight_blocks.append(
+                    f"<div class=\"highlight-card\"><strong>매출 Top</strong><br>{row.get('법인명', '-')}: {_format_kpi(row.get('매출액 (백만원)_num'))} (백만원)</div>"
+                )
+        if "영업이익 (백만원)_num" in portfolio_fund_latest.columns:
+            top_profit = portfolio_fund_latest.sort_values("영업이익 (백만원)_num", ascending=False).head(1)
+            if not top_profit.empty:
+                row = top_profit.iloc[0]
+                highlight_blocks.append(
+                    f"<div class=\"highlight-card\"><strong>영업이익 Top</strong><br>{row.get('법인명', '-')}: {_format_kpi(row.get('영업이익 (백만원)_num'))} (백만원)</div>"
+                )
+        if "자산총계 (백만원)_num" in portfolio_fund_latest.columns:
+            top_assets = portfolio_fund_latest.sort_values("자산총계 (백만원)_num", ascending=False).head(1)
+            if not top_assets.empty:
+                row = top_assets.iloc[0]
+                highlight_blocks.append(
+                    f"<div class=\"highlight-card\"><strong>자산규모 Top</strong><br>{row.get('법인명', '-')}: {_format_kpi(row.get('자산총계 (백만원)_num'))} (백만원)</div>"
+                )
+        if highlight_blocks:
+            st.markdown("".join(highlight_blocks), unsafe_allow_html=True)
+        else:
+            st.info("하이라이트를 생성할 수 있는 KPI 컬럼이 없습니다.")
+
     st.markdown("### 포트폴리오 하이라이트")
     for company in fund_companies:
         company_row = None
@@ -225,12 +301,27 @@ if fund_companies:
                     status_note = str(kpi_row.get(col)).strip()
                     break
 
+        kpi_badges = []
+        if kpi_row is not None:
+            sales = kpi_row.get("매출액 (백만원)_num") if "매출액 (백만원)_num" in kpi_row else None
+            op_profit = kpi_row.get("영업이익 (백만원)_num") if "영업이익 (백만원)_num" in kpi_row else None
+            net_profit = kpi_row.get("당기손익 (백만원)_num") if "당기손익 (백만원)_num" in kpi_row else None
+            if sales is not None:
+                kpi_badges.append(f"<span class='kpi-badge'>매출 {_format_kpi(sales)}</span>")
+            if op_profit is not None:
+                badge_class = "kpi-badge--positive" if op_profit >= 0 else "kpi-badge--negative"
+                kpi_badges.append(f"<span class='kpi-badge {badge_class}'>영업이익 {_format_kpi(op_profit)}</span>")
+            if net_profit is not None:
+                badge_class = "kpi-badge--positive" if net_profit >= 0 else "kpi-badge--negative"
+                kpi_badges.append(f"<span class='kpi-badge {badge_class}'>당기손익 {_format_kpi(net_profit)}</span>")
+
         st.markdown(
             f"""
             <div class=\"company-card\">
                 <div class=\"company-title\">{company}</div>
                 <div class=\"company-meta\">투자포인트: {_truncate(investment_point) if investment_point else '데이터 없음'}</div>
                 <div class=\"company-meta\">현황: {_truncate(status_note) if status_note else '업데이트 대기'}</div>
+                <div class=\"badge-row\">{''.join(kpi_badges) if kpi_badges else ''}</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -256,3 +347,48 @@ else:
     st.info("펀드에 연결된 스타트업 목록이 없습니다. 펀드 탭의 투자기업 컬럼을 확인해 주세요.")
 
 st.caption(f"펀드: {selected_fund} · 데이터 소스: {data.source.upper()}")
+
+st.markdown("### 템플릿 출력")
+email_template = f"""
+[펀드 뉴스레터] {selected_fund}
+
+- 포트폴리오 기업 수: {company_count}개
+- 결산 데이터 보유: {report_count}개
+- 최신 제출: {latest_date.date().isoformat() if latest_date is not pd.NaT else '-'}
+
+[이달의 하이라이트]
+{_truncate(' / '.join([row.get('법인명', '') for _, row in portfolio_fund_latest.head(3).iterrows()]) if not portfolio_fund_latest.empty else '없음', 120)}
+
+[포트폴리오 요약]
+"""
+
+pdf_template = f"""
+{selected_fund} Fund Newsletter
+
+1. Summary
+- Portfolio companies: {company_count}
+- Reports available: {report_count}
+- Latest submission: {latest_date.date().isoformat() if latest_date is not pd.NaT else '-'}
+
+2. Highlights
+- Top sales / profit / assets
+
+3. Portfolio Snapshots
+(Include KPI table and notes)
+"""
+
+col_email, col_pdf = st.columns(2)
+with col_email:
+    st.text_area("메일 템플릿", value=email_template, height=240)
+    st.download_button(
+        "메일 템플릿 다운로드",
+        data=email_template,
+        file_name=f"{selected_fund}_newsletter_email.txt",
+    )
+with col_pdf:
+    st.text_area("PDF 템플릿", value=pdf_template, height=240)
+    st.download_button(
+        "PDF 템플릿 다운로드",
+        data=pdf_template,
+        file_name=f"{selected_fund}_newsletter_pdf.txt",
+    )
