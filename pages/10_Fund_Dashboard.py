@@ -18,6 +18,7 @@ from shared.fund_dashboard_data import (
     prepare_dashboard_views,
     DEFAULT_TABLE_MAP,
     get_dashboard_table_map,
+    normalize_table_map,
     get_airtable_debug,
 )
 from shared.airtable_multi import airtable_enabled
@@ -130,18 +131,21 @@ if source == "airtable":
         table_map["portfolio"] = st.text_input("포폴 결산 테이블", value=table_map["portfolio"])
         st.caption("테이블명이 실제 Airtable 탭과 정확히 일치해야 합니다.")
         st.caption("secrets.toml 키: AIRTABLE_FUND_TABLE / AIRTABLE_OBLIGATION_TABLE / AIRTABLE_PORTFOLIO_TABLE")
+        st.caption("URL을 붙여넣으면 table ID로 자동 인식됩니다.")
 
-data = load_dashboard_tables(source=source, table_map=table_map)
+table_map_used = normalize_table_map(table_map)
+
+data = load_dashboard_tables(source=source, table_map=table_map_used)
 airtable_debug = None
 if airtable_enabled():
-    airtable_debug = get_airtable_debug(table_map)
+    airtable_debug = get_airtable_debug(table_map_used)
 if source == "csv" and data.funds.empty and airtable_enabled():
     st.warning("CSV 데이터가 비어 있어 Airtable로 전환합니다.")
-    data = load_dashboard_tables(source="airtable", table_map=table_map)
+    data = load_dashboard_tables(source="airtable", table_map=table_map_used)
     source = "airtable"
 if source == "airtable" and data.funds.empty:
     st.warning("Airtable 데이터가 비어 있어 CSV로 전환합니다.")
-    data = load_dashboard_tables(source="csv", table_map=table_map)
+    data = load_dashboard_tables(source="csv", table_map=table_map_used)
     source = "csv"
 views = prepare_dashboard_views(data)
 
@@ -156,9 +160,9 @@ if funds.empty:
     st.error("펀드 데이터가 비어 있습니다. CSV 또는 Airtable 설정을 확인해 주세요.")
     st.caption(
         f"현재 소스: {source.upper()} · "
-        f"펀드 테이블: {table_map['funds']} · "
-        f"의무투자 테이블: {table_map['obligations']} · "
-        f"포폴 결산 테이블: {table_map['portfolio']}"
+        f"펀드 테이블: {table_map_used['funds']} · "
+        f"의무투자 테이블: {table_map_used['obligations']} · "
+        f"포폴 결산 테이블: {table_map_used['portfolio']}"
     )
     with st.expander("디버그 정보", expanded=True):
         st.json({"source_debug": data.debug, "airtable_debug": airtable_debug})

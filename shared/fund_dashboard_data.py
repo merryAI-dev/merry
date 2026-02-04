@@ -61,6 +61,25 @@ def get_dashboard_table_map(defaults: Optional[Dict[str, str]] = None) -> Dict[s
     return table_map
 
 
+def normalize_table_ref(value: str) -> str:
+    """Airtable 테이블 참조 정규화 (URL/ID/이름 허용)"""
+    if not value:
+        return value
+    text = str(value).strip()
+    # URL 형태: https://airtable.com/app.../tblXXXX/...
+    match = re.search(r"/(tbl[A-Za-z0-9]+)/", text)
+    if match:
+        return match.group(1)
+    # table ID 형태
+    if text.startswith("tbl") and len(text) >= 10:
+        return text
+    return text
+
+
+def normalize_table_map(table_map: Dict[str, str]) -> Dict[str, str]:
+    return {key: normalize_table_ref(value) for key, value in table_map.items()}
+
+
 @dataclass
 class DashboardData:
     source: str
