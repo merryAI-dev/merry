@@ -202,6 +202,20 @@ def filter_portfolio_by_companies(portfolio: pd.DataFrame, company_names: list[s
     return portfolio[portfolio["company_key"].isin(keys)]
 
 
+def to_display_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Arrow 변환 오류를 피하기 위해 비정형 컬럼을 문자열로 변환"""
+    if df.empty:
+        return df
+    safe_df = df.copy()
+    for col in safe_df.columns:
+        sample = safe_df[col].dropna().head(5)
+        if sample.empty:
+            continue
+        if sample.apply(lambda v: isinstance(v, (list, dict, set, tuple))).any():
+            safe_df[col] = safe_df[col].apply(lambda v: str(v))
+    return safe_df
+
+
 def _extract_record_ids(value: object) -> list[str]:
     if isinstance(value, list):
         return [v for v in value if isinstance(v, str)]

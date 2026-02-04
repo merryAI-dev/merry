@@ -22,6 +22,7 @@ from shared.fund_dashboard_data import (
     get_airtable_debug,
     build_fund_company_map,
     filter_portfolio_by_companies,
+    to_display_dataframe,
 )
 from shared.airtable_multi import airtable_enabled
 
@@ -328,7 +329,7 @@ with tabs[0]:
         funds_with_compliance = funds_with_compliance[
             funds_with_compliance["투자 조합명"].astype(str).str.contains(fund_search, na=False)
         ]
-    st.dataframe(funds_with_compliance, use_container_width=True, hide_index=True)
+    st.dataframe(to_display_dataframe(funds_with_compliance), use_container_width=True, hide_index=True)
 
 with tabs[1]:
     if obligations.empty:
@@ -377,7 +378,7 @@ with tabs[1]:
             obligations = obligations[
                 obligations["펀드명"].astype(str).str.contains(obligation_search, na=False)
             ]
-        st.dataframe(obligations, use_container_width=True, hide_index=True)
+        st.dataframe(to_display_dataframe(obligations), use_container_width=True, hide_index=True)
 
 with tabs[2]:
     if portfolio_latest.empty:
@@ -422,7 +423,7 @@ with tabs[2]:
             "자본총계 (백만원)",
         ]
         existing_cols = [col for col in summary_cols if col in portfolio_latest.columns]
-        st.dataframe(portfolio_latest[existing_cols], use_container_width=True, hide_index=True)
+        st.dataframe(to_display_dataframe(portfolio_latest[existing_cols]), use_container_width=True, hide_index=True)
 
         if "매출액 (백만원)_num" in portfolio_latest.columns:
             top_sales = portfolio_latest.sort_values("매출액 (백만원)_num", ascending=False).head(10)
