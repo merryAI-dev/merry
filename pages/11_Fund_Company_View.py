@@ -47,6 +47,32 @@ st.markdown(
         100% { opacity: 1; transform: translateY(0) scale(1); }
     }
     .reveal { animation: swoosh 0.6s ease-out both; }
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+    .summary-card {
+        background: linear-gradient(135deg, #ffffff, #f7f4ef);
+        border-radius: 14px;
+        border: 1px solid rgba(31, 26, 20, 0.08);
+        padding: 12px 14px;
+        box-shadow: 0 10px 22px rgba(25, 18, 9, 0.08);
+        min-height: 76px;
+    }
+    .summary-label {
+        font-size: 12px;
+        color: #6b5f53;
+        margin-bottom: 6px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+    .summary-value {
+        font-size: 20px;
+        font-weight: 600;
+        color: #1f1a14;
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -96,6 +122,29 @@ if not filtered_company_options:
     st.warning("선택한 펀드에 연결된 기업 목록이 없습니다. 펀드 탭의 `투자기업` 컬럼을 확인해 주세요.")
     st.stop()
 
+portfolio_fund_all = filter_portfolio_by_companies(portfolio_all, companies_for_fund)
+companies_with_data = []
+latest_date = None
+if not portfolio_fund_all.empty and "법인명" in portfolio_fund_all.columns:
+    companies_with_data = sorted([
+        name for name in portfolio_fund_all["법인명"].dropna().unique() if str(name).strip()
+    ])
+    if "제출일" in portfolio_fund_all.columns:
+        portfolio_fund_all["제출일_dt"] = pd.to_datetime(portfolio_fund_all["제출일"], errors="coerce")
+        if portfolio_fund_all["제출일_dt"].notna().any():
+            latest_date = portfolio_fund_all["제출일_dt"].max()
+
+summary_html = """
+<div class="summary-grid">
+"""
+summary_html += f"<div class=\"summary-card\"><div class=\"summary-label\">펀드 기업 수</div><div class=\"summary-value\">{len(companies_for_fund)}개</div></div>"
+summary_html += f"<div class=\"summary-card\"><div class=\"summary-label\">결산 데이터 보유</div><div class=\"summary-value\">{len(companies_with_data)}개</div></div>"
+summary_html += f"<div class=\"summary-card\"><div class=\"summary-label\">결산 데이터 건수</div><div class=\"summary-value\">{len(portfolio_fund_all)}건</div></div>"
+summary_html += f"<div class=\"summary-card\"><div class=\"summary-label\">최신 제출</div><div class=\"summary-value\">{latest_date.date().isoformat() if latest_date else '-'} </div></div>"
+summary_html += "</div>"
+
+st.markdown(summary_html, unsafe_allow_html=True)
+
 selected_company = st.selectbox("기업 선택", options=filtered_company_options)
 
 # 기업 상세 (최신 제출 기준)
@@ -120,7 +169,17 @@ else:
 
 # 시계열
 st.markdown("### 월별 KPI 추이")
-portfolio_ts = filter_portfolio_by_companies(portfolio_all, [selected_company])
+compare_companies = st.multiselect(
+    "KPI 비교 기업 선택",
+    options=companies_for_fund,
+    default=[selected_company],
+)
+if not compare_companies:
+    compare_companies = [selected_company]
+
+agg_mode = st.radio("월별 집계 기준", options=["합계", "평균"], horizontal=True)
+
+portfolio_ts = filter_portfolio_by_companies(portfolio_all, compare_companies)
 
 if "제출일" not in portfolio_ts.columns:
     st.info("제출일 컬럼이 없어 월별 추이를 생성할 수 없습니다. (없으면 취합이 필요합니다)")
@@ -146,27 +205,39 @@ else:
         else:
             selected_kpi_label = st.selectbox("KPI 선택", options=list(available.keys()))
             kpi_col = available[selected_kpi_label]
-            kpi_series = (
-                portfolio_ts[["month", kpi_col]]
-                .rename(columns={kpi_col: "value"})
-                .dropna()
-            )
-            if kpi_series.empty:
+            kpi_series = portfolio_ts[["법인명", "month", kpi_col]].rename(columns={kpi_col: "value"}).dropna()
+            if kpi_series.empty or "법인명" not in kpi_series.columns:
                 st.info("선택한 KPI 데이터가 없습니다. (없으면 취합이 필요합니다)")
             else:
-                kpi_series = kpi_series.groupby("month", as_index=False)["value"].sum()
+                per_company = (
+                    kpi_series.groupby(["법인명", "month"], as_index=False)["value"].sum()
+                )
                 line = (
-                    alt.Chart(kpi_series)
-                    .mark_line(point=True, color="#7a5c43")
+                    alt.Chart(per_company)
+                    .mark_line(point=True)
+                    .encode(
+                        x=alt.X("month:T", title="월"),
+                        y=alt.Y("value:Q", title=selected_kpi_label),
+                        color=alt.Color("법인명:N", legend=alt.Legend(title="기업")),
+                        tooltip=["법인명", "month:T", "value:Q"],
+                    )
+                    .properties(height=280)
+                )
+
+                agg_func = "sum" if agg_mode == "합계" else "mean"
+                agg_df = per_company.groupby("month", as_index=False)["value"].agg(agg_func)
+                agg_df["법인명"] = f"선택 기업 {agg_mode}"
+                agg_line = (
+                    alt.Chart(agg_df)
+                    .mark_line(point=True, strokeWidth=3, color="#1f1a14")
                     .encode(
                         x=alt.X("month:T", title="월"),
                         y=alt.Y("value:Q", title=selected_kpi_label),
                         tooltip=["month:T", "value:Q"],
                     )
-                    .properties(height=280)
                 )
                 st.markdown("<div class='reveal'>", unsafe_allow_html=True)
-                st.altair_chart(line, use_container_width=True)
+                st.altair_chart(alt.layer(line, agg_line), use_container_width=True)
                 st.markdown("</div>", unsafe_allow_html=True)
 
 st.caption(f"데이터 소스: {data.source.upper()} · 펀드: {selected_fund} · 기업: {selected_company}")
