@@ -244,6 +244,16 @@ def _render_kpi_cards(kpis: list[Dict[str, str]]):
     st.markdown(cards_html, unsafe_allow_html=True)
 
 
+def _format_currency_columns(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
+    display = df.copy()
+    for col in columns:
+        if col in display.columns:
+            display[col] = pd.to_numeric(display[col], errors="coerce").map(
+                lambda x: f"{x:,.0f}" if pd.notna(x) else ""
+            )
+    return display
+
+
 fund_count = len(funds_filtered)
 commit_total = funds_filtered.get("약정총액_num", pd.Series(dtype=float)).sum()
 invest_total = funds_filtered.get("총 투자금액(누적)_num", pd.Series(dtype=float)).sum()
@@ -290,9 +300,13 @@ with tabs[0]:
         .mark_bar()
         .encode(
             y=alt.Y("투자 조합명:N", sort="-x", title=None),
-            x=alt.X("금액:Q", title="금액"),
+            x=alt.X("금액:Q", title="금액", axis=alt.Axis(format=",")),
             color=alt.Color("구분:N", scale=alt.Scale(range=["#c8b39d", "#7a5c43"])),
-            tooltip=["투자 조합명", "구분", "금액"],
+            tooltip=[
+                "투자 조합명",
+                "구분",
+                alt.Tooltip("금액:Q", format=","),
+            ],
         )
         .properties(height=320)
     )
@@ -329,7 +343,12 @@ with tabs[0]:
         funds_with_compliance = funds_with_compliance[
             funds_with_compliance["투자 조합명"].astype(str).str.contains(fund_search, na=False)
         ]
-    st.dataframe(to_display_dataframe(funds_with_compliance), use_container_width=True, hide_index=True)
+    funds_display = to_display_dataframe(funds_with_compliance)
+    funds_display = _format_currency_columns(
+        funds_display,
+        ["약정총액", "총 투자금액(누적)", "회수원금", "회수수익", "투자가용금액"],
+    )
+    st.dataframe(funds_display, use_container_width=True, hide_index=True)
 
 with tabs[1]:
     if obligations.empty:
@@ -378,7 +397,12 @@ with tabs[1]:
             obligations = obligations[
                 obligations["펀드명"].astype(str).str.contains(obligation_search, na=False)
             ]
-        st.dataframe(to_display_dataframe(obligations), use_container_width=True, hide_index=True)
+        obligations_display = to_display_dataframe(obligations)
+        obligations_display = _format_currency_columns(
+            obligations_display,
+            ["기준 금액", "투자금액", "미달성 금액(-는 달성완료임)"],
+        )
+        st.dataframe(obligations_display, use_container_width=True, hide_index=True)
 
 with tabs[2]:
     if portfolio_latest.empty:
@@ -423,26 +447,54 @@ with tabs[2]:
             "자본총계 (백만원)",
         ]
         existing_cols = [col for col in summary_cols if col in portfolio_latest.columns]
-        st.dataframe(to_display_dataframe(portfolio_latest[existing_cols]), use_container_width=True, hide_index=True)
+        portfolio_display = to_display_dataframe(portfolio_latest[existing_cols])
+        portfolio_display = _format_currency_columns(
+            portfolio_display,
+            [
+                "매출액 (백만원)",
+                "영업이익 (백만원)",
+                "당기손익 (백만원)",
+                "자산총계 (백만원)",
+                "부채총계 (백만원)",
+                "자본총계 (백만원)",
+            ],
+        )
+        st.dataframe(portfolio_display, use_container_width=True, hide_index=True)
 
         if "매출액 (백만원)_num" in portfolio_latest.columns:
             top_sales = portfolio_latest.sort_values("매출액 (백만원)_num", ascending=False).head(10)
             sales_data = top_sales[["법인명", "매출액 (백만원)_num"]].copy()
-            sales_chart = (
-                alt.Chart(sales_data)
-                .mark_bar(color="#7a5c43")
-                .encode(
-                    y=alt.Y("법인명:N", sort="-x", title=None),
-                    x=alt.X("매출액 (백만원)_num:Q", title="매출액(백만원)"),
-                    tooltip=["법인명", "매출액 (백만원)_num"],
+            orientation = st.radio("기업 레이블 위치", options=["왼쪽(가독성)", "아래(전통)"], horizontal=True)
+            if orientation.startswith("아래"):
+                sales_chart = (
+                    alt.Chart(sales_data)
+                    .mark_bar(color="#7a5c43")
+                    .encode(
+                        x=alt.X("법인명:N", sort="-y", title=None, axis=alt.Axis(labelAngle=-30)),
+                        y=alt.Y("매출액 (백만원)_num:Q", title="매출액(백만원)", axis=alt.Axis(format=",")),
+                        tooltip=["법인명", alt.Tooltip("매출액 (백만원)_num:Q", format=",")],
+                    )
+                    .properties(height=320)
                 )
-                .properties(height=300)
-            )
+            else:
+                sales_chart = (
+                    alt.Chart(sales_data)
+                    .mark_bar(color="#7a5c43")
+                    .encode(
+                        y=alt.Y("법인명:N", sort="-x", title=None),
+                        x=alt.X("매출액 (백만원)_num:Q", title="매출액(백만원)", axis=alt.Axis(format=",")),
+                        tooltip=["법인명", alt.Tooltip("매출액 (백만원)_num:Q", format=",")],
+                    )
+                    .properties(height=300)
+                )
             st.markdown("<div class='reveal'>", unsafe_allow_html=True)
             st.altair_chart(sales_chart, use_container_width=True)
             st.markdown("</div>", unsafe_allow_html=True)
 
-        st.info("펀드-포트폴리오 연결 키가 추가되면 펀드별 재무 집계가 가능합니다.")
+        if fund_company_map:
+            st.caption("현재 펀드 탭의 `투자기업` 목록 기준으로 포폴 결산을 매칭합니다.")
+        else:
+            st.info("펀드-포트폴리오 연결 키가 없어서 펀드별 집계가 제한됩니다. (펀드 탭에 `투자기업` 컬럼 필요)")
 
 
 st.caption(
