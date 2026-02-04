@@ -215,18 +215,55 @@ def build_fund_company_map_from_obligations(obligations: pd.DataFrame) -> Dict[s
     return mapping
 
 
+def build_fund_company_map_from_investments(
+    funds: pd.DataFrame,
+    investments: pd.DataFrame,
+) -> Dict[str, list[str]]:
+    mapping: Dict[str, list[str]] = {}
+    if funds.empty or investments.empty:
+        return mapping
+    if "기업명" not in investments.columns or "투자조합 정보" not in investments.columns:
+        return mapping
+
+    id_to_name: Dict[str, str] = {}
+    if "_record_id" in funds.columns and "투자 조합명" in funds.columns:
+        id_to_name = {
+            str(row["_record_id"]): str(row["투자 조합명"]).strip()
+            for _, row in funds.iterrows()
+            if row.get("_record_id") and str(row.get("투자 조합명", "")).strip()
+        }
+
+    for _, row in investments.iterrows():
+        company = str(row.get("기업명", "")).strip()
+        if not company:
+            continue
+        fund_names = _resolve_fund_names(row.get("투자조합 정보"), id_to_name)
+        for fund_name in fund_names:
+            if not fund_name:
+                continue
+            existing = mapping.get(fund_name, [])
+            if company not in existing:
+                existing.append(company)
+            mapping[fund_name] = existing
+    return mapping
+
+
 def build_fund_company_map_combined(
     funds: pd.DataFrame,
     obligations: pd.DataFrame,
+    investments: Optional[pd.DataFrame] = None,
 ) -> Dict[str, list[str]]:
-    mapping = build_fund_company_map(funds)
-    fallback = build_fund_company_map_from_obligations(obligations)
-    if not mapping:
-        return fallback
-    for fund_name, companies in fallback.items():
-        existing = mapping.get(fund_name, [])
-        merged = existing + [c for c in companies if c not in existing]
-        mapping[fund_name] = merged
+    mapping: Dict[str, list[str]] = {}
+    maps = [
+        build_fund_company_map(funds),
+        build_fund_company_map_from_obligations(obligations),
+        build_fund_company_map_from_investments(funds, investments) if investments is not None else {},
+    ]
+    for source_map in maps:
+        for fund_name, companies in source_map.items():
+            existing = mapping.get(fund_name, [])
+            merged = existing + [c for c in companies if c not in existing]
+            mapping[fund_name] = merged
     return mapping
 
 

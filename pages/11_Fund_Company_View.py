@@ -23,6 +23,7 @@ from shared.fund_dashboard_data import (
     filter_portfolio_by_companies,
     to_display_dataframe,
 )
+from shared.airtable_portfolio import _get_cached_dataframe
 from shared.airtable_multi import airtable_enabled
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -100,7 +101,8 @@ if funds.empty:
     st.error("펀드 데이터가 비어 있습니다. Airtable 설정을 확인해 주세요.")
     st.stop()
 
-fund_company_map = build_fund_company_map_combined(funds, views["obligations"])
+startup_df = _get_cached_dataframe()
+fund_company_map = build_fund_company_map_combined(funds, views["obligations"], startup_df)
 fund_options = sorted(fund_company_map.keys())
 
 if not fund_options and "투자 조합명" in funds.columns:

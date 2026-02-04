@@ -188,7 +188,8 @@ funds_with_compliance = views["funds_with_compliance"]
 compliance_summary = views["compliance_summary"]
 portfolio_latest = views["portfolio_latest"]
 
-fund_company_map = build_fund_company_map_combined(funds, obligations)
+startup_df = _get_cached_dataframe()
+fund_company_map = build_fund_company_map_combined(funds, obligations, startup_df)
 fund_company_options = sorted({name for companies in fund_company_map.values() for name in companies})
 
 fund_name_col = "투자 조합명" if "투자 조합명" in funds.columns else None
@@ -328,7 +329,6 @@ if len(kpis) > 4:
     _render_kpi_cards(kpis[4:])
 
 # 스타트업 전체/펀드 현황 요약
-startup_df = _get_cached_dataframe()
 startup_name_col = "기업명" if "기업명" in startup_df.columns else None
 startup_amount_col = None
 for col in ["투자금액", "투자금액(누적)", "투자금액 누적"]:
