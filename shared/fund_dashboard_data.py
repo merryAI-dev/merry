@@ -246,7 +246,18 @@ def _classify_compliance(obligations: pd.DataFrame) -> pd.Series:
 
 def _aggregate_compliance(obligations: pd.DataFrame) -> pd.DataFrame:
     if obligations.empty:
-        return pd.DataFrame()
+        return pd.DataFrame(
+            columns=[
+                "join_key",
+                "펀드명",
+                "의무투자_건수",
+                "투자금액_합계",
+                "기준금액_합계",
+                "최소_달성율",
+                "최대_미달성금액",
+                "compliance_status",
+            ]
+        )
 
     grouped = obligations.groupby("join_key", dropna=False)
     summary = grouped.agg(
