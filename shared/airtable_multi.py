@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 from typing import Dict, Iterable, Optional, Tuple
+from urllib.parse import quote
 
 import pandas as pd
 import requests
@@ -79,7 +80,8 @@ def fetch_airtable_tables(
     results: Dict[str, pd.DataFrame] = {}
 
     for table in table_names:
-        url = f"https://api.airtable.com/v0/{base_id}/{table}"
+        table_encoded = quote(table, safe="")
+        url = f"https://api.airtable.com/v0/{base_id}/{table_encoded}"
         all_records = []
         offset = None
 

@@ -107,9 +107,11 @@ st.markdown(
 )
 
 
+default_index = 1 if airtable_enabled() else 0
 source_choice = st.sidebar.radio(
     "데이터 소스",
     options=["CSV", "Airtable"],
+    index=default_index,
     horizontal=True,
 )
 
@@ -120,6 +122,14 @@ if source == "airtable" and not airtable_enabled():
 
 
 data = load_dashboard_tables(source=source)
+if source == "csv" and data.funds.empty and airtable_enabled():
+    st.warning("CSV 데이터가 비어 있어 Airtable로 전환합니다.")
+    data = load_dashboard_tables(source="airtable")
+    source = "airtable"
+if source == "airtable" and data.funds.empty:
+    st.warning("Airtable 데이터가 비어 있어 CSV로 전환합니다.")
+    data = load_dashboard_tables(source="csv")
+    source = "csv"
 views = prepare_dashboard_views(data)
 
 funds = views["funds"]
