@@ -495,6 +495,12 @@ if "report_evidence_pack_status" not in st.session_state:
     st.session_state.report_evidence_pack_status = "idle"
 if "report_evidence_pack_company" not in st.session_state:
     st.session_state.report_evidence_pack_company = ""
+if "report_evidence_pack_raw" not in st.session_state:
+    st.session_state.report_evidence_pack_raw = ""
+if "report_evidence_pack_raw_at" not in st.session_state:
+    st.session_state.report_evidence_pack_raw_at = None
+if "report_evidence_pack_raw_status" not in st.session_state:
+    st.session_state.report_evidence_pack_raw_status = "idle"
 
 if st.session_state.get("report_panel_enabled"):
     st.markdown(
@@ -620,6 +626,29 @@ def _build_preparse_summary_block(summary: list) -> str:
             f"- file: {item.get('file')} | type: {item.get('type')} | status: {item.get('status')} | detail: {item.get('detail')}"
         )
     return "\n".join(lines)
+
+
+def _condense_stage1_for_extract(stage1_md: str, max_chars: int = 60000) -> str:
+    if not stage1_md:
+        return ""
+    if len(stage1_md) <= max_chars:
+        return stage1_md
+    keywords = [
+        "매출", "영업", "순이익", "자산", "부채", "자본", "현금", "투자", "주주", "지분",
+        "설립", "대표", "법인", "사업자", "인증", "특허", "고객", "계약", "시장",
+        "TAM", "SAM", "SOM", "성장", "재무", "IR", "valuation", "cap", "cap table",
+    ]
+    lines = []
+    for line in stage1_md.splitlines():
+        if any(k in line for k in keywords) or re.search(r"\\d", line):
+            lines.append(line)
+    condensed = "\n".join(lines).strip()
+    if len(condensed) < 1000:
+        half = max_chars // 2
+        head = stage1_md[:half]
+        tail = stage1_md[-half:]
+        condensed = (head + "\n...\n" + tail).strip()
+    return condensed[:max_chars]
 
 
 def _derive_company_label(files: list) -> str:
@@ -772,7 +801,7 @@ def _is_evidence_pack_stale() -> bool:
         return False
 
 
-def _build_evidence_pack_prompt(stage1_md: str, evidence_items: list, preparse_summary: str) -> str:
+def _build_evidence_pack_extract_prompt(stage1_md: str, evidence_items: list, preparse_summary: str) -> str:
     company = st.session_state.get("report_evidence_pack_company") or "unknown"
     source_files = [Path(f).name for f in st.session_state.get("unified_files", [])]
     created_at = datetime.now().isoformat()
@@ -791,7 +820,45 @@ def _build_evidence_pack_prompt(stage1_md: str, evidence_items: list, preparse_s
 
     return textwrap.dedent(
         f"""
-        당신은 시니어 VC 심사역입니다. 아래 제공된 자료만으로 **Evidence Pack MD (심사역이 보완 가능한 추출물)**를 작성하세요.
+        당신은 문서에서 사실/수치만 뽑아내는 Extractor입니다.
+        아래 자료를 읽고 **JSON만** 출력하세요. 설명 금지.
+
+        JSON 스키마:
+        {{
+          "company": "{company}",
+          "source_files": {source_files},
+          "facts": [{{"chapter": "I. 투자 개요", "text": "...", "source": "파일명 p.x"}}],
+          "numbers": [{{"chapter": "VI. 수익성/Valuation", "metric": "매출", "value": "1,234", "unit": "백만원", "period": "2024", "source": "파일명 p.x"}}],
+          "entities": {{"organizations": [], "people": [], "products": [], "certifications": [], "competitors": []}},
+          "missing": [{{"chapter": "III. 시장 분석", "items": ["TAM/SAM/SOM"]}}]
+        }}
+
+        규칙:
+        - Fact/Number는 반드시 Source 포함
+        - 추정은 text에 [추정] 표기
+        - 숫자는 단위/기간 포함
+        - 자료가 없으면 missing에 기록
+        - JSON 이외 텍스트 출력 금지
+
+        [파싱 요약]
+        {preparse_summary}
+
+        [Stage1 Markdown]
+        {stage1_md}
+
+        [Market Evidence]
+        {evidence_block}
+        """
+    ).strip()
+
+
+def _build_evidence_pack_format_prompt(extraction_json: str, preparse_summary: str) -> str:
+    company = st.session_state.get("report_evidence_pack_company") or "unknown"
+    source_files = [Path(f).name for f in st.session_state.get("unified_files", [])]
+    created_at = datetime.now().isoformat()
+    return textwrap.dedent(
+        f"""
+        당신은 시니어 VC 심사역입니다. 아래 추출 JSON을 바탕으로 **Evidence Pack MD (심사역이 보완 가능한 추출물)**를 작성하세요.
         이 문서는 **GPT-2 수준 모델도 사용할 수 있을 정도로 명확하고 구조화된 추출물**이어야 합니다.
 
         출력 형식은 반드시 다음 템플릿을 따르세요:
@@ -814,7 +881,7 @@ def _build_evidence_pack_prompt(stage1_md: str, evidence_items: list, preparse_s
         ## 2. 챕터별 근거 맵 (Facts/Numbers)
         ### I. 투자 개요
         #### Facts
-        - Fact: ... | Source: 파일명 p.x
+        - Fact: ... | Source: ...
         #### Numbers
         | Metric | Value | Unit | Period | Source |
         | --- | --- | --- | --- | --- |
@@ -932,11 +999,8 @@ def _build_evidence_pack_prompt(stage1_md: str, evidence_items: list, preparse_s
         - company/source_files/created_at 값을 임의로 변경하지 말고 그대로 출력
         - 불필요한 서론/설명 없이 MD만 출력
 
-        [Stage1 Markdown]
-        {stage1_md}
-
-        [Market Evidence]
-        {evidence_block}
+        [Extraction JSON]
+        {extraction_json}
         """
     ).strip()
 
@@ -1318,60 +1382,102 @@ if use_report_panel and report_col is not None:
                 )
 
             with st.expander("Evidence Pack 생성 (Opus)", expanded=False):
+                if st.session_state.report_evidence_pack_raw_status == "running":
+                    st.info("Evidence Pack 빠른 추출 중입니다...")
                 if st.session_state.report_evidence_pack_status == "running":
-                    st.info("Evidence Pack 생성 중입니다...")
+                    st.info("Evidence Pack 정리 중입니다...")
                 st.session_state.report_evidence_pack_company = st.text_input(
                     "기업명",
                     value=st.session_state.report_evidence_pack_company,
                     placeholder="예: 주식회사 스트레스솔루션",
                 )
-                if st.button(
-                    "Evidence Pack 생성",
-                    use_container_width=True,
-                    disabled=not files or not st.session_state.report_evidence_pack_company.strip(),
-                ):
-                    api_key = st.session_state.get("user_api_key") or st.secrets.get("anthropic_api_key", "")
-                    if not api_key:
-                        st.error("Claude API Key가 필요합니다.")
-                    else:
-                        st.session_state.report_evidence_pack_status = "running"
-                        stage1_md = st.session_state.get("report_preparse_stage1_md") or _build_stage1_markdown(
-                            st.session_state.get("report_preparse_results", {})
-                        )
-                        if len(stage1_md) > 20000:
-                            stage1_md = stage1_md[:20000] + "\n\n...(truncated)"
-                        evidence_items = _collect_market_evidence(
-                            st.session_state.get("report_preparse_results", {})
-                        )
-                        summary_block = _build_preparse_summary_block(
-                            st.session_state.get("report_preparse_summary", [])
-                        )
-                        prompt = _build_evidence_pack_prompt(stage1_md, evidence_items, summary_block)
-                        try:
-                            from anthropic import Anthropic
-                            client = Anthropic(api_key=api_key)
-                            response = client.messages.create(
-                                model="claude-opus-4-5-20251101",
-                                max_tokens=6000,
-                                temperature=0.2,
-                                messages=[{"role": "user", "content": prompt}],
+                extract_col, format_col = st.columns([1, 1])
+                with extract_col:
+                    if st.button(
+                        "빠른 추출 (Raw)",
+                        use_container_width=True,
+                        disabled=not files or not st.session_state.report_evidence_pack_company.strip(),
+                    ):
+                        api_key = st.session_state.get("user_api_key") or st.secrets.get("anthropic_api_key", "")
+                        if not api_key:
+                            st.error("Claude API Key가 필요합니다.")
+                        else:
+                            st.session_state.report_evidence_pack_raw_status = "running"
+                            stage1_md = st.session_state.get("report_preparse_stage1_md") or _build_stage1_markdown(
+                                st.session_state.get("report_preparse_results", {})
                             )
-                            text = response.content[0].text if response.content else ""
-                            st.session_state.report_evidence_pack_md = text.strip()
-                            st.session_state.report_evidence_pack_at = datetime.now().isoformat()
-                            st.session_state.report_evidence_pack_status = "done"
-                            quality = _extract_evidence_pack_quality(st.session_state.report_evidence_pack_md)
-                            if quality.get("evidence_count", 0) == 0:
-                                st.warning(
-                                    "Evidence Pack 생성 완료했지만 근거 문항이 없습니다. "
-                                    "파싱 완료 후 재생성하거나 MD 업로드를 확인하세요."
+                            condensed = _condense_stage1_for_extract(stage1_md)
+                            evidence_items = _collect_market_evidence(
+                                st.session_state.get("report_preparse_results", {})
+                            )
+                            summary_block = _build_preparse_summary_block(
+                                st.session_state.get("report_preparse_summary", [])
+                            )
+                            prompt = _build_evidence_pack_extract_prompt(condensed, evidence_items, summary_block)
+                            try:
+                                from anthropic import Anthropic
+                                client = Anthropic(api_key=api_key)
+                                response = client.messages.create(
+                                    model="claude-opus-4-5-20251101",
+                                    max_tokens=3500,
+                                    temperature=0.2,
+                                    messages=[{"role": "user", "content": prompt}],
                                 )
-                            else:
-                                st.success("Evidence Pack 생성 완료")
-                            st.rerun()
-                        except Exception as exc:
-                            st.session_state.report_evidence_pack_status = "idle"
-                            st.error(f"Evidence Pack 생성 실패: {exc}")
+                                text = response.content[0].text if response.content else ""
+                                st.session_state.report_evidence_pack_raw = text.strip()
+                                st.session_state.report_evidence_pack_raw_at = datetime.now().isoformat()
+                                st.session_state.report_evidence_pack_raw_status = "done"
+                                st.success("빠른 추출 완료")
+                                st.rerun()
+                            except Exception as exc:
+                                st.session_state.report_evidence_pack_raw_status = "idle"
+                                st.error(f"빠른 추출 실패: {exc}")
+                with format_col:
+                    if st.button(
+                        "정리해서 Evidence Pack 생성",
+                        use_container_width=True,
+                        disabled=not st.session_state.report_evidence_pack_raw or not st.session_state.report_evidence_pack_company.strip(),
+                    ):
+                        api_key = st.session_state.get("user_api_key") or st.secrets.get("anthropic_api_key", "")
+                        if not api_key:
+                            st.error("Claude API Key가 필요합니다.")
+                        else:
+                            st.session_state.report_evidence_pack_status = "running"
+                            summary_block = _build_preparse_summary_block(
+                                st.session_state.get("report_preparse_summary", [])
+                            )
+                            prompt = _build_evidence_pack_format_prompt(
+                                st.session_state.report_evidence_pack_raw, summary_block
+                            )
+                            try:
+                                from anthropic import Anthropic
+                                client = Anthropic(api_key=api_key)
+                                response = client.messages.create(
+                                    model="claude-opus-4-5-20251101",
+                                    max_tokens=6000,
+                                    temperature=0.2,
+                                    messages=[{"role": "user", "content": prompt}],
+                                )
+                                text = response.content[0].text if response.content else ""
+                                st.session_state.report_evidence_pack_md = text.strip()
+                                st.session_state.report_evidence_pack_at = datetime.now().isoformat()
+                                st.session_state.report_evidence_pack_status = "done"
+                                quality = _extract_evidence_pack_quality(st.session_state.report_evidence_pack_md)
+                                if quality.get("evidence_count", 0) == 0:
+                                    st.warning(
+                                        "Evidence Pack 생성 완료했지만 근거 문항이 없습니다. "
+                                        "파싱 결과를 확인하고 필요한 자료를 보완해 주세요."
+                                    )
+                                else:
+                                    st.success("Evidence Pack 생성 완료")
+                                st.rerun()
+                            except Exception as exc:
+                                st.session_state.report_evidence_pack_status = "idle"
+                                st.error(f"Evidence Pack 생성 실패: {exc}")
+
+                if st.session_state.get("report_evidence_pack_raw"):
+                    with st.expander("빠른 추출 결과(JSON)", expanded=False):
+                        st.code(st.session_state.report_evidence_pack_raw, language="json")
 
         chapter_order = _init_report_chapters()
         if chapter_order:
