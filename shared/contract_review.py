@@ -989,58 +989,26 @@ def load_document(
     if ext == ".pdf":
         segments, page_count = _build_segments_from_pdf(path)
         if ocr_mode in ("auto", "force"):
-            should_ocr = ocr_mode == "force" or _needs_ocr(segments, page_count)
-            if should_ocr:
-                need_api_key = ocr_refine or not local_ocr_available()
-                if need_api_key and not api_key:
-                    ocr_error = "Claude API 키가 없습니다."
-                else:
-                    try:
-                        ocr_pages = _select_ocr_pages(path, ocr_strategy, ocr_page_budget)
-                        ocr_segments = []
-                        if local_ocr_available():
-                            ocr_segments = _ocr_pdf_fast_local(
-                                path,
-                                dpi=OCR_FAST_DPI,
-                                lang=ocr_fast_lang,
-                                progress_callback=progress_callback,
-                                page_indices=ocr_pages,
-                            )
-                            ocr_engine = "local"
-                            if ocr_refine:
-                                refined_segments = []
-                                for idx, seg in enumerate(ocr_segments, start=1):
-                                    if progress_callback:
-                                        progress_callback(idx, len(ocr_segments), "Claude 정제 중")
-                                    try:
-                                        refined_text = _refine_ocr_text_with_claude(
-                                            seg.get("text", ""),
-                                            api_key=api_key,
-                                            model=ocr_refine_model,
-                                        )
-                                        refined_segments.append({"source": seg.get("source"), "text": refined_text})
-                                    except Exception as exc:
-                                        ocr_refine_error = str(exc)
-                                        refined_segments.append(seg)
-                                ocr_segments = refined_segments
-                                ocr_refined = True
-                                ocr_engine = "local+claude"
-                        else:
-                            ocr_segments = _ocr_pdf_with_claude(
-                                path,
-                                api_key=api_key,
-                                model=ocr_model,
-                                progress_callback=progress_callback,
-                                page_indices=ocr_pages,
-                            )
-                            ocr_engine = "claude_image"
+            if not api_key:
+                ocr_error = "Claude API 키가 없습니다."
+            else:
+                try:
+                    ocr_pages = _select_ocr_pages(path, ocr_strategy, ocr_page_budget)
+                    ocr_segments = _ocr_pdf_with_claude(
+                        path,
+                        api_key=api_key,
+                        model=ocr_model,
+                        progress_callback=progress_callback,
+                        page_indices=ocr_pages,
+                    )
+                    ocr_engine = "claude_image"
 
-                        segments = _merge_segments_by_source(segments, ocr_segments)
-                        ocr_used = True
-                        ocr_pages_used = ocr_pages
-                    except Exception as exc:
-                        ocr_error = str(exc)
-                        logger.warning("OCR 실패: %s", exc)
+                    segments = _merge_segments_by_source(segments, ocr_segments)
+                    ocr_used = True
+                    ocr_pages_used = ocr_pages
+                except Exception as exc:
+                    ocr_error = str(exc)
+                    logger.warning("OCR 실패: %s", exc)
     elif ext in (".docx",):
         segments = _build_segments_from_docx(path)
     else:

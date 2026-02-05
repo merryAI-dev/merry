@@ -65,7 +65,6 @@ from shared.contract_review import (
     extract_fields,
     load_document,
     generate_contract_opinion_llm,
-    local_ocr_available,
     mask_analysis,
     mask_comparisons,
     mask_sensitive_text,
@@ -165,9 +164,7 @@ with st.expander("스캔본 OCR (Claude)", expanded=not analysis_exists):
         key="contract_ocr_lang",
         help="tesseract 언어 코드 (예: kor+eng)",
     )
-    local_ocr_status = "사용 가능" if local_ocr_available() else "불가 (이미지 OCR로 대체)"
-    st.caption(f"로컬 OCR 상태: {local_ocr_status}")
-    st.caption("기본은 로컬 OCR → Claude 텍스트 정제입니다. 로컬 OCR 불가 시 이미지 OCR로 전환됩니다.")
+    st.caption("PDF OCR은 항상 Claude Vision(Opus)으로 처리됩니다.")
 
 with st.expander("분석 모드", expanded=not analysis_exists):
     analysis_mode = st.selectbox(

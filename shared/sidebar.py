@@ -427,6 +427,18 @@ def _reset_session():
     st.session_state.peer_messages = []
     st.session_state.diagnosis_messages = []
     st.session_state.report_messages = []
+    st.session_state.report_file_path = None
+    st.session_state.report_file_name = None
+    st.session_state.report_files = []
+    st.session_state.report_file_types = {}
+    st.session_state.report_doc_weights = {
+        "IR": 0.4,
+        "요약보고서": 0.3,
+        "사업자등록증": 0.2,
+        "기타": 0.1,
+    }
+    st.session_state.report_uploaded_names = []
+    st.session_state.report_draft_content = ""
     st.session_state.projection_data = None
     st.session_state.exit_projection_assumptions = None
     st.session_state.peer_analysis_result = None

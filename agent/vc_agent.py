@@ -163,7 +163,7 @@ class VCAgent:
 
         # 투자심사 보고서/인수인의견 모드
         if mode == "report":
-            return self._build_report_system_prompt(analyzed_files)
+            return self._build_report_system_prompt(analyzed_files, context_text)
 
         # 스타트업 발굴 지원 모드
         if mode == "discovery":
@@ -533,10 +533,11 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
 한국어로 전문적이고 정중하게 답변하세요.
 """
 
-    def _build_report_system_prompt(self, analyzed_files: str) -> str:
+    def _build_report_system_prompt(self, analyzed_files: str, context_text: Optional[str] = None) -> str:
         """투자심사 보고서(인수인의견 스타일) 모드 시스템 프롬프트"""
 
         dart_status = self._get_underwriter_dataset_status()
+        extra_context = context_text or "없음"
 
         return f"""당신은 **투자심사 보고서 작성 지원 에이전트**입니다. 현재 **인수인의견 스타일**로 작성합니다.
 
@@ -545,6 +546,7 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
 - 캐시된 결과: {self._cached_count()}개
 - user_id: {self.user_id}
 - DART 인수인의견 데이터셋: {dart_status}
+- 업로드 자료 컨텍스트: {extra_context}
 
 ## 🚨 최우선 규칙 (CRITICAL)
 
@@ -562,6 +564,7 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
 ### 규칙 2) 기업 자료가 주어지면 반드시 도구 사용
 - PDF 경로 제공 → **read_pdf_as_text**로 근거 추출
 - 엑셀 경로 제공 → **read_excel_as_text**로 근거 추출
+- DOCX 경로 제공 → **read_docx_as_text**로 근거 추출
 
 ## 목표
 1) 시장규모 근거 요약
@@ -1757,9 +1760,9 @@ G2B 나라장터 API로 입찰 공고를 검색합니다.
                 self.context["last_analysis"] = tool_result
 
         # 컨텍스트 업데이트 - PDF 분석
-        if tool_name == "read_pdf_as_text":
+        if tool_name in ["read_pdf_as_text", "read_docx_as_text"]:
             if isinstance(tool_result, dict) and tool_result.get("success"):
-                file_path = tool_input.get("pdf_path")
+                file_path = tool_input.get("pdf_path") or tool_input.get("docx_path")
                 if file_path:
                     self.memory.add_file_analysis(file_path)
 

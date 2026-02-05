@@ -1023,6 +1023,24 @@ def register_tools() -> List[Dict[str, Any]]:
             }
         },
         {
+            "name": "read_docx_as_text",
+            "description": "DOCX 파일(기업 요약 보고서 등)을 텍스트로 변환하여 읽습니다. 문단 단위로 요약된 텍스트를 반환합니다.",
+            "input_schema": {
+                "type": "object",
+                "properties": {
+                    "docx_path": {
+                        "type": "string",
+                        "description": "읽을 DOCX 파일 경로"
+                    },
+                    "max_paragraphs": {
+                        "type": "integer",
+                        "description": "읽을 최대 문단 수 (기본값: 200)"
+                    }
+                },
+                "required": ["docx_path"]
+            }
+        },
+        {
             "name": "parse_pdf_dolphin",
             "description": "Claude Vision을 사용하여 PDF를 구조화된 형태로 파싱합니다. 테이블, 재무제표, Cap Table을 자동 인식합니다.",
             "input_schema": {
@@ -3731,6 +3749,77 @@ def _execute_read_pdf_as_text_pymupdf(
             doc.close()
 
 
+def execute_read_docx_as_text(
+    docx_path: str,
+    max_paragraphs: int = 200,
+) -> Dict[str, Any]:
+    """DOCX 파일을 텍스트로 변환하여 읽기"""
+    is_valid, error = _validate_file_path(docx_path, allowed_extensions=['.docx'], require_temp_dir=True)
+    if not is_valid:
+        return {"success": False, "error": error}
+
+    if not os.path.exists(docx_path):
+        return {"success": False, "error": f"파일을 찾을 수 없습니다: {docx_path}"}
+
+    try:
+        max_paragraphs = int(max_paragraphs) if max_paragraphs is not None else 200
+    except (TypeError, ValueError):
+        max_paragraphs = 200
+
+    cache_path = None
+    try:
+        file_hash = compute_file_hash(Path(docx_path))
+        payload = {
+            "version": CACHE_VERSION,
+            "file_hash": file_hash,
+            "max_paragraphs": max_paragraphs,
+            "tool": "read_docx_as_text",
+        }
+        cache_key = compute_payload_hash(payload)
+        cache_dir = get_cache_dir("docx_text", "shared")
+        cache_path = cache_dir / f"{cache_key}.json"
+        cached = load_json(cache_path)
+        if cached:
+            cached["cache_hit"] = True
+            logger.info(f"Cache hit for DOCX: {docx_path}")
+            return cached
+    except Exception:
+        cache_path = None
+
+    try:
+        from docx import Document
+    except Exception:
+        return {"success": False, "error": "python-docx가 필요합니다."}
+
+    try:
+        doc = Document(docx_path)
+        paragraphs = []
+        for idx, paragraph in enumerate(doc.paragraphs, start=1):
+            text = (paragraph.text or "").strip()
+            if not text:
+                continue
+            paragraphs.append(f"Para {idx}: {text}")
+            if len(paragraphs) >= max_paragraphs:
+                break
+
+        content = "\n".join(paragraphs)
+        result = {
+            "success": True,
+            "file_path": docx_path,
+            "content": content,
+            "total_paragraphs": len(doc.paragraphs),
+            "parsed_paragraphs": len(paragraphs),
+            "cache_hit": False,
+        }
+        if cache_path:
+            save_json(cache_path, result)
+        logger.info(f"DOCX read successfully: {docx_path}")
+        return result
+    except Exception as exc:
+        logger.error(f"Failed to read docx {docx_path}: {exc}", exc_info=True)
+        return {"success": False, "error": f"DOCX 읽기 실패: {str(exc)}"}
+
+
 def execute_parse_pdf_dolphin(
     pdf_path: str,
     max_pages: int = 30,
@@ -4533,6 +4622,7 @@ TOOL_EXECUTORS = {
     # Peer PER 분석 도구
     "search_underwriter_opinion": execute_search_underwriter_opinion,
     "read_pdf_as_text": execute_read_pdf_as_text,
+    "read_docx_as_text": execute_read_docx_as_text,
     "get_stock_financials": execute_get_stock_financials,
     "analyze_peer_per": execute_analyze_peer_per,
     "query_investment_portfolio": execute_query_investment_portfolio,

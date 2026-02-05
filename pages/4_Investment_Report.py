@@ -7,6 +7,7 @@
 import asyncio
 import os
 import pandas as pd
+from pathlib import Path
 
 import streamlit as st
 
@@ -222,34 +223,139 @@ if team_tasks:
 st.markdown("### 기업 자료 업로드")
 upload_cols = st.columns([2, 1])
 
+def _guess_doc_type(filename: str) -> str:
+    lower = filename.lower()
+    if "ir" in lower or "investor" in lower:
+        return "IR"
+    if "요약" in filename or "summary" in lower or "보고서" in filename:
+        return "요약보고서"
+    if "사업자" in filename or "등록증" in filename:
+        return "사업자등록증"
+    return "기타"
+
+
+def _build_report_context_text() -> str:
+    assets = st.session_state.get("report_files") or []
+    if not assets:
+        return ""
+
+    weights = st.session_state.get("report_doc_weights", {})
+    analyzable_exts = {".pdf", ".xlsx", ".xls", ".docx"}
+    lines = ["업로드 자료 목록 및 가중치:"]
+    for asset in assets:
+        name = asset.get("name", "")
+        doc_type = asset.get("doc_type") or _guess_doc_type(name)
+        weight = weights.get(doc_type, weights.get("기타", 0.0))
+        path = asset.get("path", "")
+        ext = Path(name).suffix.lower()
+        if ext in analyzable_exts:
+            status = "분석 대상"
+            path_text = path
+        else:
+            status = "참고용(자동 분석 미지원)"
+            path_text = "경로 제공 안함"
+        lines.append(f"- {name} | {doc_type} | weight {weight:.2f} | {status} | path: {path_text}")
+    lines.append("가중치는 문서 신뢰도/중요도를 의미하며, 보고서 작성 시 반영하세요.")
+    return "\n".join(lines)
+
 with upload_cols[0]:
-    report_file = st.file_uploader(
-        "기업 자료 (PDF/엑셀)",
-        type=["pdf", "xlsx", "xls"],
+    report_files = st.file_uploader(
+        "기업 자료 (PDF/Word/이미지/엑셀) - 다중 업로드 가능",
+        type=["pdf", "docx", "doc", "png", "jpg", "jpeg", "xlsx", "xls", "pptx"],
         key="report_file_uploader",
+        accept_multiple_files=True,
         help="시장규모 근거가 포함된 기업 자료를 업로드하세요",
     )
+    st.caption("PDF/엑셀/DOCX는 자동 분석 대상입니다. 이미지/PPTX/DOC는 참고용으로 저장됩니다.")
 
 with upload_cols[1]:
-    if report_file:
-        allowed = ALLOWED_EXTENSIONS_EXCEL + ALLOWED_EXTENSIONS_PDF
-        is_valid, error = validate_upload(
-            filename=report_file.name,
-            file_size=report_file.size,
-            allowed_extensions=allowed,
-        )
-        if not is_valid:
-            st.error(error)
-        else:
-            user_id = st.session_state.get("user_id", "anonymous")
-            secure_path = get_secure_upload_path(user_id=user_id, original_filename=report_file.name)
-            with open(secure_path, "wb") as f:
-                f.write(report_file.getbuffer())
+    if report_files:
+        allowed = ALLOWED_EXTENSIONS_EXCEL + ALLOWED_EXTENSIONS_PDF + [
+            ".docx", ".doc", ".png", ".jpg", ".jpeg", ".pptx"
+        ]
+        selected_names = [f.name for f in report_files]
+        if selected_names != st.session_state.get("report_uploaded_names", []):
+            uploaded_assets = []
+            for report_file in report_files:
+                is_valid, error = validate_upload(
+                    filename=report_file.name,
+                    file_size=report_file.size,
+                    allowed_extensions=allowed,
+                )
+                if not is_valid:
+                    st.error(f"{report_file.name}: {error}")
+                    continue
 
-            cleanup_user_temp_files(user_id, max_files=10)
-            st.session_state.report_file_path = str(secure_path)
-            st.session_state.report_file_name = report_file.name
-            st.success(f"업로드 완료: {report_file.name}")
+                user_id = st.session_state.get("user_id", "anonymous")
+                secure_path = get_secure_upload_path(user_id=user_id, original_filename=report_file.name)
+                with open(secure_path, "wb") as f:
+                    f.write(report_file.getbuffer())
+
+                cleanup_user_temp_files(user_id, max_files=20)
+                uploaded_assets.append({
+                    "name": report_file.name,
+                    "path": str(secure_path),
+                })
+
+            if uploaded_assets:
+                st.session_state.report_files = uploaded_assets
+                st.session_state.report_uploaded_names = selected_names
+                st.success(f"{len(uploaded_assets)}개 파일 업로드 완료")
+
+if st.session_state.get("report_files"):
+    st.markdown("#### 자료 유형 지정")
+    type_options = ["IR", "요약보고서", "사업자등록증", "기타"]
+    doc_type_map = st.session_state.get("report_file_types", {})
+    updated_assets = []
+    for idx, asset in enumerate(st.session_state.report_files):
+        guess = _guess_doc_type(asset["name"])
+        current = doc_type_map.get(asset["name"], guess)
+        label = f"{asset['name']} ({guess})"
+        doc_type = st.selectbox(
+            label,
+            options=type_options,
+            index=type_options.index(current) if current in type_options else 0,
+            key=f"report_doc_type_{idx}",
+        )
+        doc_type_map[asset["name"]] = doc_type
+        updated_assets.append({**asset, "doc_type": doc_type})
+    st.session_state.report_file_types = doc_type_map
+    st.session_state.report_files = updated_assets
+
+    primary = next((a for a in updated_assets if a.get("doc_type") == "IR"), updated_assets[0])
+    st.session_state.report_file_path = primary["path"]
+    st.session_state.report_file_name = primary["name"]
+
+    st.markdown("#### 자료 가중치 (합계 1.0 고정)")
+    weights = st.session_state.get("report_doc_weights", {})
+    w_ir = st.slider("IR", min_value=0.0, max_value=1.0, value=weights.get("IR", 0.4), step=0.05, key="weight_ir")
+    max_summary = max(0.0, 1.0 - w_ir)
+    w_summary = st.slider(
+        "요약보고서",
+        min_value=0.0,
+        max_value=max_summary,
+        value=min(weights.get("요약보고서", 0.3), max_summary),
+        step=0.05,
+        key="weight_summary",
+    )
+    max_reg = max(0.0, 1.0 - w_ir - w_summary)
+    w_reg = st.slider(
+        "사업자등록증",
+        min_value=0.0,
+        max_value=max_reg,
+        value=min(weights.get("사업자등록증", 0.2), max_reg),
+        step=0.05,
+        key="weight_reg",
+    )
+    w_other = max(0.0, 1.0 - w_ir - w_summary - w_reg)
+    st.metric("기타", f"{w_other:.2f}")
+    st.caption("합계는 자동으로 1.0으로 고정됩니다. (기타는 자동 조정)")
+    st.session_state.report_doc_weights = {
+        "IR": round(w_ir, 2),
+        "요약보고서": round(w_summary, 2),
+        "사업자등록증": round(w_reg, 2),
+        "기타": round(w_other, 2),
+    }
 
 st.divider()
 
@@ -528,45 +634,62 @@ if deep_analysis:
 
     st.divider()
 
-# 채팅 컨테이너
-chat_container = st.container(border=True, height=550)
+# 채팅/초안 레이아웃
+chat_area = None
+draft_placeholder = None
+chat_col, draft_col = st.columns([1, 1], gap="large")
 
-with chat_container:
-    chat_area = st.container(height=470)
+with chat_col:
+    st.markdown("## 대화")
+    chat_container = st.container(border=True, height=550)
 
-    with chat_area:
-        if not st.session_state.report_messages:
-            with st.chat_message("assistant", avatar=avatar_image):
-                st.markdown("""**투자심사 보고서 작성 모드**입니다.
+    with chat_container:
+        chat_area = st.container(height=470)
+
+        with chat_area:
+            if not st.session_state.report_messages:
+                with st.chat_message("assistant", avatar=avatar_image):
+                    st.markdown("""**투자심사 보고서 작성 모드**입니다.
 
 기업 자료에서 **시장규모 근거**를 추출하고, 인수인의견 스타일의 초안을 작성합니다.
 
 ---
 ### 시작하기
-1. 상단에 **기업 자료(PDF/엑셀)**를 업로드하세요
+1. 상단에 **기업 자료(PDF/엑셀/DOCX)**를 업로드하세요
 2. 아래 입력창에 **"시장규모 근거 정리해줘"**라고 입력하세요
 ---
 출력은 근거 → 패턴 → 초안 → 확인 필요 순서로 정리됩니다.
 """)
 
-        for idx, msg in enumerate(st.session_state.report_messages):
-            role = msg.get("role", "")
-            content = msg.get("content", "")
+            for idx, msg in enumerate(st.session_state.report_messages):
+                role = msg.get("role", "")
+                content = msg.get("content", "")
 
-            if role == "user":
-                with st.chat_message("user", avatar=user_avatar_image):
-                    st.markdown(content)
-            elif role == "assistant":
-                with st.chat_message("assistant", avatar=avatar_image):
-                    st.markdown(content)
+                if role == "user":
+                    with st.chat_message("user", avatar=user_avatar_image):
+                        st.markdown(content)
+                elif role == "assistant":
+                    with st.chat_message("assistant", avatar=avatar_image):
+                        st.markdown(content)
 
-                    tool_logs = msg.get("tool_logs") or []
-                    if tool_logs:
-                        with st.expander("실행 로그", expanded=False):
-                            for line in tool_logs:
-                                st.caption(line)
+                        tool_logs = msg.get("tool_logs") or []
+                        if tool_logs:
+                            with st.expander("실행 로그", expanded=False):
+                                for line in tool_logs:
+                                    st.caption(line)
 
     user_input = st.chat_input("보고서 작성 관련 질문...", key="report_chat_input")
+
+with draft_col:
+    st.markdown("## 보고서 초안")
+    draft_container = st.container(border=True, height=550)
+    with draft_container:
+        draft_placeholder = st.empty()
+        draft_content = st.session_state.get("report_draft_content", "")
+        if draft_content:
+            draft_placeholder.markdown(draft_content)
+        else:
+            draft_placeholder.markdown("초안이 생성되면 여기에 표시됩니다.")
 
 
 if st.session_state.get("report_quick_command"):
@@ -575,6 +698,7 @@ if st.session_state.get("report_quick_command"):
 
 
 if user_input:
+    report_context_text = _build_report_context_text()
     if st.session_state.get("report_file_path"):
         file_path = st.session_state.report_file_path
         if file_path not in user_input:
@@ -594,7 +718,12 @@ if user_input:
         tool_messages = []
         tool_status = None
 
-        async for chunk in st.session_state.agent.chat(user_input, mode="report"):
+        async for chunk in st.session_state.agent.chat(
+            user_input,
+            mode="report",
+            context_text=report_context_text,
+            model_override="claude-opus-4-5-20251101",
+        ):
             if "**도구:" in chunk:
                 tool_messages.append(chunk.strip())
                 with tool_container:
@@ -604,11 +733,16 @@ if user_input:
             else:
                 full_response += chunk
                 response_placeholder.markdown(full_response + "▌")
+                if draft_placeholder is not None:
+                    draft_placeholder.markdown(full_response + "▌")
 
         response_placeholder.markdown(full_response)
+        if draft_placeholder is not None:
+            draft_placeholder.markdown(full_response)
         if tool_status is not None:
             final_state = "error" if any("실패" in m for m in tool_messages) else "complete"
             tool_status.update(label="도구 실행 완료", state=final_state, expanded=False)
+        st.session_state.report_draft_content = full_response
         return full_response, tool_messages
 
     assistant_response, tool_messages = asyncio.run(stream_report_response_realtime())
