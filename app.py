@@ -7,6 +7,7 @@ VC 투자 분석 에이전트 - Claude Code 스타일
 import asyncio
 import re
 from datetime import datetime
+import io
 from pathlib import Path
 from typing import Optional
 import streamlit as st
@@ -471,6 +472,12 @@ if "report_preparse_min_text_chars" not in st.session_state:
     st.session_state.report_preparse_min_text_chars = 200
 if "report_preparse_max_ocr_pages" not in st.session_state:
     st.session_state.report_preparse_max_ocr_pages = 8
+if "report_preparse_stage1_md" not in st.session_state:
+    st.session_state.report_preparse_stage1_md = ""
+if "report_preparse_stage2_md" not in st.session_state:
+    st.session_state.report_preparse_stage2_md = ""
+if "report_md_imported_at" not in st.session_state:
+    st.session_state.report_md_imported_at = None
 
 if st.session_state.get("report_panel_enabled"):
     st.markdown(
@@ -586,6 +593,105 @@ def _build_preparse_context(summary: list) -> Optional[str]:
         )
     return "\n".join(lines)
 
+
+def _derive_company_label(files: list) -> str:
+    if not files:
+        return "unknown"
+    name = Path(files[0]).stem
+    name = re.sub(r"^[0-9a-f]{6,}_", "", name)
+    name = re.sub(r"[_\-]+", " ", name).strip()
+    return name or "unknown"
+
+
+def _build_stage1_markdown(results: dict) -> str:
+    blocks = []
+    for path, info in (results or {}).items():
+        title = Path(path).name
+        blocks.append(f"### {title}")
+        if "pdf" in info:
+            content = info.get("pdf", {}).get("content") or ""
+            blocks.append(content if content else "_(PDF 텍스트 없음)_")
+        elif "excel" in info:
+            content = info.get("excel", {}).get("content") or ""
+            blocks.append(content if content else "_(엑셀 텍스트 없음)_")
+        elif "docx" in info:
+            content = info.get("docx", {}).get("content") or ""
+            blocks.append(content if content else "_(DOCX 텍스트 없음)_")
+        else:
+            blocks.append("_지원되지 않는 파일 형식_")
+        blocks.append("")
+    return "\n".join(blocks).strip()
+
+
+def _build_preparse_md() -> str:
+    summary = st.session_state.get("report_preparse_summary", [])
+    results = st.session_state.get("report_preparse_results", {})
+    stage1_md = st.session_state.get("report_preparse_stage1_md") or _build_stage1_markdown(results)
+    stage2_md = st.session_state.get("report_preparse_stage2_md") or "N/A"
+    files = st.session_state.get("unified_files", [])
+    label = _derive_company_label(files)
+    created_at = datetime.now().isoformat()
+    lines = [
+        "# MerryParse Export",
+        f"- created_at: {created_at}",
+        f"- source_files: {[Path(f).name for f in files]}",
+        f"- ocr_mode: {st.session_state.get('report_preparse_mode')}",
+        f"- max_pages: {st.session_state.get('report_preparse_max_pages')}",
+        f"- market_evidence: {st.session_state.get('report_preparse_market_evidence')}",
+        "",
+        "## Stage1 (Raw Markdown)",
+        stage1_md if stage1_md else "N/A",
+        "",
+        "## Stage2 (Refined Markdown)",
+        stage2_md if stage2_md else "N/A",
+        "",
+        "## Summary",
+    ]
+    for item in summary:
+        lines.append(
+            f"- file: {item.get('file')} | status: {item.get('status')} | detail: {item.get('detail')}"
+        )
+    return "\n".join(lines), label
+
+
+def _parse_md_sections(md_text: str) -> dict:
+    sections = {"stage1": "", "stage2": "", "summary": []}
+    current = None
+    for line in md_text.splitlines():
+        if line.strip().startswith("## Stage1"):
+            current = "stage1"
+            continue
+        if line.strip().startswith("## Stage2"):
+            current = "stage2"
+            continue
+        if line.strip().startswith("## Summary"):
+            current = "summary"
+            continue
+        if current == "summary":
+            if line.strip().startswith("- file:"):
+                parts = line.split("|")
+                entry = {"file": "", "status": "", "detail": ""}
+                if parts:
+                    entry["file"] = parts[0].replace("- file:", "").strip()
+                if len(parts) > 1:
+                    entry["status"] = parts[1].replace("status:", "").strip()
+                if len(parts) > 2:
+                    entry["detail"] = parts[2].replace("detail:", "").strip()
+                sections["summary"].append(entry)
+        elif current in ["stage1", "stage2"]:
+            sections[current] += line + "\n"
+    for key in ["stage1", "stage2"]:
+        sections[key] = sections[key].strip()
+    return sections
+
+
+def _restore_from_md(md_text: str) -> None:
+    parsed = _parse_md_sections(md_text)
+    st.session_state.report_preparse_stage1_md = parsed.get("stage1", "")
+    st.session_state.report_preparse_stage2_md = parsed.get("stage2", "")
+    st.session_state.report_preparse_summary = parsed.get("summary", [])
+    st.session_state.report_preparse_at = datetime.now().isoformat()
+    st.session_state.report_md_imported_at = datetime.now().isoformat()
 
 def _preparse_report_files(
     max_pages: int,
@@ -876,10 +982,37 @@ if use_report_panel and report_col is not None:
 
                 if st.session_state.get("report_preparse_at"):
                     st.caption(f"마지막 파싱: {st.session_state.report_preparse_at}")
+                if st.session_state.get("report_md_imported_at"):
+                    st.caption(f"MD 복구 시각: {st.session_state.report_md_imported_at}")
 
                 summary = st.session_state.get("report_preparse_summary", [])
                 if summary:
                     st.table(summary)
+
+                md_content, md_label = _build_preparse_md()
+                st.download_button(
+                    label="MD 다운로드",
+                    data=md_content,
+                    file_name=f"merryparse_{md_label}_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
+                    mime="text/markdown",
+                    use_container_width=True,
+                )
+
+                md_upload = st.file_uploader(
+                    "MD 업로드 (복구)",
+                    type=["md", "markdown", "txt"],
+                    accept_multiple_files=False,
+                    key="report_md_uploader",
+                    help="MerryParse MD를 업로드하면 파싱 요약/컨텍스트를 복구합니다.",
+                )
+                if md_upload is not None:
+                    try:
+                        md_text = md_upload.getvalue().decode("utf-8", errors="ignore")
+                        _restore_from_md(md_text)
+                        st.success("MD 복구 완료. 파싱 요약을 다시 확인하세요.")
+                        st.rerun()
+                    except Exception as exc:
+                        st.error(f"MD 복구 실패: {exc}")
             else:
                 st.info("업로드된 파일이 없습니다. 위에서 드래그앤드롭해 주세요.")
 
