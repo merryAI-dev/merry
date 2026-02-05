@@ -13,6 +13,15 @@ import streamlit as st
 from shared.auth import check_authentication
 from shared.config import initialize_agent, initialize_session_state, inject_custom_css
 from shared.sidebar import render_sidebar
+from shared.ui_components import (
+    render_empty_state,
+    render_error_state,
+    render_download_button,
+    render_quick_insights,
+    generate_fund_insights,
+    render_fund_selector,
+    calculate_chart_height,
+)
 from shared.fund_dashboard_data import (
     load_dashboard_tables,
     prepare_dashboard_views,
@@ -199,27 +208,18 @@ if fund_name_col:
 elif "펀드명" in compliance_summary.columns:
     fund_options = sorted([name for name in compliance_summary["펀드명"].unique() if str(name).strip()])
 
-if "fund_selector_open" not in st.session_state:
-    st.session_state.fund_selector_open = False
-
-selector_cols = st.columns([1, 1, 3])
+# 펀드 선택 (검색 가능한 셀렉트박스)
+selector_cols = st.columns([2, 3])
 with selector_cols[0]:
-    if st.button("펀드 목록 열기", use_container_width=True):
-        st.session_state.fund_selector_open = not st.session_state.fund_selector_open
-with selector_cols[1]:
-    st.caption(f"펀드 수 {len(fund_options)}개")
-with selector_cols[2]:
-    st.caption(f"데이터 소스: {data.source.upper()}")
-
-selected_fund = st.session_state.get("selected_fund", "전체")
-if st.session_state.fund_selector_open:
-    selected_fund = st.radio(
-        "펀드 선택",
-        ["전체"] + fund_options,
-        horizontal=True,
-        index=(["전체"] + fund_options).index(selected_fund) if selected_fund in ["전체"] + fund_options else 0,
+    selected_fund = render_fund_selector(
+        fund_options=fund_options,
+        fund_company_map=fund_company_map,
+        include_all=True,
+        key="dashboard_fund_selector",
     )
     st.session_state.selected_fund = selected_fund
+with selector_cols[1]:
+    st.caption(f"펀드 수 {len(fund_options)}개 · 데이터 소스: {data.source.upper()}")
 
 if selected_fund != "전체" and fund_name_col:
     funds_filtered = funds[funds[fund_name_col] == selected_fund]
@@ -239,15 +239,16 @@ if selected_fund != "전체" and "포폴사-투자사 연계" in portfolio_lates
     ]
 
 if funds.empty:
-    st.error("펀드 데이터가 비어 있습니다. CSV 또는 Airtable 설정을 확인해 주세요.")
-    st.caption(
-        f"현재 소스: {source.upper()} · "
-        f"펀드 테이블: {table_map_used['funds']} · "
-        f"의무투자 테이블: {table_map_used['obligations']} · "
-        f"포폴 결산 테이블: {table_map_used['portfolio']}"
+    render_error_state(
+        error_message="펀드 데이터를 불러올 수 없습니다.",
+        suggestions=[
+            f"현재 데이터 소스: {source.upper()}",
+            f"펀드 테이블명 확인: {table_map_used['funds']}",
+            "Airtable API 키가 올바른지 확인하세요",
+            "테이블 이름이 실제 Airtable 탭과 일치하는지 확인하세요",
+        ],
+        debug_info={"source_debug": data.debug, "airtable_debug": airtable_debug},
     )
-    with st.expander("디버그 정보", expanded=True):
-        st.json({"source_debug": data.debug, "airtable_debug": airtable_debug})
     st.stop()
 
 
@@ -327,6 +328,12 @@ _render_kpi_cards(kpis[:4])
 if len(kpis) > 4:
     st.markdown("<div style='height:10px'></div>", unsafe_allow_html=True)
     _render_kpi_cards(kpis[4:])
+
+# 퀵 인사이트
+insights = generate_fund_insights(funds_filtered, portfolio_latest)
+if insights:
+    st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
+    render_quick_insights(insights)
 
 # 스타트업 전체/펀드 현황 요약
 startup_name_col = "기업명" if "기업명" in startup_df.columns else None
@@ -447,7 +454,11 @@ with tabs[0]:
 
 with tabs[1]:
     if obligations.empty:
-        st.warning("의무투자 데이터가 비어 있습니다.")
+        render_empty_state(
+            icon="📋",
+            title="의무투자 데이터 없음",
+            description="의무투자 테이블에 데이터가 없습니다. Airtable에서 '의무 투자' 테이블을 확인해주세요.",
+        )
     else:
         st.markdown("### 컴플라이언스 상태 요약")
         status_counts = obligations["compliance_status"].value_counts().reset_index()
@@ -498,10 +509,15 @@ with tabs[1]:
             ["기준 금액", "투자금액", "미달성 금액(-는 달성완료임)"],
         )
         st.dataframe(obligations_display, use_container_width=True, hide_index=True)
+        render_download_button(obligations_display, f"의무투자_{selected_fund}")
 
 with tabs[2]:
     if portfolio_latest.empty:
-        st.warning("포폴사 결산 데이터가 비어 있습니다.")
+        render_empty_state(
+            icon="📊",
+            title="포폴사 결산 데이터 없음",
+            description="포트폴리오 결산 데이터가 없습니다. Airtable에서 '포폴사 결산 자료' 테이블을 확인해주세요.",
+        )
     else:
         st.markdown("### 포폴사 결산 요약 (최근 제출 기준)")
         if selected_fund != "전체":
@@ -555,6 +571,7 @@ with tabs[2]:
             ],
         )
         st.dataframe(portfolio_display, use_container_width=True, hide_index=True)
+        render_download_button(portfolio_display, f"포폴사_결산_{selected_fund}")
 
         if "매출액 (백만원)_num" in portfolio_latest.columns:
             top_sales = portfolio_latest.sort_values("매출액 (백만원)_num", ascending=False).head(10)

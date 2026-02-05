@@ -56,6 +56,16 @@ def initialize_session_state():
         "report_messages": [],
         "report_file_path": None,
         "report_file_name": None,
+        "report_files": [],
+        "report_file_types": {},
+        "report_doc_weights": {
+            "IR": 0.4,
+            "요약보고서": 0.3,
+            "사업자등록증": 0.2,
+            "기타": 0.1,
+        },
+        "report_uploaded_names": [],
+        "report_draft_content": "",
         "report_show_welcome": True,
         "report_quick_command": None,
         "report_evidence": None,
@@ -92,6 +102,14 @@ def initialize_session_state():
         "collab_brief_error": None,
         "collab_brief_model": "claude-opus-4-5-20251101",
         "collab_last_move": "",
+
+        # 펀드 대시보드
+        "fund_selected_fund": "전체",
+        "fund_selected_company": None,
+        "fund_date_range": None,
+        "fund_kpi_selected": "매출액 (백만원)",
+        "fund_compare_companies": [],
+        "fund_view_mode": "summary",
 
         "voice_messages": [],
         "voice_mode": "checkin",
