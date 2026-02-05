@@ -569,7 +569,8 @@ write_company_diagnosis_report에는 다음을 포함해 호출:
 - PDF 경로 제공 → **read_pdf_as_text**로 근거 추출
 - 엑셀 경로 제공 → **read_excel_as_text**로 근거 추출
 - DOCX 경로 제공 → **read_docx_as_text**로 근거 추출
- - 단, **Evidence Pack/MD만 제공된 경우 도구 호출 없이 작성 가능**
+- 단, **Evidence Pack/MD만 제공된 경우 도구 호출 없이 작성 가능**
+ - Evidence Pack MD가 제공되면 **PDF/엑셀/DOCX를 다시 읽지 말 것**
 
 ## 목표
 1) 시장규모 근거 요약

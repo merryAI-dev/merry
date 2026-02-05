@@ -962,8 +962,14 @@ def _collect_structured_financial_data(results: dict) -> str:
 
 def _extract_evidence_pack_quality(md_text: str) -> dict:
     lines = [line.strip() for line in (md_text or "").splitlines()]
-    evidence_count = sum(1 for line in lines if line.startswith("- [근거"))
-    has_unknown = any("판단 유보" in line for line in lines)
+    # 다양한 근거 형식 인식: "- [근거", "- Fact:", "| Metric |", "| --- |" (테이블)
+    evidence_count = sum(1 for line in lines if (
+        line.startswith("- [근거") or
+        line.startswith("- Fact:") or
+        line.startswith("| Metric |") or
+        (line.startswith("|") and "Source" in line)
+    ))
+    has_unknown = any("판단 유보" in line or "[추정]" in line or "Missing" in line for line in lines)
     return {
         "evidence_count": evidence_count,
         "has_unknown": has_unknown,
@@ -2116,7 +2122,7 @@ with chat_col:
             idx = max(0, min(idx, len(chapter_order) - 1))
             current_chapter = chapter_order[idx]
             file_context = ""
-            if st.session_state.unified_files:
+            if st.session_state.unified_files and not st.session_state.get("report_evidence_pack_md"):
                 file_context = f"업로드 파일: {', '.join(st.session_state.unified_files)}"
             preparse_context = _build_preparse_context(
                 st.session_state.get("report_preparse_summary", [])
@@ -2129,6 +2135,7 @@ with chat_col:
                     + st.session_state.report_evidence_pack_md
                 )
                 if st.session_state.get("report_evidence_pack_md") else None,
+                "Evidence Pack MD가 제공된 경우 PDF/엑셀/DOCX를 새로 읽지 마세요. 사용자 요청이 있을 때만 도구를 사용합니다.",
                 f"현재 작성 챕터: {current_chapter}.\n"
                 "이 챕터만 작성하고 다른 챕터는 출력하지 마세요.\n"
                 "형식: ### 챕터 제목 → 요약/근거/심사 판단 포함.\n"
@@ -2169,12 +2176,21 @@ with chat_col:
                             log_lines = []
                             if report_status_placeholder is not None:
                                 report_status_placeholder.markdown("🟡 상태: 작성 중...")
-                            async for chunk in agent.chat(
-                                full_message,
-                                mode=st.session_state.get("unified_mode", "report"),
-                                context_text=report_context_text,
-                                model_override="claude-opus-4-5-20251101",
-                            ):
+                        message_lower = (user_input or "").lower()
+                        explicit_parse_request = any(
+                            keyword in message_lower
+                            for keyword in ["pdf", "파일", "업로드", "파싱", "재분석", "추출", "읽어", "read"]
+                        )
+                        allow_tools = True
+                        if st.session_state.get("report_evidence_pack_md") and not explicit_parse_request:
+                            allow_tools = False
+                        async for chunk in agent.chat(
+                            full_message,
+                            mode=st.session_state.get("unified_mode", "report"),
+                            context_text=report_context_text,
+                            model_override="claude-opus-4-5-20251101",
+                            allow_tools=allow_tools,
+                        ):
                                 if "**도구:" in chunk:
                                     tool_logs.append(chunk.strip())
                                     log_lines.append(chunk.strip())
