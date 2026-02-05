@@ -611,6 +611,17 @@ def _build_preparse_context(summary: list) -> Optional[str]:
     return "\n".join(lines)
 
 
+def _build_preparse_summary_block(summary: list) -> str:
+    if not summary:
+        return "- (파싱 요약 없음)"
+    lines = []
+    for item in summary:
+        lines.append(
+            f"- file: {item.get('file')} | type: {item.get('type')} | status: {item.get('status')} | detail: {item.get('detail')}"
+        )
+    return "\n".join(lines)
+
+
 def _derive_company_label(files: list) -> str:
     if not files:
         return "unknown"
@@ -761,7 +772,7 @@ def _is_evidence_pack_stale() -> bool:
         return False
 
 
-def _build_evidence_pack_prompt(stage1_md: str, evidence_items: list) -> str:
+def _build_evidence_pack_prompt(stage1_md: str, evidence_items: list, preparse_summary: str) -> str:
     company = st.session_state.get("report_evidence_pack_company") or "unknown"
     source_files = [Path(f).name for f in st.session_state.get("unified_files", [])]
     created_at = datetime.now().isoformat()
@@ -780,7 +791,8 @@ def _build_evidence_pack_prompt(stage1_md: str, evidence_items: list) -> str:
 
     return textwrap.dedent(
         f"""
-        당신은 시니어 VC 심사역입니다. 아래 제공된 자료만으로 **Evidence Pack MD**를 작성하세요.
+        당신은 시니어 VC 심사역입니다. 아래 제공된 자료만으로 **Evidence Pack MD (심사역이 보완 가능한 추출물)**를 작성하세요.
+        이 문서는 **GPT-2 수준 모델도 사용할 수 있을 정도로 명확하고 구조화된 추출물**이어야 합니다.
 
         출력 형식은 반드시 다음 템플릿을 따르세요:
 
@@ -789,25 +801,134 @@ def _build_evidence_pack_prompt(stage1_md: str, evidence_items: list) -> str:
         - created_at: {created_at}
         - source_files: {source_files}
 
-        ## I. 투자 개요
-        ### 요약
+        ## 0. 파싱 요약
+        {preparse_summary}
+
+        ## 1. 핵심 정보 요약 (One-Page)
+        - 기업/제품 한줄 요약:
+        - 타겟 시장/고객:
+        - 수익 모델:
+        - 현재 단계(시드/Pre-A/Series A 등):
+        - 핵심 수치(매출/손익/자본/부채 등):
+
+        ## 2. 챕터별 근거 맵 (Facts/Numbers)
+        ### I. 투자 개요
+        #### Facts
+        - Fact: ... | Source: 파일명 p.x
+        #### Numbers
+        | Metric | Value | Unit | Period | Source |
+        | --- | --- | --- | --- | --- |
+        #### Missing
         - ...
-        ### 근거 문항
-        - [근거-1] 출처: ...
-        ### HF 검증
-        - [ ] ...
 
-        ...
+        ### II. 기업 현황
+        #### Facts
+        - Fact: ... | Source: ...
+        #### Numbers
+        | Metric | Value | Unit | Period | Source |
+        | --- | --- | --- | --- | --- |
+        #### Missing
+        - ...
 
-        ## VIII. 종합 결론
-        ### 요약
-        ### 근거 문항
-        ### HF 검증
+        ### III. 시장 분석
+        #### Facts
+        - Fact: ... | Source: ...
+        #### Numbers
+        | Metric | Value | Unit | Period | Source |
+        | --- | --- | --- | --- | --- |
+        #### Missing
+        - ...
+
+        ### IV. 사업 분석
+        #### Facts
+        - Fact: ... | Source: ...
+        #### Numbers
+        | Metric | Value | Unit | Period | Source |
+        | --- | --- | --- | --- | --- |
+        #### Missing
+        - ...
+
+        ### V. 투자 적합성 및 임팩트
+        #### Facts
+        - Fact: ... | Source: ...
+        #### Numbers
+        | Metric | Value | Unit | Period | Source |
+        | --- | --- | --- | --- | --- |
+        #### Missing
+        - ...
+
+        ### VI. 수익성/Valuation
+        #### Facts
+        - Fact: ... | Source: ...
+        #### Numbers
+        | Metric | Value | Unit | Period | Source |
+        | --- | --- | --- | --- | --- |
+        #### Missing
+        - ...
+
+        ### VII. 임팩트 리스크
+        #### Facts
+        - Fact: ... | Source: ...
+        #### Numbers
+        | Metric | Value | Unit | Period | Source |
+        | --- | --- | --- | --- | --- |
+        #### Missing
+        - ...
+
+        ### VIII. 종합 결론
+        #### Facts
+        - Fact: ... | Source: ...
+        #### Missing
+        - ...
+
+        ## 3. 엔티티/키워드
+        - Organizations:
+        - People:
+        - Products/Services:
+        - Certifications/Regulatory:
+        - Competitors:
+
+        ## 4. 재무/표 추출 (가능한 경우)
+        ### 4.1 손익계산서
+        | Year | Revenue | Gross Profit | Operating Income | Net Income | Unit | Source |
+        | --- | --- | --- | --- | --- | --- | --- |
+        ### 4.2 재무상태표
+        | Year | Total Assets | Total Liabilities | Total Equity | Cash | Unit | Source |
+        | --- | --- | --- | --- | --- | --- | --- |
+        ### 4.3 현금흐름
+        | Year | Operating CF | Investing CF | Financing CF | FCF | Unit | Source |
+        | --- | --- | --- | --- | --- | --- |
+
+        ## 5. HF 검증 체크리스트 (사람 검토용)
+        - [ ] 투자 조건(금액/밸류/지분율) 원문 확인
+        - [ ] 핵심 제품/서비스 기능 검증
+        - [ ] 주요 고객/매출처 검증
+        - [ ] 재무제표 수치 대조
+        - [ ] 법적 리스크(등기부 말소사항) 확인
+
+        ## 6. Machine-Readable Summary (YAML)
+        ```yaml
+        company: {company}
+        industry: unknown
+        products: []
+        customers: []
+        business_model: unknown
+        stage: unknown
+        financials:
+          revenue: {{}}
+          operating_income: {{}}
+          net_income: {{}}
+          assets: {{}}
+          liabilities: {{}}
+        certifications: []
+        risks: []
+        ```
 
         규칙:
-        - 반드시 각 챕터별로 요약/근거/HF 검증을 포함
+        - 반드시 각 챕터별로 Facts/Numbers/Missing을 포함
         - 근거 문항은 가능하면 5개, 부족하면 2~3개라도 작성
         - 자료가 부족하면 "판단 유보(근거 부족)"으로 명시하되, 파일명/메타에서 합리적 추정이 가능한 경우 [추정]으로 표기
+        - 모든 Fact/Number는 **Source**를 포함 (없으면 "Source: Evidence Pack MD"로 표시)
         - company/source_files/created_at 값을 임의로 변경하지 말고 그대로 출력
         - 불필요한 서론/설명 없이 MD만 출력
 
@@ -1222,7 +1343,10 @@ if use_report_panel and report_col is not None:
                         evidence_items = _collect_market_evidence(
                             st.session_state.get("report_preparse_results", {})
                         )
-                        prompt = _build_evidence_pack_prompt(stage1_md, evidence_items)
+                        summary_block = _build_preparse_summary_block(
+                            st.session_state.get("report_preparse_summary", [])
+                        )
+                        prompt = _build_evidence_pack_prompt(stage1_md, evidence_items, summary_block)
                         try:
                             from anthropic import Anthropic
                             client = Anthropic(api_key=api_key)
