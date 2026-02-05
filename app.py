@@ -450,6 +450,8 @@ if "report_preparse_at" not in st.session_state:
     st.session_state.report_preparse_at = None
 if "report_preparse_summary" not in st.session_state:
     st.session_state.report_preparse_summary = []
+if "report_panel_uploader_seed" not in st.session_state:
+    st.session_state.report_panel_uploader_seed = 0
 
 if st.session_state.get("report_panel_enabled"):
     st.markdown(
@@ -730,6 +732,32 @@ if use_report_panel and report_col is not None:
     with report_col:
         st.markdown("## 투자심사 보고서")
         with st.expander("자료 준비/일괄 파싱", expanded=True):
+            uploader_key = f"report_panel_uploader_{st.session_state.report_panel_uploader_seed}"
+            uploaded_panel_files = st.file_uploader(
+                "여기에 파일을 드래그앤드롭하거나 선택하세요 (PDF, 엑셀, DOCX)",
+                type=["pdf", "xlsx", "xls", "docx", "doc"],
+                accept_multiple_files=True,
+                key=uploader_key,
+                help="투자심사 보고서에 사용할 자료를 한 번에 업로드하세요."
+            )
+
+            if uploaded_panel_files:
+                processed_keys = set(st.session_state.get("processed_upload_keys", []))
+                new_upload_processed = False
+                for uploaded_file in uploaded_panel_files:
+                    upload_key = f"{uploaded_file.name}|{uploaded_file.size}"
+                    if upload_key in processed_keys:
+                        continue
+                    processed_keys.add(upload_key)
+                    file_path = save_uploaded_file(uploaded_file)
+                    if file_path and file_path not in st.session_state.unified_files:
+                        st.session_state.unified_files.append(file_path)
+                        new_upload_processed = True
+                st.session_state.processed_upload_keys = sorted(processed_keys)
+                if new_upload_processed:
+                    st.session_state.report_panel_uploader_seed += 1
+                    st.rerun()
+
             files = st.session_state.get("unified_files", [])
             if files:
                 st.caption(f"업로드 파일 {len(files)}개")
@@ -738,8 +766,10 @@ if use_report_panel and report_col is not None:
 
                 cols = st.columns([1, 1])
                 with cols[0]:
-                    if st.button("일괄 파싱 시작", use_container_width=True):
+                    if st.button("완료 (일괄 파싱)", use_container_width=True):
                         _preparse_report_files()
+                        st.session_state.report_panel_uploader_seed += 1
+                        st.rerun()
                 with cols[1]:
                     if st.button("파싱 요약 새로고침", use_container_width=True):
                         st.session_state.report_preparse_summary = _build_preparse_summary(
@@ -754,7 +784,7 @@ if use_report_panel and report_col is not None:
                 if summary:
                     st.table(summary)
             else:
-                st.info("업로드된 파일이 없습니다. 먼저 파일을 첨부해 주세요.")
+                st.info("업로드된 파일이 없습니다. 위에서 드래그앤드롭해 주세요.")
 
         chapter_order = _init_report_chapters()
         if chapter_order:
