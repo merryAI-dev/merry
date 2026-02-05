@@ -2374,9 +2374,16 @@ with chat_col:
                                 keyword in message_lower
                                 for keyword in ["pdf", "파일", "업로드", "파싱", "재분석", "추출", "읽어", "read"]
                             )
+                            explicit_deep_request = any(
+                                keyword in message_lower
+                                for keyword in ["심화", "deep", "심층"]
+                            )
                             allow_tools = True
                             if st.session_state.get("report_evidence_pack_md") and not explicit_parse_request:
                                 allow_tools = False
+                            original_deep_mode = getattr(agent, "report_deep_mode", False)
+                            if st.session_state.get("report_evidence_pack_md") and not explicit_deep_request:
+                                agent.report_deep_mode = False
                             async for chunk in agent.chat(
                                 full_message,
                                 mode=st.session_state.get("unified_mode", "report"),
@@ -2420,6 +2427,7 @@ with chat_col:
                             else:
                                 if report_status_placeholder is not None:
                                     report_status_placeholder.markdown("✅ 상태: 작성 완료")
+                            agent.report_deep_mode = original_deep_mode
                             return full_response
 
                         full_response = asyncio.run(stream_response())
