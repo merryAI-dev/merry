@@ -34,7 +34,6 @@ from agent.tools import (
     execute_read_excel_as_text,
     execute_read_docx_as_text,
 )
-from dolphin_service.processor import process_documents_batch
 
 # 로깅 초기화
 setup_logging()
@@ -474,14 +473,6 @@ if "report_preparse_max_pages" not in st.session_state:
     st.session_state.report_preparse_max_pages = 30
 if "report_preparse_market_evidence" not in st.session_state:
     st.session_state.report_preparse_market_evidence = True
-if "report_preparse_fast_mode" not in st.session_state:
-    st.session_state.report_preparse_fast_mode = False
-if "report_preparse_mode" not in st.session_state:
-    st.session_state.report_preparse_mode = "정확도 우선 (Vision)"
-if "report_preparse_min_text_chars" not in st.session_state:
-    st.session_state.report_preparse_min_text_chars = 200
-if "report_preparse_max_ocr_pages" not in st.session_state:
-    st.session_state.report_preparse_max_ocr_pages = 8
 if "report_preparse_stage1_md" not in st.session_state:
     st.session_state.report_preparse_stage1_md = ""
 if "report_preparse_stage2_md" not in st.session_state:
@@ -850,7 +841,7 @@ def _build_preparse_md() -> str:
         "# MerryParse Export",
         f"- created_at: {created_at}",
         f"- source_files: {[Path(f).name for f in files]}",
-        f"- ocr_mode: {st.session_state.get('report_preparse_mode')}",
+        f"- ocr_mode: batch",
         f"- max_pages: {st.session_state.get('report_preparse_max_pages')}",
         f"- market_evidence: {st.session_state.get('report_preparse_market_evidence')}",
         "",
@@ -1236,6 +1227,9 @@ def _preparse_report_files_batch(
     include_market_evidence: bool,
 ) -> None:
     """모든 PDF를 한 번에 합쳐서 단일 API 호출로 처리 (효율적)"""
+    # Lazy import to avoid Streamlit Cloud startup errors
+    from dolphin_service.processor import process_documents_batch
+
     st.session_state.report_preparse_status = "running"
     st.session_state.report_preparse_progress = 0.0
     st.session_state.report_preparse_current = ""
@@ -1615,69 +1609,13 @@ if use_report_panel and report_col is not None:
                         value=st.session_state.report_preparse_market_evidence,
                         help="PDF 내 시장규모 근거 문장을 별도 추출합니다.",
                     )
-                mode_options = [
-                    "🚀 배치 모드 (추천)",
-                    "정확도 우선 (Vision)",
-                    "중간 정확도 (Hybrid)",
-                    "빠른 파싱 (텍스트만)",
-                ]
-                current_mode = st.session_state.report_preparse_mode
-                if current_mode not in mode_options:
-                    current_mode = mode_options[0]
-                st.session_state.report_preparse_mode = st.selectbox(
-                    "파싱 모드",
-                    options=mode_options,
-                    index=mode_options.index(current_mode),
-                    help="배치 모드: 모든 PDF를 합쳐서 한 번에 분석 (빠르고 효율적). Vision: 개별 처리.",
-                )
-
-                if st.session_state.report_preparse_mode == "중간 정확도 (Hybrid)":
-                    hybrid_cols = st.columns([1, 1])
-                    with hybrid_cols[0]:
-                        st.session_state.report_preparse_min_text_chars = st.slider(
-                            "저텍스트 기준(문자 수)",
-                            min_value=50,
-                            max_value=400,
-                            value=st.session_state.report_preparse_min_text_chars,
-                            step=25,
-                            help="이 기준보다 텍스트가 적은 페이지는 OCR 보강 대상으로 간주합니다.",
-                        )
-                    with hybrid_cols[1]:
-                        st.session_state.report_preparse_max_ocr_pages = st.slider(
-                            "OCR 보강 페이지 수",
-                            min_value=1,
-                            max_value=15,
-                            value=st.session_state.report_preparse_max_ocr_pages,
-                            step=1,
-                            help="보강할 최대 페이지 수를 제한합니다.",
-                        )
-
                 cols = st.columns([1, 1])
                 with cols[0]:
-                    if st.button("완료 (일괄 파싱)", use_container_width=True):
-                        mode = st.session_state.report_preparse_mode
-
-                        if mode == "🚀 배치 모드 (추천)":
-                            # 배치 모드: 모든 PDF를 합쳐서 한 번에 처리
-                            _preparse_report_files_batch(
-                                max_pages=st.session_state.report_preparse_max_pages,
-                                include_market_evidence=st.session_state.report_preparse_market_evidence,
-                            )
-                        else:
-                            # 기존 개별 처리 모드
-                            ocr_mode = "vision"
-                            if mode == "중간 정확도 (Hybrid)":
-                                ocr_mode = "hybrid"
-                            elif mode == "빠른 파싱 (텍스트만)":
-                                ocr_mode = "pymupdf"
-
-                            _preparse_report_files(
-                                max_pages=st.session_state.report_preparse_max_pages,
-                                include_market_evidence=st.session_state.report_preparse_market_evidence,
-                                ocr_mode=ocr_mode,
-                                min_text_chars=st.session_state.report_preparse_min_text_chars,
-                                max_ocr_pages=st.session_state.report_preparse_max_ocr_pages,
-                            )
+                    if st.button("📄 PDF 분석 시작", use_container_width=True, type="primary"):
+                        _preparse_report_files_batch(
+                            max_pages=st.session_state.report_preparse_max_pages,
+                            include_market_evidence=st.session_state.report_preparse_market_evidence,
+                        )
                         st.session_state.report_panel_uploader_seed += 1
                         st.rerun()
                 with cols[1]:
