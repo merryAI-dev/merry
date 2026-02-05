@@ -989,6 +989,239 @@ def process_pdf_with_claude(
 process_pdf_with_dolphin = process_pdf_with_claude
 
 
+def process_documents_batch(
+    pdf_paths: List[str],
+    max_pages_per_pdf: int = 15,
+    max_total_images: int = 20,
+    output_mode: str = "structured",
+    progress_callback: Optional[Callable] = None,
+) -> Dict[str, Any]:
+    """여러 PDF를 한 번에 합쳐서 단일 API 호출로 처리
+
+    모든 PDF의 이미지를 한 번에 보내고, 단일 쿼리로 전체를 분석합니다.
+    페이지별 병렬 처리보다 효율적입니다 (API 호출 1회, 전체 문맥 파악 가능).
+
+    Args:
+        pdf_paths: PDF 파일 경로 리스트
+        max_pages_per_pdf: PDF당 최대 페이지 수 (기본: 15)
+        max_total_images: 전체 최대 이미지 수 (Claude 제한: 20)
+        output_mode: 출력 모드 (text_only, structured, tables_only)
+        progress_callback: 진행 상황 콜백 함수
+
+    Returns:
+        통합된 처리 결과 딕셔너리
+    """
+    import fitz
+    import httpx
+    import anthropic
+
+    start_time = time.time()
+    processor = ClaudeVisionProcessor()
+
+    def emit_progress(stage: str, message: str):
+        if progress_callback:
+            processor._emit_progress(progress_callback, stage, message)
+
+    # 1. 모든 PDF를 이미지로 변환하고 합침
+    emit_progress("converting", f"{len(pdf_paths)}개 PDF 이미지 변환 중...")
+
+    all_images = []  # (source_file, page_num, base64_image)
+    file_page_map = {}  # {source_file: [page_indices in all_images]}
+
+    for pdf_path in pdf_paths:
+        filename = Path(pdf_path).name
+        file_page_map[filename] = []
+
+        try:
+            doc = fitz.open(pdf_path)
+            total_pages = len(doc)
+            pages_to_read = min(total_pages, max_pages_per_pdf)
+
+            for page_idx in range(pages_to_read):
+                if len(all_images) >= max_total_images:
+                    logger.warning(f"최대 이미지 수 도달 ({max_total_images}), 나머지 페이지 스킵")
+                    break
+
+                page = doc[page_idx]
+                mat = fitz.Matrix(DOLPHIN_CONFIG.get("image_dpi", 150) / 72, DOLPHIN_CONFIG.get("image_dpi", 150) / 72)
+                pix = page.get_pixmap(matrix=mat)
+                img_bytes = pix.tobytes("png")
+                img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+
+                all_images.append((filename, page_idx + 1, img_b64))
+                file_page_map[filename].append(len(all_images) - 1)
+
+            doc.close()
+
+        except Exception as e:
+            logger.error(f"PDF 변환 실패 ({pdf_path}): {e}")
+            continue
+
+        if len(all_images) >= max_total_images:
+            break
+
+    if not all_images:
+        return {
+            "success": False,
+            "error": "이미지 변환에 실패했습니다.",
+        }
+
+    # 2. 단일 API 호출로 모든 이미지 처리
+    emit_progress("processing", f"Claude Opus로 {len(all_images)}개 이미지 일괄 분석 중...")
+
+    # 이미지 소스 정보를 포함한 프롬프트
+    source_info = []
+    for idx, (filename, page_num, _) in enumerate(all_images):
+        source_info.append(f"이미지 {idx + 1}: {filename} 페이지 {page_num}")
+    source_info_text = "\n".join(source_info)
+
+    extraction_prompt = f"""다음은 투자 검토를 위해 업로드된 여러 문서의 페이지들입니다.
+
+[문서-페이지 매핑]
+{source_info_text}
+
+위 모든 페이지를 종합 분석하여 투자심사에 필요한 정보를 추출해주세요.
+페이지 순서나 문서 구분에 관계없이, 전체를 하나의 투자 대상 기업 자료로 보고 분석합니다.
+
+다음 JSON 형식으로 출력하세요:
+
+```json
+{{
+  "company_info": {{
+    "name": "회사명",
+    "industry": "업종",
+    "founded_year": 설립연도,
+    "business_model": "비즈니스 모델 요약"
+  }},
+  "content": "전체 문서 텍스트 (테이블은 마크다운으로)",
+  "investment_terms": {{
+    "found": true/false,
+    "source": "파일명 p.X",
+    "amount": "투자금액",
+    "pre_money": "Pre-money 밸류",
+    "post_money": "Post-money 밸류",
+    "price_per_share": "주당가격",
+    "shares_acquired": "취득주식수",
+    "ownership_pct": "취득지분율",
+    "investment_type": "투자구조 (보통주/전환사채/SAFE 등)"
+  }},
+  "financial_tables": {{
+    "income_statement": {{
+      "found": true/false,
+      "source": "파일명 p.X",
+      "unit": "억원/백만원",
+      "years": ["2023", "2024E", "2025E"],
+      "metrics": {{
+        "revenue": [매출액들],
+        "gross_profit": [매출총이익들],
+        "operating_income": [영업이익들],
+        "net_income": [당기순이익들]
+      }}
+    }},
+    "balance_sheet": {{
+      "found": true/false,
+      "source": "파일명 p.X",
+      "unit": "억원/백만원",
+      "years": ["2023", "2024E"],
+      "metrics": {{
+        "total_assets": [총자산들],
+        "total_liabilities": [총부채들],
+        "total_equity": [총자본들],
+        "cash": [현금성자산들]
+      }}
+    }},
+    "cash_flow": {{
+      "found": true/false,
+      "source": "파일명 p.X"
+    }},
+    "cap_table": {{
+      "found": true/false,
+      "source": "파일명 p.X",
+      "total_shares": 총발행주식수,
+      "shareholders": [
+        {{"name": "주주명", "ownership_pct": "지분율", "shares": 주식수}}
+      ]
+    }}
+  }},
+  "key_highlights": ["핵심 포인트 1", "핵심 포인트 2"],
+  "risks": ["리스크 1", "리스크 2"],
+  "missing_data": ["누락된 중요 정보"]
+}}
+```
+
+규칙:
+1. 여러 문서에서 같은 정보가 있으면 가장 최신/상세한 것을 사용
+2. 모든 수치에는 source (파일명 p.페이지) 명시
+3. 추정값은 [추정]으로 표기
+4. JSON만 출력"""
+
+    # API 호출을 위한 content 구성
+    content = []
+    for filename, page_num, img_b64 in all_images:
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": img_b64,
+            },
+        })
+
+    content.append({
+        "type": "text",
+        "text": extraction_prompt,
+    })
+
+    try:
+        timeout_config = httpx.Timeout(
+            timeout=DOLPHIN_CONFIG.get("timeout_seconds", 300),
+            connect=30.0,
+        )
+        client = anthropic.Anthropic(timeout=timeout_config)
+
+        response = client.messages.create(
+            model="claude-opus-4-20250514",
+            max_tokens=16384,
+            system=processor._get_system_prompt(),
+            messages=[{"role": "user", "content": content}]
+        )
+
+        response_text = response.content[0].text if response.content else ""
+
+    except Exception as e:
+        logger.error(f"Claude API 호출 실패: {e}")
+        return {
+            "success": False,
+            "error": f"API 호출 실패: {str(e)}",
+        }
+
+    # 3. 응답 파싱
+    emit_progress("parsing", "결과 파싱 중...")
+
+    parsed = processor._parse_claude_response(response_text, output_mode)
+
+    processing_time = time.time() - start_time
+
+    result = {
+        "success": True,
+        "source_files": [Path(p).name for p in pdf_paths],
+        "total_images": len(all_images),
+        "file_page_map": {k: len(v) for k, v in file_page_map.items()},
+        "content": parsed.get("content", response_text),
+        "char_count": len(parsed.get("content", "")),
+        "structured_content": parsed.get("structured_content", {}),
+        "financial_tables": parsed.get("financial_tables", {}),
+        "investment_terms": parsed.get("investment_terms", {}),
+        "company_info": parsed.get("company_info", {}),
+        "processing_method": "claude_opus_batch",
+        "processing_time_seconds": processing_time,
+    }
+
+    emit_progress("complete", f"완료 ({processing_time:.1f}초, {len(all_images)}개 이미지)")
+
+    return result
+
+
 class InteractiveAnalysisSession:
     """대화형 투자 분석 세션
 

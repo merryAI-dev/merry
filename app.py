@@ -34,6 +34,7 @@ from agent.tools import (
     execute_read_excel_as_text,
     execute_read_docx_as_text,
 )
+from dolphin_service.processor import process_documents_batch
 
 # 로깅 초기화
 setup_logging()
@@ -1230,6 +1231,125 @@ def _build_evidence_pack_format_prompt(extraction_json: str, preparse_summary: s
         """
     ).strip()
 
+def _preparse_report_files_batch(
+    max_pages: int,
+    include_market_evidence: bool,
+) -> None:
+    """모든 PDF를 한 번에 합쳐서 단일 API 호출로 처리 (효율적)"""
+    st.session_state.report_preparse_status = "running"
+    st.session_state.report_preparse_progress = 0.0
+    st.session_state.report_preparse_current = ""
+    st.session_state.report_preparse_log = []
+
+    files = list(st.session_state.get("unified_files", []))
+    missing_files = [f for f in files if not Path(f).exists()]
+    if missing_files:
+        st.warning("일부 파일이 삭제되었습니다. 다시 업로드해 주세요.")
+        files = [f for f in files if Path(f).exists()]
+        st.session_state.unified_files = files
+    if not files:
+        st.warning("업로드된 파일이 없습니다.")
+        st.session_state.report_preparse_status = "idle"
+        return
+
+    st.session_state.report_preparse_total = len(files)
+    progress = st.progress(0.0)
+    status = st.empty()
+
+    # PDF와 기타 파일 분리
+    pdf_files = [f for f in files if Path(f).suffix.lower() == ".pdf"]
+    other_files = [f for f in files if Path(f).suffix.lower() != ".pdf"]
+
+    results = {}
+
+    # 1. 모든 PDF를 한 번에 배치 처리
+    if pdf_files:
+        status.markdown(
+            f"<div class='report-preparse-status'>📥 {len(pdf_files)}개 PDF 일괄 분석 중...</div>",
+            unsafe_allow_html=True,
+        )
+        st.session_state.report_preparse_log.append(f"PDF {len(pdf_files)}개 일괄 처리 시작")
+        st.session_state.report_preparse_current = f"PDF {len(pdf_files)}개"
+
+        def progress_cb(event):
+            msg = event.get("content", "")
+            st.session_state.report_preparse_log.append(msg)
+
+        batch_result = process_documents_batch(
+            pdf_paths=pdf_files,
+            max_pages_per_pdf=max_pages,
+            max_total_images=20,  # Claude 제한
+            output_mode="structured",
+            progress_callback=progress_cb,
+        )
+
+        progress.progress(0.7)
+        st.session_state.report_preparse_progress = 0.7
+
+        if batch_result.get("success"):
+            # 배치 결과를 개별 파일 결과로 분배 (호환성 유지)
+            for pdf_path in pdf_files:
+                filename = Path(pdf_path).name
+                results[pdf_path] = {
+                    "pdf": {
+                        "success": True,
+                        "content": batch_result.get("content", ""),
+                        "financial_tables": batch_result.get("financial_tables", {}),
+                        "investment_terms": batch_result.get("investment_terms", {}),
+                        "company_info": batch_result.get("company_info", {}),
+                        "processing_method": "claude_opus_batch",
+                        "pages_read": batch_result.get("file_page_map", {}).get(filename, 0),
+                        "total_pages": batch_result.get("file_page_map", {}).get(filename, 0),
+                        # 배치 전체 정보
+                        "_batch_source_files": batch_result.get("source_files", []),
+                        "_batch_total_images": batch_result.get("total_images", 0),
+                    }
+                }
+            st.session_state.report_preparse_log.append(
+                f"PDF 일괄 처리 완료 ({batch_result.get('processing_time_seconds', 0):.1f}초)"
+            )
+
+            # Market evidence는 별도로 (선택적)
+            if include_market_evidence:
+                for pdf_path in pdf_files:
+                    evidence_result = execute_extract_pdf_market_evidence(
+                        pdf_path=pdf_path,
+                        max_pages=max_pages,
+                        max_results=20,
+                    )
+                    results[pdf_path]["market_evidence"] = evidence_result
+        else:
+            st.error(f"PDF 배치 처리 실패: {batch_result.get('error', 'Unknown error')}")
+            for pdf_path in pdf_files:
+                results[pdf_path] = {"pdf": {"success": False, "error": batch_result.get("error")}}
+
+    # 2. Excel/DOCX는 개별 처리
+    for idx, path in enumerate(other_files):
+        filename = Path(path).name
+        st.session_state.report_preparse_current = filename
+        ext = Path(path).suffix.lower()
+
+        if ext in [".xlsx", ".xls"]:
+            excel_result = execute_read_excel_as_text(excel_path=path, max_rows=80)
+            results[path] = {"excel": excel_result}
+        elif ext == ".docx":
+            docx_result = execute_read_docx_as_text(docx_path=path, max_paragraphs=200)
+            results[path] = {"docx": docx_result}
+        else:
+            results[path] = {"error": "지원되지 않는 파일 형식"}
+
+        st.session_state.report_preparse_log.append(f"완료: {filename}")
+
+    progress.progress(1.0)
+    st.session_state.report_preparse_results = results
+    st.session_state.report_preparse_summary = _build_preparse_summary(results)
+    st.session_state.report_preparse_at = datetime.now().isoformat()
+    st.session_state.report_preparse_status = "done"
+    st.session_state.report_preparse_progress = 1.0
+    st.session_state.report_preparse_current = ""
+    status.markdown("✅ 일괄 파싱 완료")
+
+
 def _preparse_report_files(
     max_pages: int,
     include_market_evidence: bool,
@@ -1237,6 +1357,7 @@ def _preparse_report_files(
     min_text_chars: int,
     max_ocr_pages: int,
 ) -> None:
+    """개별 파일별 파싱 (기존 방식, 호환성 유지)"""
     st.session_state.report_preparse_status = "running"
     st.session_state.report_preparse_progress = 0.0
     st.session_state.report_preparse_current = ""
@@ -1494,19 +1615,20 @@ if use_report_panel and report_col is not None:
                         value=st.session_state.report_preparse_market_evidence,
                         help="PDF 내 시장규모 근거 문장을 별도 추출합니다.",
                     )
+                mode_options = [
+                    "🚀 배치 모드 (추천)",
+                    "정확도 우선 (Vision)",
+                    "중간 정확도 (Hybrid)",
+                    "빠른 파싱 (텍스트만)",
+                ]
+                current_mode = st.session_state.report_preparse_mode
+                if current_mode not in mode_options:
+                    current_mode = mode_options[0]
                 st.session_state.report_preparse_mode = st.selectbox(
                     "파싱 모드",
-                    options=[
-                        "정확도 우선 (Vision)",
-                        "중간 정확도 (Hybrid)",
-                        "빠른 파싱 (텍스트만)",
-                    ],
-                    index=[
-                        "정확도 우선 (Vision)",
-                        "중간 정확도 (Hybrid)",
-                        "빠른 파싱 (텍스트만)",
-                    ].index(st.session_state.report_preparse_mode),
-                    help="Hybrid는 텍스트가 거의 없는 페이지만 OCR로 보강합니다.",
+                    options=mode_options,
+                    index=mode_options.index(current_mode),
+                    help="배치 모드: 모든 PDF를 합쳐서 한 번에 분석 (빠르고 효율적). Vision: 개별 처리.",
                 )
 
                 if st.session_state.report_preparse_mode == "중간 정확도 (Hybrid)":
@@ -1534,19 +1656,28 @@ if use_report_panel and report_col is not None:
                 with cols[0]:
                     if st.button("완료 (일괄 파싱)", use_container_width=True):
                         mode = st.session_state.report_preparse_mode
-                        ocr_mode = "vision"
-                        if mode == "중간 정확도 (Hybrid)":
-                            ocr_mode = "hybrid"
-                        elif mode == "빠른 파싱 (텍스트만)":
-                            ocr_mode = "pymupdf"
 
-                        _preparse_report_files(
-                            max_pages=st.session_state.report_preparse_max_pages,
-                            include_market_evidence=st.session_state.report_preparse_market_evidence,
-                            ocr_mode=ocr_mode,
-                            min_text_chars=st.session_state.report_preparse_min_text_chars,
-                            max_ocr_pages=st.session_state.report_preparse_max_ocr_pages,
-                        )
+                        if mode == "🚀 배치 모드 (추천)":
+                            # 배치 모드: 모든 PDF를 합쳐서 한 번에 처리
+                            _preparse_report_files_batch(
+                                max_pages=st.session_state.report_preparse_max_pages,
+                                include_market_evidence=st.session_state.report_preparse_market_evidence,
+                            )
+                        else:
+                            # 기존 개별 처리 모드
+                            ocr_mode = "vision"
+                            if mode == "중간 정확도 (Hybrid)":
+                                ocr_mode = "hybrid"
+                            elif mode == "빠른 파싱 (텍스트만)":
+                                ocr_mode = "pymupdf"
+
+                            _preparse_report_files(
+                                max_pages=st.session_state.report_preparse_max_pages,
+                                include_market_evidence=st.session_state.report_preparse_market_evidence,
+                                ocr_mode=ocr_mode,
+                                min_text_chars=st.session_state.report_preparse_min_text_chars,
+                                max_ocr_pages=st.session_state.report_preparse_max_ocr_pages,
+                            )
                         st.session_state.report_panel_uploader_seed += 1
                         st.rerun()
                 with cols[1]:
