@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
@@ -93,6 +94,8 @@ class ClaudeVisionProcessor:
         max_pages: int = None,
         output_mode: str = "structured",
         progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
+        parallel: bool = True,
+        max_workers: int = 10,
     ) -> Dict[str, Any]:
         """PDF 파일을 Claude Vision으로 처리
 
@@ -101,6 +104,8 @@ class ClaudeVisionProcessor:
             max_pages: 최대 처리 페이지 수
             output_mode: 출력 모드 (text_only, structured, tables_only)
             progress_callback: 진행 상황 콜백 함수
+            parallel: True면 페이지를 병렬로 처리 (기본값: True)
+            max_workers: 병렬 처리 시 최대 워커 수 (기본값: 10)
 
         Returns:
             처리 결과 딕셔너리
@@ -138,15 +143,28 @@ class ClaudeVisionProcessor:
                 logger.info(f"페이지 수를 {reduced_pages}개로 줄임")
 
             # 2. Claude API로 처리
-            self._emit_progress(
-                progress_callback,
-                "processing",
-                f"Claude Opus로 {len(images_base64)}페이지 분석 중...",
-            )
+            num_pages = len(images_base64)
 
-            result = self._process_with_claude(
-                images_base64, output_mode, progress_callback
-            )
+            if parallel and num_pages > 1:
+                # 병렬 처리: 페이지별로 동시 처리
+                self._emit_progress(
+                    progress_callback,
+                    "processing",
+                    f"Claude Opus로 {num_pages}페이지 병렬 분석 중 (최대 {min(max_workers, num_pages)} 워커)...",
+                )
+                result = self._process_parallel(
+                    images_base64, output_mode, max_workers, progress_callback
+                )
+            else:
+                # 단일 처리: 기존 방식
+                self._emit_progress(
+                    progress_callback,
+                    "processing",
+                    f"Claude Opus로 {num_pages}페이지 분석 중...",
+                )
+                result = self._process_with_claude(
+                    images_base64, output_mode, progress_callback
+                )
 
             # 3. 결과 조합
             processing_time = time.time() - start_time
@@ -160,8 +178,9 @@ class ClaudeVisionProcessor:
                 "char_count": len(result.get("content", "")),
                 "structured_content": result.get("structured_content", {}),
                 "financial_tables": result.get("financial_tables", {}),
-                "processing_method": "claude_opus",
+                "processing_method": "claude_opus_parallel" if parallel and num_pages > 1 else "claude_opus",
                 "processing_time_seconds": processing_time,
+                "parallel_info": result.get("parallel_processing") if parallel and num_pages > 1 else None,
                 "cache_hit": False,
                 "cached_at": datetime.utcnow().isoformat(),
             }
@@ -343,6 +362,249 @@ class ClaudeVisionProcessor:
         # 응답 파싱
         response_text = response.content[0].text if response.content else ""
         return self._parse_claude_response(response_text, output_mode)
+
+    def _process_parallel(
+        self,
+        images_base64: List[str],
+        output_mode: str,
+        max_workers: int,
+        progress_callback: Optional[Callable] = None,
+    ) -> Dict[str, Any]:
+        """페이지별 병렬 처리로 속도 향상
+
+        각 페이지를 개별 API 콜로 동시에 처리한 후 결과를 병합합니다.
+        """
+        import httpx
+        import anthropic
+
+        num_pages = len(images_base64)
+        actual_workers = min(max_workers, num_pages)
+
+        # 페이지별 결과 저장 (순서 유지용)
+        page_results: Dict[int, Dict[str, Any]] = {}
+        errors: List[str] = []
+
+        def process_single_page(page_idx: int, img_b64: str) -> tuple:
+            """단일 페이지 처리"""
+            try:
+                timeout_config = httpx.Timeout(
+                    timeout=DOLPHIN_CONFIG.get("timeout_seconds", 300),
+                    connect=30.0,
+                )
+                client = anthropic.Anthropic(timeout=timeout_config)
+
+                # 단일 페이지용 간소화된 프롬프트
+                prompt = self._get_single_page_prompt(output_mode, page_idx + 1)
+
+                content = [
+                    {
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": "image/png",
+                            "data": img_b64,
+                        },
+                    },
+                    {
+                        "type": "text",
+                        "text": prompt,
+                    }
+                ]
+
+                response = client.messages.create(
+                    model="claude-opus-4-20250514",
+                    max_tokens=8192,
+                    system=self._get_system_prompt(),
+                    messages=[{"role": "user", "content": content}]
+                )
+
+                response_text = response.content[0].text if response.content else ""
+                return (page_idx, {"success": True, "content": response_text})
+
+            except Exception as e:
+                logger.warning(f"페이지 {page_idx + 1} 처리 실패: {e}")
+                return (page_idx, {"success": False, "error": str(e)})
+
+        # ThreadPoolExecutor로 병렬 실행
+        with ThreadPoolExecutor(max_workers=actual_workers) as executor:
+            futures = {
+                executor.submit(process_single_page, idx, img): idx
+                for idx, img in enumerate(images_base64)
+            }
+
+            completed = 0
+            for future in as_completed(futures):
+                page_idx, result = future.result()
+                page_results[page_idx] = result
+                completed += 1
+
+                if progress_callback:
+                    self._emit_progress(
+                        progress_callback,
+                        "processing",
+                        f"페이지 처리 중... ({completed}/{num_pages})",
+                    )
+
+                if not result.get("success"):
+                    errors.append(f"페이지 {page_idx + 1}: {result.get('error', 'Unknown error')}")
+
+        # 결과 병합 (페이지 순서대로)
+        return self._merge_parallel_results(page_results, output_mode, errors)
+
+    def _get_single_page_prompt(self, output_mode: str, page_num: int) -> str:
+        """단일 페이지 처리용 프롬프트"""
+        if output_mode == "text_only":
+            return f"""이 페이지 (페이지 {page_num})의 내용을 텍스트로 추출해주세요.
+
+규칙:
+1. 테이블은 마크다운 테이블 형식으로 변환
+2. 원본 레이아웃을 최대한 보존
+3. 숫자와 단위를 정확하게 추출
+
+텍스트만 출력하세요."""
+
+        elif output_mode == "tables_only":
+            return f"""이 페이지 (페이지 {page_num})에서 테이블만 추출하여 JSON으로 출력하세요:
+
+```json
+{{
+  "page": {page_num},
+  "tables": [
+    {{
+      "title": "테이블 제목",
+      "markdown": "| 열1 | 열2 |\\n|---|---|\\n| 값1 | 값2 |"
+    }}
+  ],
+  "has_financial_data": true/false,
+  "financial_type": "income_statement/balance_sheet/cash_flow/cap_table/none"
+}}
+```
+JSON만 출력하세요."""
+
+        else:  # structured
+            return f"""이 페이지 (페이지 {page_num})를 투자심사 관점에서 분석하여 JSON으로 출력하세요:
+
+```json
+{{
+  "page": {page_num},
+  "content": "페이지 전체 텍스트",
+  "has_financial_data": true/false,
+  "financial_type": "income_statement/balance_sheet/cash_flow/cap_table/none",
+  "financial_data": {{
+    "unit": "억원/백만원/천원",
+    "years": ["2023", "2024E"],
+    "metrics": {{}}
+  }},
+  "has_investment_terms": true/false,
+  "investment_terms": {{}},
+  "has_cap_table": true/false,
+  "cap_table": {{}},
+  "visual_elements": ["차트", "이미지", "다이어그램 등"],
+  "key_info": "이 페이지의 핵심 정보 요약"
+}}
+```
+JSON만 출력하세요."""
+
+    def _merge_parallel_results(
+        self,
+        page_results: Dict[int, Dict[str, Any]],
+        output_mode: str,
+        errors: List[str],
+    ) -> Dict[str, Any]:
+        """병렬 처리 결과를 하나로 병합"""
+        import json
+        import re
+
+        # 페이지 순서대로 정렬
+        sorted_pages = sorted(page_results.items(), key=lambda x: x[0])
+
+        # 텍스트 콘텐츠 합치기
+        all_content = []
+        financial_tables = {
+            "income_statement": {"found": False},
+            "balance_sheet": {"found": False},
+            "cash_flow": {"found": False},
+            "cap_table": {"found": False},
+        }
+        investment_terms = {"found": False}
+        company_info = {}
+        visual_elements = []
+
+        for page_idx, result in sorted_pages:
+            if not result.get("success"):
+                all_content.append(f"\n============ 페이지 {page_idx + 1} (처리 실패) ============\n")
+                continue
+
+            raw_content = result.get("content", "")
+
+            if output_mode == "text_only":
+                all_content.append(f"\n============ 페이지 {page_idx + 1} ============\n{raw_content}")
+            else:
+                # JSON 파싱 시도
+                try:
+                    json_match = re.search(r"```json\s*(.*?)\s*```", raw_content, re.DOTALL)
+                    if json_match:
+                        parsed = json.loads(json_match.group(1))
+                    else:
+                        parsed = json.loads(raw_content.strip())
+
+                    # 콘텐츠 추가
+                    page_content = parsed.get("content", raw_content)
+                    all_content.append(f"\n============ 페이지 {page_idx + 1} ============\n{page_content}")
+
+                    # 재무 데이터 병합
+                    if parsed.get("has_financial_data"):
+                        fin_type = parsed.get("financial_type", "")
+                        if fin_type in financial_tables and parsed.get("financial_data"):
+                            financial_tables[fin_type] = {
+                                "found": True,
+                                "page": page_idx + 1,
+                                **parsed.get("financial_data", {}),
+                            }
+
+                    # 투자조건 병합
+                    if parsed.get("has_investment_terms") and parsed.get("investment_terms"):
+                        investment_terms = {
+                            "found": True,
+                            "page": page_idx + 1,
+                            **parsed.get("investment_terms", {}),
+                        }
+
+                    # Cap Table 병합
+                    if parsed.get("has_cap_table") and parsed.get("cap_table"):
+                        financial_tables["cap_table"] = {
+                            "found": True,
+                            "page": page_idx + 1,
+                            **parsed.get("cap_table", {}),
+                        }
+
+                    # 시각 요소 수집
+                    if parsed.get("visual_elements"):
+                        for elem in parsed["visual_elements"]:
+                            visual_elements.append(f"p{page_idx + 1}: {elem}")
+
+                except json.JSONDecodeError:
+                    all_content.append(f"\n============ 페이지 {page_idx + 1} ============\n{raw_content}")
+
+        merged_content = "".join(all_content)
+
+        result = {
+            "content": merged_content,
+            "structured_content": {
+                "company_info": company_info,
+                "visual_elements": visual_elements,
+            },
+            "financial_tables": financial_tables,
+            "investment_terms": investment_terms,
+            "parallel_processing": {
+                "total_pages": len(page_results),
+                "successful_pages": len([r for r in page_results.values() if r.get("success")]),
+                "failed_pages": len([r for r in page_results.values() if not r.get("success")]),
+                "errors": errors,
+            },
+        }
+
+        return result
 
     def _get_text_only_prompt(self) -> str:
         return """위 PDF 페이지들의 내용을 텍스트로 추출해주세요.
@@ -699,14 +961,27 @@ def process_pdf_with_claude(
     max_pages: int = None,
     output_mode: str = "structured",
     progress_callback: Optional[Callable] = None,
+    parallel: bool = True,
+    max_workers: int = 10,
 ) -> Dict[str, Any]:
-    """PDF를 Claude Vision으로 처리하는 편의 함수"""
+    """PDF를 Claude Vision으로 처리하는 편의 함수
+
+    Args:
+        pdf_path: PDF 파일 경로
+        max_pages: 최대 처리 페이지 수
+        output_mode: 출력 모드 (text_only, structured, tables_only)
+        progress_callback: 진행 상황 콜백 함수
+        parallel: True면 페이지를 병렬로 처리 (기본값: True, 최대 3배 빠름)
+        max_workers: 병렬 처리 시 최대 워커 수 (기본값: 10)
+    """
     processor = ClaudeVisionProcessor()
     return processor.process_pdf(
         pdf_path=pdf_path,
         max_pages=max_pages,
         output_mode=output_mode,
         progress_callback=progress_callback,
+        parallel=parallel,
+        max_workers=max_workers,
     )
 
 

@@ -660,14 +660,164 @@ def _derive_company_label(files: list) -> str:
     return name or "unknown"
 
 
+def _format_financial_tables_md(financial_tables: dict, source_file: str = "") -> str:
+    """financial_tables 딕셔너리를 마크다운으로 변환"""
+    if not financial_tables:
+        return ""
+
+    lines = []
+    source_prefix = f"[{source_file}] " if source_file else ""
+
+    # 손익계산서
+    is_data = financial_tables.get("income_statement", {})
+    if is_data.get("found"):
+        lines.append(f"#### {source_prefix}손익계산서 (p.{is_data.get('page', '?')})")
+        unit = is_data.get("unit", "")
+        years = is_data.get("years", [])
+        metrics = is_data.get("metrics", {})
+        if years and metrics:
+            header = "| 항목 | " + " | ".join(str(y) for y in years) + " |"
+            sep = "| --- |" + " --- |" * len(years)
+            lines.append(header)
+            lines.append(sep)
+            metric_names = {
+                "revenue": "매출액",
+                "gross_profit": "매출총이익",
+                "operating_income": "영업이익",
+                "ebitda": "EBITDA",
+                "net_income": "당기순이익",
+            }
+            for key, label in metric_names.items():
+                vals = metrics.get(key, [])
+                if vals:
+                    row = f"| {label} ({unit}) | " + " | ".join(str(v) if v is not None else "-" for v in vals) + " |"
+                    lines.append(row)
+        lines.append("")
+
+    # 재무상태표
+    bs_data = financial_tables.get("balance_sheet", {})
+    if bs_data.get("found"):
+        lines.append(f"#### {source_prefix}재무상태표 (p.{bs_data.get('page', '?')})")
+        unit = bs_data.get("unit", "")
+        years = bs_data.get("years", [])
+        metrics = bs_data.get("metrics", {})
+        if years and metrics:
+            header = "| 항목 | " + " | ".join(str(y) for y in years) + " |"
+            sep = "| --- |" + " --- |" * len(years)
+            lines.append(header)
+            lines.append(sep)
+            metric_names = {
+                "total_assets": "총자산",
+                "total_liabilities": "총부채",
+                "total_equity": "총자본",
+                "cash": "현금성자산",
+            }
+            for key, label in metric_names.items():
+                vals = metrics.get(key, [])
+                if vals:
+                    row = f"| {label} ({unit}) | " + " | ".join(str(v) if v is not None else "-" for v in vals) + " |"
+                    lines.append(row)
+        lines.append("")
+
+    # 현금흐름표
+    cf_data = financial_tables.get("cash_flow", {})
+    if cf_data.get("found"):
+        lines.append(f"#### {source_prefix}현금흐름표 (p.{cf_data.get('page', '?')})")
+        unit = cf_data.get("unit", "")
+        years = cf_data.get("years", [])
+        metrics = cf_data.get("metrics", {})
+        if years and metrics:
+            header = "| 항목 | " + " | ".join(str(y) for y in years) + " |"
+            sep = "| --- |" + " --- |" * len(years)
+            lines.append(header)
+            lines.append(sep)
+            metric_names = {
+                "operating_cf": "영업CF",
+                "investing_cf": "투자CF",
+                "financing_cf": "재무CF",
+                "fcf": "FCF",
+            }
+            for key, label in metric_names.items():
+                vals = metrics.get(key, [])
+                if vals:
+                    row = f"| {label} ({unit}) | " + " | ".join(str(v) if v is not None else "-" for v in vals) + " |"
+                    lines.append(row)
+        lines.append("")
+
+    # Cap Table
+    cap_data = financial_tables.get("cap_table", {})
+    if cap_data.get("found"):
+        lines.append(f"#### {source_prefix}Cap Table (p.{cap_data.get('page', '?')})")
+        shareholders = cap_data.get("shareholders", [])
+        if shareholders:
+            lines.append("| 주주명 | 지분율 | 주식수 |")
+            lines.append("| --- | --- | --- |")
+            for sh in shareholders:
+                name = sh.get("name", "")
+                pct = sh.get("ownership_pct", sh.get("percentage", ""))
+                shares = sh.get("shares", "")
+                lines.append(f"| {name} | {pct} | {shares} |")
+        total_shares = cap_data.get("total_shares")
+        if total_shares:
+            lines.append(f"\n총발행주식수: {total_shares:,}" if isinstance(total_shares, (int, float)) else f"\n총발행주식수: {total_shares}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def _format_investment_terms_md(inv_terms: dict, source_file: str = "") -> str:
+    """투자조건 딕셔너리를 마크다운으로 변환"""
+    if not inv_terms or not inv_terms.get("found"):
+        return ""
+
+    source_prefix = f"[{source_file}] " if source_file else ""
+    lines = [f"#### {source_prefix}투자조건 (p.{inv_terms.get('page', '?')})"]
+
+    field_names = {
+        "investment_amount": "투자금액",
+        "pre_money": "Pre-money 밸류",
+        "post_money": "Post-money 밸류",
+        "price_per_share": "주당 투자단가",
+        "shares_acquired": "취득 주식수",
+        "ownership_pct": "취득 지분율",
+        "investment_type": "투자 구조",
+        "investment_round": "투자 라운드",
+    }
+
+    for key, label in field_names.items():
+        val = inv_terms.get(key)
+        if val:
+            lines.append(f"- {label}: {val}")
+
+    return "\n".join(lines) + "\n"
+
+
 def _build_stage1_markdown(results: dict) -> str:
     blocks = []
+    appendix_blocks = []
+
     for path, info in (results or {}).items():
         title = Path(path).name
         blocks.append(f"### {title}")
         if "pdf" in info:
-            content = info.get("pdf", {}).get("content") or ""
+            pdf_result = info.get("pdf", {})
+            content = pdf_result.get("content") or ""
             blocks.append(content if content else "_(PDF 텍스트 없음)_")
+
+            # 구조화된 재무 데이터가 있으면 Appendix에 추가
+            financial_tables = pdf_result.get("financial_tables", {})
+            if financial_tables:
+                ft_md = _format_financial_tables_md(financial_tables, title)
+                if ft_md.strip():
+                    appendix_blocks.append(ft_md)
+
+            # 투자조건 데이터
+            inv_terms = pdf_result.get("investment_terms", {})
+            if inv_terms and inv_terms.get("found"):
+                inv_md = _format_investment_terms_md(inv_terms, title)
+                if inv_md.strip():
+                    appendix_blocks.append(inv_md)
+
         elif "excel" in info:
             content = info.get("excel", {}).get("content") or ""
             blocks.append(content if content else "_(엑셀 텍스트 없음)_")
@@ -677,6 +827,13 @@ def _build_stage1_markdown(results: dict) -> str:
         else:
             blocks.append("_지원되지 않는 파일 형식_")
         blocks.append("")
+
+    # Appendix: 구조화된 재무 데이터
+    if appendix_blocks:
+        blocks.append("\n---\n## Appendix: 자동 추출된 재무 데이터\n")
+        blocks.append("아래 데이터는 PDF에서 자동 추출된 구조화된 재무정보입니다.\n")
+        blocks.extend(appendix_blocks)
+
     return "\n".join(blocks).strip()
 
 
@@ -780,6 +937,37 @@ def _collect_market_evidence(results: dict, max_items: int = 30) -> list:
     return items
 
 
+def _collect_structured_financial_data(results: dict) -> str:
+    """파싱 결과에서 구조화된 재무 데이터를 마크다운으로 수집"""
+    blocks = []
+
+    for path, info in (results or {}).items():
+        filename = Path(path).name
+        if "pdf" not in info:
+            continue
+
+        pdf_result = info.get("pdf", {})
+        financial_tables = pdf_result.get("financial_tables", {})
+        investment_terms = pdf_result.get("investment_terms", {})
+
+        # 재무제표 데이터
+        if financial_tables:
+            ft_md = _format_financial_tables_md(financial_tables, filename)
+            if ft_md.strip():
+                blocks.append(ft_md)
+
+        # 투자조건 데이터
+        if investment_terms and investment_terms.get("found"):
+            inv_md = _format_investment_terms_md(investment_terms, filename)
+            if inv_md.strip():
+                blocks.append(inv_md)
+
+    if not blocks:
+        return "- (자동 추출된 구조화 데이터 없음)"
+
+    return "\n\n".join(blocks)
+
+
 def _extract_evidence_pack_quality(md_text: str) -> dict:
     lines = [line.strip() for line in (md_text or "").splitlines()]
     evidence_count = sum(1 for line in lines if line.startswith("- [근거"))
@@ -801,7 +989,7 @@ def _is_evidence_pack_stale() -> bool:
         return False
 
 
-def _build_evidence_pack_extract_prompt(stage1_md: str, evidence_items: list, preparse_summary: str) -> str:
+def _build_evidence_pack_extract_prompt(stage1_md: str, evidence_items: list, preparse_summary: str, structured_financial: str = "") -> str:
     company = st.session_state.get("report_evidence_pack_company") or "unknown"
     source_files = [Path(f).name for f in st.session_state.get("unified_files", [])]
     created_at = datetime.now().isoformat()
@@ -817,11 +1005,16 @@ def _build_evidence_pack_extract_prompt(stage1_md: str, evidence_items: list, pr
         )
 
     evidence_block = "\n".join(evidence_lines) if evidence_lines else "- (근거 없음)"
+    structured_block = structured_financial if structured_financial else "- (자동 추출된 구조화 데이터 없음)"
 
     return textwrap.dedent(
         f"""
         당신은 문서에서 사실/수치만 뽑아내는 Extractor입니다.
         아래 자료를 읽고 **JSON만** 출력하세요. 설명 금지.
+
+        **중요: [자동 추출된 구조화 재무 데이터] 섹션에 이미 손익계산서/재무상태표/Cap Table 등이 정리되어 있습니다.**
+        **이 데이터를 numbers에 그대로 옮기고, 추가로 텍스트에서 발견한 정보만 보충하세요.**
+        **자동 추출 데이터가 있는 항목은 [추정]이 아니라 실제 Source를 명시하세요.**
 
         JSON 스키마:
         {{
@@ -829,19 +1022,30 @@ def _build_evidence_pack_extract_prompt(stage1_md: str, evidence_items: list, pr
           "source_files": {source_files},
           "facts": [{{"chapter": "I. 투자 개요", "text": "...", "source": "파일명 p.x"}}],
           "numbers": [{{"chapter": "VI. 수익성/Valuation", "metric": "매출", "value": "1,234", "unit": "백만원", "period": "2024", "source": "파일명 p.x"}}],
+          "financial_tables": {{
+            "income_statement": {{"years": [...], "revenue": [...], "operating_income": [...], "net_income": [...], "unit": "...", "source": "파일명 p.x"}},
+            "balance_sheet": {{"years": [...], "total_assets": [...], "total_liabilities": [...], "total_equity": [...], "unit": "...", "source": "파일명 p.x"}},
+            "cap_table": {{"shareholders": [{{"name": "...", "ownership_pct": "...", "shares": ...}}], "total_shares": ..., "source": "파일명 p.x"}},
+            "investment_terms": {{"amount": "...", "pre_money": "...", "price_per_share": "...", "source": "파일명 p.x"}}
+          }},
           "entities": {{"organizations": [], "people": [], "products": [], "certifications": [], "competitors": []}},
           "missing": [{{"chapter": "III. 시장 분석", "items": ["TAM/SAM/SOM"]}}]
         }}
 
         규칙:
-        - Fact/Number는 반드시 Source 포함
-        - 추정은 text에 [추정] 표기
+        - **자동 추출된 구조화 데이터를 최우선으로 사용** (이미 파싱 완료된 정확한 데이터)
+        - Fact/Number는 반드시 Source 포함 (파일명 p.페이지번호)
+        - 자동 추출 데이터에 없는 항목만 텍스트에서 추가 추출
+        - 추정은 text에 [추정] 표기 (자동 추출 데이터는 추정 아님)
         - 숫자는 단위/기간 포함
         - 자료가 없으면 missing에 기록
         - JSON 이외 텍스트 출력 금지
 
         [파싱 요약]
         {preparse_summary}
+
+        [자동 추출된 구조화 재무 데이터] (최우선 사용)
+        {structured_block}
 
         [Stage1 Markdown]
         {stage1_md}
@@ -955,16 +1159,36 @@ def _build_evidence_pack_format_prompt(extraction_json: str, preparse_summary: s
         - Certifications/Regulatory:
         - Competitors:
 
-        ## 4. 재무/표 추출 (가능한 경우)
+        ## 4. 재무/표 추출 (자동 추출 데이터 기반)
+        **⚠️ 중요: Extraction JSON의 financial_tables에 자동 추출된 데이터가 있으면 이를 그대로 사용하세요. [추정] 표기 금지.**
+
         ### 4.1 손익계산서
         | Year | Revenue | Gross Profit | Operating Income | Net Income | Unit | Source |
         | --- | --- | --- | --- | --- | --- | --- |
+        (financial_tables.income_statement 데이터를 연도별로 펼쳐서 작성)
+
         ### 4.2 재무상태표
         | Year | Total Assets | Total Liabilities | Total Equity | Cash | Unit | Source |
         | --- | --- | --- | --- | --- | --- | --- |
+        (financial_tables.balance_sheet 데이터를 연도별로 펼쳐서 작성)
+
         ### 4.3 현금흐름
         | Year | Operating CF | Investing CF | Financing CF | FCF | Unit | Source |
         | --- | --- | --- | --- | --- | --- |
+        (financial_tables.cash_flow 데이터가 있으면 작성)
+
+        ### 4.4 Cap Table
+        | 주주명 | 지분율 | 주식수 |
+        | --- | --- | --- |
+        (financial_tables.cap_table.shareholders 데이터를 그대로 작성)
+        총발행주식수: (financial_tables.cap_table.total_shares)
+
+        ### 4.5 투자조건
+        (financial_tables.investment_terms 데이터를 항목별로 작성)
+        - 투자금액:
+        - Pre-money:
+        - 주당가격:
+        - 취득지분:
 
         ## 5. HF 검증 체크리스트 (사람 검토용)
         - [ ] 투자 조건(금액/밸류/지분율) 원문 확인
@@ -992,12 +1216,14 @@ def _build_evidence_pack_format_prompt(extraction_json: str, preparse_summary: s
         ```
 
         규칙:
+        - **🚨 최우선: financial_tables에 자동 추출된 데이터가 있으면 반드시 사용. [추정] 표기 대신 실제 Source(파일명 p.페이지) 명시**
         - 반드시 각 챕터별로 Facts/Numbers/Missing을 포함
         - 근거 문항은 가능하면 5개, 부족하면 2~3개라도 작성
         - 자료가 부족하면 "판단 유보(근거 부족)"으로 명시하되, 파일명/메타에서 합리적 추정이 가능한 경우 [추정]으로 표기
         - 모든 Fact/Number는 **Source**를 포함 (없으면 "Source: Evidence Pack MD"로 표시)
         - company/source_files/created_at 값을 임의로 변경하지 말고 그대로 출력
         - 불필요한 서론/설명 없이 MD만 출력
+        - **섹션 4의 재무 테이블은 financial_tables 데이터를 그대로 옮겨 작성 (비어있지 않게)**
 
         [Extraction JSON]
         {extraction_json}
@@ -1413,7 +1639,10 @@ if use_report_panel and report_col is not None:
                             summary_block = _build_preparse_summary_block(
                                 st.session_state.get("report_preparse_summary", [])
                             )
-                            prompt = _build_evidence_pack_extract_prompt(condensed, evidence_items, summary_block)
+                            structured_financial = _collect_structured_financial_data(
+                                st.session_state.get("report_preparse_results", {})
+                            )
+                            prompt = _build_evidence_pack_extract_prompt(condensed, evidence_items, summary_block, structured_financial)
                             try:
                                 from anthropic import Anthropic
                                 client = Anthropic(api_key=api_key)
