@@ -459,6 +459,14 @@ if "report_preparse_at" not in st.session_state:
     st.session_state.report_preparse_at = None
 if "report_preparse_summary" not in st.session_state:
     st.session_state.report_preparse_summary = []
+if "report_preparse_progress" not in st.session_state:
+    st.session_state.report_preparse_progress = 0.0
+if "report_preparse_current" not in st.session_state:
+    st.session_state.report_preparse_current = ""
+if "report_preparse_total" not in st.session_state:
+    st.session_state.report_preparse_total = 0
+if "report_preparse_log" not in st.session_state:
+    st.session_state.report_preparse_log = []
 if "report_panel_uploader_seed" not in st.session_state:
     st.session_state.report_panel_uploader_seed = 0
 if "report_preparse_max_pages" not in st.session_state:
@@ -824,6 +832,10 @@ def _preparse_report_files(
         return
 
     st.session_state.report_preparse_status = "running"
+    st.session_state.report_preparse_progress = 0.0
+    st.session_state.report_preparse_current = ""
+    st.session_state.report_preparse_total = len(files)
+    st.session_state.report_preparse_log = []
     results = {}
     progress = st.progress(0.0)
     status = st.empty()
@@ -831,6 +843,9 @@ def _preparse_report_files(
     total = len(files)
     for idx, path in enumerate(files, start=1):
         filename = Path(path).name
+        st.session_state.report_preparse_current = filename
+        st.session_state.report_preparse_progress = min((idx - 1) / max(total, 1), 0.95)
+        st.session_state.report_preparse_log.append(f"시작: {filename}")
         status.markdown(
             f"<div class='report-preparse-status'>📥 {filename} 파싱 중...</div>",
             unsafe_allow_html=True,
@@ -871,11 +886,15 @@ def _preparse_report_files(
             results[path] = {"error": "지원되지 않는 파일 형식"}
 
         progress.progress(idx / total)
+        st.session_state.report_preparse_progress = min(idx / max(total, 1), 0.98)
+        st.session_state.report_preparse_log.append(f"완료: {filename}")
 
     st.session_state.report_preparse_results = results
     st.session_state.report_preparse_summary = _build_preparse_summary(results)
     st.session_state.report_preparse_at = datetime.now().isoformat()
     st.session_state.report_preparse_status = "done"
+    st.session_state.report_preparse_progress = 1.0
+    st.session_state.report_preparse_current = ""
     status.markdown("✅ 일괄 파싱 완료")
 
 
@@ -1015,6 +1034,17 @@ if use_report_panel and report_col is not None:
                     st.rerun()
 
             files = st.session_state.get("unified_files", [])
+            if st.session_state.get("report_preparse_status") == "running":
+                total = st.session_state.get("report_preparse_total", 0)
+                current = st.session_state.get("report_preparse_current") or "진행 중..."
+                st.info(f"파싱 중: {current} ({len(st.session_state.get('report_preparse_log', []))//2}/{total})")
+                st.progress(st.session_state.get("report_preparse_progress", 0.0))
+                with st.expander("파싱 로그", expanded=False):
+                    logs = st.session_state.get("report_preparse_log", [])
+                    if logs:
+                        st.markdown("\n".join([f"- {line}" for line in logs[-10:]]))
+                    else:
+                        st.caption("로그 없음")
             if files:
                 st.caption(f"업로드 파일 {len(files)}개")
                 for fpath in files:
