@@ -1810,6 +1810,9 @@ if use_report_panel and report_col is not None:
         report_log_placeholder.markdown("도구 로그: 없음")
 
         report_stream_placeholder = st.empty()
+        pending_buffer = st.session_state.pop("report_edit_buffer_pending", None)
+        if pending_buffer is not None:
+            st.session_state.report_edit_buffer = pending_buffer
         existing = st.session_state.get("report_chapters", {}).get(current_chapter, "") if current_chapter else ""
         if existing and not st.session_state.get("report_edit_buffer"):
             st.session_state.report_edit_buffer = existing
@@ -2251,7 +2254,7 @@ with chat_col:
 
                 if st.session_state.get("report_panel_enabled") and chapter_order:
                     st.session_state.report_chapters[current_chapter] = full_response
-                    st.session_state.report_edit_buffer = full_response
+                    st.session_state.report_edit_buffer_pending = full_response
                     st.session_state.report_chapter_status[current_chapter] = "draft"
                     st.session_state.report_draft_content = _compose_full_draft(
                         st.session_state.report_chapters,
