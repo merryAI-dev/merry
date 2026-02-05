@@ -312,11 +312,50 @@ def _compose_pdf_content_from_pages(pages: List[Dict[str, Any]]) -> str:
 def _split_vision_text_pages(content: str) -> List[str]:
     if not content:
         return []
-    pattern = re.compile(r"=+\\s*페이지\\s*\\d+\\s*=+", re.IGNORECASE)
-    chunks = pattern.split(content)
-    # 첫 chunk는 페이지 헤더 이전 내용일 수 있음
-    cleaned = [chunk.strip() for chunk in chunks if chunk.strip()]
-    return cleaned
+    def _is_page_marker(line: str) -> bool:
+        if not line:
+            return False
+        stripped = line.strip()
+        if not stripped:
+            return False
+        candidate = re.sub(r"^[=\\-\\[\\]\\(\\)\\{\\}\\s]+", "", stripped)
+        candidate = re.sub(r"[=\\-\\[\\]\\(\\)\\{\\}\\s]+$", "", candidate)
+        candidate = candidate.strip()
+        if not candidate:
+            return False
+        return bool(
+            re.match(
+                r"^(페이지|page)\\s*\\d+(\\s*/\\s*\\d+)?(\\s*of\\s*\\d+)?$",
+                candidate,
+                re.IGNORECASE,
+            )
+        )
+
+    lines = content.splitlines()
+    chunks = []
+    current = []
+    found_marker = False
+    for line in lines:
+        if _is_page_marker(line):
+            found_marker = True
+            if current:
+                chunk = "\\n".join(current).strip()
+                if chunk:
+                    chunks.append(chunk)
+            current = []
+            continue
+        current.append(line)
+
+    if current:
+        chunk = "\\n".join(current).strip()
+        if chunk:
+            chunks.append(chunk)
+
+    if not found_marker:
+        cleaned = content.strip()
+        return [cleaned] if cleaned else []
+
+    return chunks
 
 
 def _create_pdf_subset(pdf_path: str, page_numbers: List[int]) -> str:
@@ -3874,11 +3913,27 @@ def execute_read_pdf_as_text(
         if not isinstance(vision_result, dict) or not vision_result.get("success"):
             return _execute_read_pdf_as_text_pymupdf(pdf_path, max_pages, cache_path)
 
-        vision_page_texts = _split_vision_text_pages(vision_result.get("content", ""))
+        vision_content = vision_result.get("content", "") or ""
+        vision_page_texts = _split_vision_text_pages(vision_content)
+        if not vision_page_texts and vision_content.strip():
+            vision_page_texts = [vision_content.strip()]
         vision_map = {}
-        for idx, page_text in enumerate(vision_page_texts):
-            if idx < len(selected_pages):
+        warnings = []
+        if not vision_page_texts:
+            warnings.append("OCR 결과에서 텍스트를 찾지 못해 PyMuPDF 결과를 유지")
+        elif len(vision_page_texts) == len(selected_pages):
+            for idx, page_text in enumerate(vision_page_texts):
                 vision_map[selected_pages[idx]] = page_text
+        elif len(vision_page_texts) == 1:
+            for page_num in selected_pages:
+                vision_map[page_num] = vision_page_texts[0]
+            warnings.append("OCR 페이지 분할 실패로 전체 텍스트를 OCR 페이지에 공통 적용")
+        else:
+            for idx, page_text in enumerate(vision_page_texts[: len(selected_pages)]):
+                vision_map[selected_pages[idx]] = page_text
+            warnings.append(
+                f"OCR 페이지 분할 불일치: OCR {len(vision_page_texts)}개 / 대상 {len(selected_pages)}개"
+            )
 
         merged_pages = []
         for item in page_texts:
@@ -3890,7 +3945,6 @@ def execute_read_pdf_as_text(
             })
 
         content = _compose_pdf_content_from_pages(merged_pages)
-        warnings = []
         if len(low_text_pages) > len(selected_pages):
             warnings.append(
                 f"저텍스트 페이지 {len(low_text_pages)}개 중 {len(selected_pages)}개만 OCR 처리"

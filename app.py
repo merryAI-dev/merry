@@ -798,8 +798,8 @@ def _build_evidence_pack_prompt(stage1_md: str, evidence_items: list) -> str:
 
         규칙:
         - 반드시 각 챕터별로 요약/근거/HF 검증을 포함
-        - 근거 문항은 최소 5개, 출처는 파일+페이지로 표기
-        - 자료가 부족하면 "판단 유보(근거 부족)"으로 명시
+        - 근거 문항은 가능하면 5개, 부족하면 2~3개라도 작성
+        - 자료가 부족하면 "판단 유보(근거 부족)"으로 명시하되, 파일명/메타에서 합리적 추정이 가능한 경우 [추정]으로 표기
         - company/source_files/created_at 값을 임의로 변경하지 말고 그대로 출력
         - 불필요한 서론/설명 없이 MD만 출력
 
@@ -876,10 +876,6 @@ def _preparse_report_files(
     st.session_state.report_preparse_summary = _build_preparse_summary(results)
     st.session_state.report_preparse_at = datetime.now().isoformat()
     st.session_state.report_preparse_status = "done"
-    # 새 파싱 시 Evidence Pack 무효화 (stale 방지)
-    st.session_state.report_evidence_pack_md = ""
-    st.session_state.report_evidence_pack_at = None
-    st.session_state.report_evidence_pack_status = "idle"
     status.markdown("✅ 일괄 파싱 완료")
 
 
@@ -1140,17 +1136,17 @@ if use_report_panel and report_col is not None:
                 if evidence_pack_md and quality.get("evidence_count", 0) == 0:
                     st.warning(
                         "Evidence Pack에 근거 문항이 없습니다. "
-                        "파싱 완료 후 다시 생성하거나 MD 업로드를 확인하세요."
+                        "파싱 결과를 확인하고 필요 시 보완해 주세요."
                     )
                 if stale:
-                    st.warning("Evidence Pack이 최신 파싱과 연결되지 않습니다. 재생성하세요.")
+                    st.warning("Evidence Pack이 최신 파싱과 연결되지 않습니다. 재생성 권장 (현재 MD 우선 사용).")
                 st.download_button(
                     label="Evidence Pack MD 다운로드",
                     data=md_content,
                     file_name=f"evidence_pack_{md_label}_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
                     mime="text/markdown",
                     use_container_width=True,
-                    disabled=not evidence_pack_md or quality.get("evidence_count", 0) == 0 or stale,
+                    disabled=not evidence_pack_md,
                 )
 
             with st.expander("Evidence Pack 생성 (Opus)", expanded=False):
