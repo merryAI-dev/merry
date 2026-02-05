@@ -485,6 +485,8 @@ if "report_evidence_pack_at" not in st.session_state:
     st.session_state.report_evidence_pack_at = None
 if "report_evidence_pack_status" not in st.session_state:
     st.session_state.report_evidence_pack_status = "idle"
+if "report_evidence_pack_company" not in st.session_state:
+    st.session_state.report_evidence_pack_company = ""
 
 if st.session_state.get("report_panel_enabled"):
     st.markdown(
@@ -697,6 +699,12 @@ def _restore_from_md(md_text: str) -> None:
         st.session_state.report_evidence_pack_md = md_text
         st.session_state.report_evidence_pack_at = datetime.now().isoformat()
         st.session_state.report_md_imported_at = datetime.now().isoformat()
+        company = ""
+        for line in md_text.splitlines()[:20]:
+            if line.strip().startswith("- company:"):
+                company = line.split(":", 1)[1].strip()
+                break
+        st.session_state.report_evidence_pack_company = company
         return
     parsed = _parse_md_sections(md_text)
     st.session_state.report_preparse_stage1_md = parsed.get("stage1", "")
@@ -724,7 +732,31 @@ def _collect_market_evidence(results: dict, max_items: int = 30) -> list:
     return items
 
 
+def _extract_evidence_pack_quality(md_text: str) -> dict:
+    lines = [line.strip() for line in (md_text or "").splitlines()]
+    evidence_count = sum(1 for line in lines if line.startswith("- [근거"))
+    has_unknown = any("판단 유보" in line for line in lines)
+    return {
+        "evidence_count": evidence_count,
+        "has_unknown": has_unknown,
+    }
+
+
+def _is_evidence_pack_stale() -> bool:
+    pack_at = st.session_state.get("report_evidence_pack_at")
+    preparse_at = st.session_state.get("report_preparse_at")
+    if not pack_at or not preparse_at:
+        return False
+    try:
+        return pack_at < preparse_at
+    except Exception:
+        return False
+
+
 def _build_evidence_pack_prompt(stage1_md: str, evidence_items: list) -> str:
+    company = st.session_state.get("report_evidence_pack_company") or "unknown"
+    source_files = [Path(f).name for f in st.session_state.get("unified_files", [])]
+    created_at = datetime.now().isoformat()
     evidence_lines = []
     for item in evidence_items:
         page = item.get("page")
@@ -745,9 +777,9 @@ def _build_evidence_pack_prompt(stage1_md: str, evidence_items: list) -> str:
         출력 형식은 반드시 다음 템플릿을 따르세요:
 
         # Investment Review Evidence Pack
-        - company: <기업명 또는 unknown>
-        - created_at: <ISO datetime>
-        - source_files: [파일명 리스트]
+        - company: {company}
+        - created_at: {created_at}
+        - source_files: {source_files}
 
         ## I. 투자 개요
         ### 요약
@@ -768,6 +800,7 @@ def _build_evidence_pack_prompt(stage1_md: str, evidence_items: list) -> str:
         - 반드시 각 챕터별로 요약/근거/HF 검증을 포함
         - 근거 문항은 최소 5개, 출처는 파일+페이지로 표기
         - 자료가 부족하면 "판단 유보(근거 부족)"으로 명시
+        - company/source_files/created_at 값을 임의로 변경하지 말고 그대로 출력
         - 불필요한 서론/설명 없이 MD만 출력
 
         [Stage1 Markdown]
@@ -843,6 +876,10 @@ def _preparse_report_files(
     st.session_state.report_preparse_summary = _build_preparse_summary(results)
     st.session_state.report_preparse_at = datetime.now().isoformat()
     st.session_state.report_preparse_status = "done"
+    # 새 파싱 시 Evidence Pack 무효화 (stale 방지)
+    st.session_state.report_evidence_pack_md = ""
+    st.session_state.report_evidence_pack_at = None
+    st.session_state.report_evidence_pack_status = "idle"
     status.markdown("✅ 일괄 파싱 완료")
 
 
@@ -1097,19 +1134,38 @@ if use_report_panel and report_col is not None:
                 md_content, md_label = _build_preparse_md()
                 if evidence_pack_md:
                     md_content = evidence_pack_md
-                    md_label = _derive_company_label(files)
+                    md_label = st.session_state.get("report_evidence_pack_company") or _derive_company_label(files)
+                quality = _extract_evidence_pack_quality(md_content)
+                stale = _is_evidence_pack_stale()
+                if evidence_pack_md and quality.get("evidence_count", 0) == 0:
+                    st.warning(
+                        "Evidence Pack에 근거 문항이 없습니다. "
+                        "파싱 완료 후 다시 생성하거나 MD 업로드를 확인하세요."
+                    )
+                if stale:
+                    st.warning("Evidence Pack이 최신 파싱과 연결되지 않습니다. 재생성하세요.")
                 st.download_button(
                     label="Evidence Pack MD 다운로드",
                     data=md_content,
                     file_name=f"evidence_pack_{md_label}_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
                     mime="text/markdown",
                     use_container_width=True,
+                    disabled=not evidence_pack_md or quality.get("evidence_count", 0) == 0 or stale,
                 )
 
             with st.expander("Evidence Pack 생성 (Opus)", expanded=False):
                 if st.session_state.report_evidence_pack_status == "running":
                     st.info("Evidence Pack 생성 중입니다...")
-                if st.button("Evidence Pack 생성", use_container_width=True, disabled=not files):
+                st.session_state.report_evidence_pack_company = st.text_input(
+                    "기업명",
+                    value=st.session_state.report_evidence_pack_company,
+                    placeholder="예: 주식회사 스트레스솔루션",
+                )
+                if st.button(
+                    "Evidence Pack 생성",
+                    use_container_width=True,
+                    disabled=not files or not st.session_state.report_evidence_pack_company.strip(),
+                ):
                     api_key = st.session_state.get("user_api_key") or st.secrets.get("anthropic_api_key", "")
                     if not api_key:
                         st.error("Claude API Key가 필요합니다.")
@@ -1137,7 +1193,14 @@ if use_report_panel and report_col is not None:
                             st.session_state.report_evidence_pack_md = text.strip()
                             st.session_state.report_evidence_pack_at = datetime.now().isoformat()
                             st.session_state.report_evidence_pack_status = "done"
-                            st.success("Evidence Pack 생성 완료")
+                            quality = _extract_evidence_pack_quality(st.session_state.report_evidence_pack_md)
+                            if quality.get("evidence_count", 0) == 0:
+                                st.warning(
+                                    "Evidence Pack 생성 완료했지만 근거 문항이 없습니다. "
+                                    "파싱 완료 후 재생성하거나 MD 업로드를 확인하세요."
+                                )
+                            else:
+                                st.success("Evidence Pack 생성 완료")
                             st.rerun()
                         except Exception as exc:
                             st.session_state.report_evidence_pack_status = "idle"
