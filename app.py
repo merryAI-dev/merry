@@ -1064,18 +1064,37 @@ if use_report_panel and report_col is not None:
                             st.session_state.get("report_preparse_results", {})
                         )
                         st.rerun()
+            else:
+                st.info("업로드된 파일이 없습니다. 위에서 드래그앤드롭하거나 MD를 업로드해 주세요.")
 
-                if st.session_state.get("report_preparse_at"):
-                    st.caption(f"마지막 파싱: {st.session_state.report_preparse_at}")
-                if st.session_state.get("report_md_imported_at"):
-                    st.caption(f"MD 복구 시각: {st.session_state.report_md_imported_at}")
+            if st.session_state.get("report_preparse_at"):
+                st.caption(f"마지막 파싱: {st.session_state.report_preparse_at}")
+            if st.session_state.get("report_md_imported_at"):
+                st.caption(f"MD 복구 시각: {st.session_state.report_md_imported_at}")
 
-                summary = st.session_state.get("report_preparse_summary", [])
-                if summary:
-                    st.table(summary)
+            summary = st.session_state.get("report_preparse_summary", [])
+            if summary:
+                st.table(summary)
 
+            md_upload = st.file_uploader(
+                "MD 업로드 (복구)",
+                type=["md", "markdown", "txt"],
+                accept_multiple_files=False,
+                key="report_md_uploader",
+                help="MerryParse/Evidence Pack MD를 업로드하면 파싱 요약/컨텍스트를 복구합니다.",
+            )
+            if md_upload is not None:
+                try:
+                    md_text = md_upload.getvalue().decode("utf-8", errors="ignore")
+                    _restore_from_md(md_text)
+                    st.success("MD 복구 완료. 파싱 요약을 다시 확인하세요.")
+                    st.rerun()
+                except Exception as exc:
+                    st.error(f"MD 복구 실패: {exc}")
+
+            evidence_pack_md = st.session_state.get("report_evidence_pack_md")
+            if summary or evidence_pack_md:
                 md_content, md_label = _build_preparse_md()
-                evidence_pack_md = st.session_state.get("report_evidence_pack_md")
                 if evidence_pack_md:
                     md_content = evidence_pack_md
                     md_label = _derive_company_label(files)
@@ -1087,60 +1106,42 @@ if use_report_panel and report_col is not None:
                     use_container_width=True,
                 )
 
-                with st.expander("Evidence Pack 생성 (Opus)", expanded=False):
-                    if st.session_state.report_evidence_pack_status == "running":
-                        st.info("Evidence Pack 생성 중입니다...")
-                    if st.button("Evidence Pack 생성", use_container_width=True):
-                        api_key = st.session_state.get("user_api_key") or st.secrets.get("anthropic_api_key", "")
-                        if not api_key:
-                            st.error("Claude API Key가 필요합니다.")
-                        else:
-                            st.session_state.report_evidence_pack_status = "running"
-                            stage1_md = st.session_state.get("report_preparse_stage1_md") or _build_stage1_markdown(
-                                st.session_state.get("report_preparse_results", {})
+            with st.expander("Evidence Pack 생성 (Opus)", expanded=False):
+                if st.session_state.report_evidence_pack_status == "running":
+                    st.info("Evidence Pack 생성 중입니다...")
+                if st.button("Evidence Pack 생성", use_container_width=True, disabled=not files):
+                    api_key = st.session_state.get("user_api_key") or st.secrets.get("anthropic_api_key", "")
+                    if not api_key:
+                        st.error("Claude API Key가 필요합니다.")
+                    else:
+                        st.session_state.report_evidence_pack_status = "running"
+                        stage1_md = st.session_state.get("report_preparse_stage1_md") or _build_stage1_markdown(
+                            st.session_state.get("report_preparse_results", {})
+                        )
+                        if len(stage1_md) > 20000:
+                            stage1_md = stage1_md[:20000] + "\n\n...(truncated)"
+                        evidence_items = _collect_market_evidence(
+                            st.session_state.get("report_preparse_results", {})
+                        )
+                        prompt = _build_evidence_pack_prompt(stage1_md, evidence_items)
+                        try:
+                            from anthropic import Anthropic
+                            client = Anthropic(api_key=api_key)
+                            response = client.messages.create(
+                                model="claude-opus-4-5-20251101",
+                                max_tokens=6000,
+                                temperature=0.2,
+                                messages=[{"role": "user", "content": prompt}],
                             )
-                            if len(stage1_md) > 20000:
-                                stage1_md = stage1_md[:20000] + "\n\n...(truncated)"
-                            evidence_items = _collect_market_evidence(
-                                st.session_state.get("report_preparse_results", {})
-                            )
-                            prompt = _build_evidence_pack_prompt(stage1_md, evidence_items)
-                            try:
-                                from anthropic import Anthropic
-                                client = Anthropic(api_key=api_key)
-                                response = client.messages.create(
-                                    model="claude-opus-4-5-20251101",
-                                    max_tokens=6000,
-                                    temperature=0.2,
-                                    messages=[{"role": "user", "content": prompt}],
-                                )
-                                text = response.content[0].text if response.content else ""
-                                st.session_state.report_evidence_pack_md = text.strip()
-                                st.session_state.report_evidence_pack_at = datetime.now().isoformat()
-                                st.session_state.report_evidence_pack_status = "done"
-                                st.success("Evidence Pack 생성 완료")
-                                st.rerun()
-                            except Exception as exc:
-                                st.session_state.report_evidence_pack_status = "idle"
-                                st.error(f"Evidence Pack 생성 실패: {exc}")
-
-                md_upload = st.file_uploader(
-                    "MD 업로드 (복구)",
-                    type=["md", "markdown", "txt"],
-                    accept_multiple_files=False,
-                    key="report_md_uploader",
-                    help="MerryParse MD를 업로드하면 파싱 요약/컨텍스트를 복구합니다.",
-                )
-                if md_upload is not None:
-                    try:
-                        md_text = md_upload.getvalue().decode("utf-8", errors="ignore")
-                        _restore_from_md(md_text)
-                        st.success("MD 복구 완료. 파싱 요약을 다시 확인하세요.")
-                        st.rerun()
-                    except Exception as exc:
-                        st.error(f"MD 복구 실패: {exc}")
-            else:
-                st.info("업로드된 파일이 없습니다. 위에서 드래그앤드롭해 주세요.")
+                            text = response.content[0].text if response.content else ""
+                            st.session_state.report_evidence_pack_md = text.strip()
+                            st.session_state.report_evidence_pack_at = datetime.now().isoformat()
+                            st.session_state.report_evidence_pack_status = "done"
+                            st.success("Evidence Pack 생성 완료")
+                            st.rerun()
+                        except Exception as exc:
+                            st.session_state.report_evidence_pack_status = "idle"
+                            st.error(f"Evidence Pack 생성 실패: {exc}")
 
         chapter_order = _init_report_chapters()
         if chapter_order:
@@ -1445,6 +1446,27 @@ with chat_col:
 
         full_message = user_input + context_info
         st.session_state.unified_messages.append({"role": "user", "content": user_input})
+
+        if st.session_state.get("report_panel_enabled"):
+            has_files = bool(st.session_state.unified_files)
+            has_md = bool(st.session_state.get("report_evidence_pack_md"))
+            if not has_files and not has_md:
+                guidance = (
+                    "투자심사 보고서를 이어서 작성하려면 자료가 필요합니다.\n"
+                    "- 방법 1: 오른쪽 패널에서 파일을 드래그앤드롭 후 ‘완료(일괄 파싱)’\n"
+                    "- 방법 2: Evidence Pack MD를 업로드하여 바로 이어쓰기\n"
+                    "필요한 자료를 업로드하면 즉시 계속 작성할 수 있습니다."
+                )
+                st.session_state.unified_messages.append({
+                    "role": "assistant",
+                    "content": guidance,
+                    "tool_logs": [],
+                })
+                if report_stream_placeholder is not None:
+                    report_stream_placeholder.markdown(guidance)
+                if report_status_placeholder is not None:
+                    report_status_placeholder.markdown("ℹ️ 상태: 자료 필요")
+                st.rerun()
 
         report_context_text = None
         if st.session_state.get("report_panel_enabled") and chapter_order:
