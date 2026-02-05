@@ -6,6 +6,7 @@
 
 import asyncio
 import os
+import re
 import pandas as pd
 from pathlib import Path
 
@@ -183,6 +184,14 @@ st.markdown("# 투자심사 보고서 작성")
 st.markdown("시장규모 근거를 추출하고 인수인의견 스타일 초안을 작성합니다")
 st.divider()
 
+with st.expander("현재 보고서 목차", expanded=False):
+    outline = st.session_state.get("report_outline") or []
+    if outline:
+        for item in outline:
+            st.markdown(f"- {item}")
+    else:
+        st.caption("목차 정보가 없습니다.")
+
 # 팀 과업 요약
 team_id = st.session_state.get("team_id") or st.session_state.get("user_id")
 task_store = TeamTaskStore(team_id=team_id)
@@ -257,6 +266,54 @@ def _build_report_context_text() -> str:
         lines.append(f"- {name} | {doc_type} | weight {weight:.2f} | {status} | path: {path_text}")
     lines.append("가중치는 문서 신뢰도/중요도를 의미하며, 보고서 작성 시 반영하세요.")
     return "\n".join(lines)
+
+
+def _init_report_chapters() -> list:
+    outline = st.session_state.get("report_outline") or []
+    chapter_order = [item for item in outline if re.match(r'^[IVX]+\\.', item)]
+    if not chapter_order:
+        chapter_order = [
+            "I. 투자 개요",
+            "II. 기업 현황",
+            "III. 시장 분석",
+            "IV. 사업 분석",
+            "V. 투자 적합성 및 임팩트",
+            "VI. 수익성/Valuation",
+            "VII. 임팩트 리스크",
+            "VIII. 종합 결론",
+        ]
+    if not st.session_state.get("report_chapter_order"):
+        st.session_state.report_chapter_order = chapter_order
+    return st.session_state.report_chapter_order
+
+
+def _compose_full_draft(chapters: dict, order: list) -> str:
+    blocks = []
+    for key in order:
+        content = (chapters or {}).get(key)
+        if content:
+            blocks.append(content.strip())
+    return "\n\n".join(blocks).strip()
+
+
+def _save_current_chapter(mark_done: bool = False) -> None:
+    chapter_order = st.session_state.get("report_chapter_order") or []
+    idx = st.session_state.get("report_chapter_index", 0)
+    if not chapter_order:
+        return
+    idx = max(0, min(idx, len(chapter_order) - 1))
+    current = chapter_order[idx]
+    current_text = st.session_state.get("report_edit_buffer", "").strip()
+    if current_text:
+        st.session_state.report_chapters[current] = current_text
+    if mark_done:
+        st.session_state.report_chapter_status[current] = "done"
+    else:
+        st.session_state.report_chapter_status.setdefault(current, "draft")
+    st.session_state.report_draft_content = _compose_full_draft(
+        st.session_state.report_chapters,
+        chapter_order,
+    )
 
 with upload_cols[0]:
     report_files = st.file_uploader(
@@ -639,6 +696,16 @@ chat_area = None
 draft_placeholder = None
 chat_col, draft_col = st.columns([1, 1], gap="large")
 
+chapter_order = _init_report_chapters()
+if chapter_order:
+    st.session_state.report_chapter_index = max(
+        0,
+        min(st.session_state.get("report_chapter_index", 0), len(chapter_order) - 1),
+    )
+    current_chapter = chapter_order[st.session_state.report_chapter_index]
+else:
+    current_chapter = None
+
 with chat_col:
     st.markdown("## 대화")
     chat_container = st.container(border=True, height=550)
@@ -681,15 +748,61 @@ with chat_col:
     user_input = st.chat_input("보고서 작성 관련 질문...", key="report_chat_input")
 
 with draft_col:
-    st.markdown("## 보고서 초안")
+    st.markdown("## 챕터 작성")
     draft_container = st.container(border=True, height=550)
     with draft_container:
-        draft_placeholder = st.empty()
-        draft_content = st.session_state.get("report_draft_content", "")
-        if draft_content:
-            draft_placeholder.markdown(draft_content)
+        if chapter_order:
+            total = len(chapter_order)
+            idx = st.session_state.get("report_chapter_index", 0)
+            idx = max(0, min(idx, total - 1))
+            current_chapter = chapter_order[idx]
+            status = st.session_state.get("report_chapter_status", {}).get(current_chapter, "draft")
+            st.caption(f"현재 챕터: {current_chapter} · 상태: {status} · {idx+1}/{total}")
+            st.progress((idx + 1) / total)
+
+            draft_placeholder = st.empty()
+            existing = st.session_state.get("report_chapters", {}).get(current_chapter, "")
+            if existing and not st.session_state.get("report_edit_buffer"):
+                st.session_state.report_edit_buffer = existing
+            if not existing:
+                draft_placeholder.markdown("초안이 생성되면 여기에 표시됩니다.")
+
+            st.text_area(
+                "편집",
+                key="report_edit_buffer",
+                height=260,
+                placeholder="챕터 내용을 편집하세요.",
+            )
+
+            btn_cols = st.columns(3)
+            with btn_cols[0]:
+                if st.button("이전", use_container_width=True, disabled=idx == 0):
+                    _save_current_chapter(mark_done=False)
+                    st.session_state.report_chapter_index = max(0, idx - 1)
+                    st.session_state.report_edit_buffer = st.session_state.report_chapters.get(
+                        chapter_order[st.session_state.report_chapter_index], ""
+                    )
+                    st.rerun()
+            with btn_cols[1]:
+                if st.button("완료", use_container_width=True):
+                    _save_current_chapter(mark_done=True)
+                    if idx < total - 1:
+                        st.session_state.report_chapter_index = idx + 1
+                        st.session_state.report_edit_buffer = st.session_state.report_chapters.get(
+                            chapter_order[idx + 1], ""
+                        )
+                    st.rerun()
+            with btn_cols[2]:
+                if st.button("다음", use_container_width=True, disabled=idx >= total - 1):
+                    _save_current_chapter(mark_done=False)
+                    st.session_state.report_chapter_index = min(total - 1, idx + 1)
+                    st.session_state.report_edit_buffer = st.session_state.report_chapters.get(
+                        chapter_order[st.session_state.report_chapter_index], ""
+                    )
+                    st.rerun()
         else:
-            draft_placeholder.markdown("초안이 생성되면 여기에 표시됩니다.")
+            draft_placeholder = st.empty()
+            draft_placeholder.markdown("목차가 설정되지 않았습니다.")
 
 
 if st.session_state.get("report_quick_command"):
@@ -699,6 +812,17 @@ if st.session_state.get("report_quick_command"):
 
 if user_input:
     report_context_text = _build_report_context_text()
+    if chapter_order:
+        idx = st.session_state.get("report_chapter_index", 0)
+        idx = max(0, min(idx, len(chapter_order) - 1))
+        current_chapter = chapter_order[idx]
+        chapter_instruction = (
+            f"현재 작성 챕터: {current_chapter}.\n"
+            "이 챕터만 작성하고 다른 챕터는 출력하지 마세요.\n"
+            "형식: ### 챕터 제목 → 요약/근거/심사 판단 포함.\n"
+            "마지막에 ### 검증 로그(해당 챕터) 포함."
+        )
+        report_context_text = f"{report_context_text}\n\n{chapter_instruction}".strip()
     if st.session_state.get("report_file_path"):
         file_path = st.session_state.report_file_path
         if file_path not in user_input:
@@ -717,6 +841,11 @@ if user_input:
         full_response = ""
         tool_messages = []
         tool_status = None
+        current_chapter = None
+        if chapter_order:
+            idx = st.session_state.get("report_chapter_index", 0)
+            idx = max(0, min(idx, len(chapter_order) - 1))
+            current_chapter = chapter_order[idx]
 
         async for chunk in st.session_state.agent.chat(
             user_input,
@@ -743,6 +872,14 @@ if user_input:
             final_state = "error" if any("실패" in m for m in tool_messages) else "complete"
             tool_status.update(label="도구 실행 완료", state=final_state, expanded=False)
         st.session_state.report_draft_content = full_response
+        if current_chapter:
+            st.session_state.report_chapters[current_chapter] = full_response
+            st.session_state.report_edit_buffer = full_response
+            st.session_state.report_chapter_status[current_chapter] = "draft"
+            st.session_state.report_draft_content = _compose_full_draft(
+                st.session_state.report_chapters,
+                chapter_order,
+            )
         return full_response, tool_messages
 
     assistant_response, tool_messages = asyncio.run(stream_report_response_realtime())
