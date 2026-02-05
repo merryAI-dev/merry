@@ -427,6 +427,8 @@ if "unified_messages" not in st.session_state:
     st.session_state.unified_messages = []
 if "unified_files" not in st.session_state:
     st.session_state.unified_files = []
+if "processed_upload_keys" not in st.session_state:
+    st.session_state.processed_upload_keys = []
 if "report_panel_enabled" not in st.session_state:
     st.session_state.report_panel_enabled = False
 if "unified_mode" not in st.session_state:
@@ -804,7 +806,17 @@ with chat_col:
                 """, unsafe_allow_html=True)
             with col2:
                 if st.button("×", key=f"remove_{i}", help="제거"):
-                    st.session_state.unified_files.pop(i)
+                    removed_path = st.session_state.unified_files.pop(i)
+                    try:
+                        removed_name = Path(removed_path).name
+                        removed_size = Path(removed_path).stat().st_size
+                        removed_key = f"{removed_name}|{removed_size}"
+                        processed_keys = set(st.session_state.get("processed_upload_keys", []))
+                        if removed_key in processed_keys:
+                            processed_keys.remove(removed_key)
+                            st.session_state.processed_upload_keys = sorted(processed_keys)
+                    except FileNotFoundError:
+                        pass
                     st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -819,7 +831,12 @@ with chat_col:
         )
 
         if uploaded_files:
+            processed_keys = set(st.session_state.get("processed_upload_keys", []))
             for uploaded_file in uploaded_files:
+                upload_key = f"{uploaded_file.name}|{uploaded_file.size}"
+                if upload_key in processed_keys:
+                    continue
+                processed_keys.add(upload_key)
                 # PDF 파일인 경우 로딩바 표시
                 if uploaded_file.name.lower().endswith('.pdf'):
                     import time
@@ -857,6 +874,9 @@ with chat_col:
                     if file_path and file_path not in st.session_state.unified_files:
                         st.session_state.unified_files.append(file_path)
                         st.toast(f"{uploaded_file.name} 업로드 완료")
+
+            st.session_state.processed_upload_keys = sorted(processed_keys)
+            st.session_state["unified_file_uploader"] = []
 
     # 채팅 입력
     user_input = st.chat_input("메시지를 입력하세요...", key="unified_chat_input")
