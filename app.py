@@ -305,6 +305,13 @@ div[data-testid="stButton"] button:hover {
     transition: opacity 0.5s ease-in-out;
 }
 
+.report-preparse-status {
+    width: 100%;
+    white-space: normal;
+    word-break: break-all;
+    overflow-wrap: anywhere;
+}
+
 /* 시스템 메시지 (요약) 스타일 */
 .system-message {
     background: rgba(59, 130, 246, 0.1);
@@ -452,6 +459,18 @@ if "report_preparse_summary" not in st.session_state:
     st.session_state.report_preparse_summary = []
 if "report_panel_uploader_seed" not in st.session_state:
     st.session_state.report_panel_uploader_seed = 0
+if "report_preparse_max_pages" not in st.session_state:
+    st.session_state.report_preparse_max_pages = 30
+if "report_preparse_market_evidence" not in st.session_state:
+    st.session_state.report_preparse_market_evidence = True
+if "report_preparse_fast_mode" not in st.session_state:
+    st.session_state.report_preparse_fast_mode = False
+if "report_preparse_mode" not in st.session_state:
+    st.session_state.report_preparse_mode = "정확도 우선 (Vision)"
+if "report_preparse_min_text_chars" not in st.session_state:
+    st.session_state.report_preparse_min_text_chars = 200
+if "report_preparse_max_ocr_pages" not in st.session_state:
+    st.session_state.report_preparse_max_ocr_pages = 8
 
 if st.session_state.get("report_panel_enabled"):
     st.markdown(
@@ -568,7 +587,13 @@ def _build_preparse_context(summary: list) -> Optional[str]:
     return "\n".join(lines)
 
 
-def _preparse_report_files() -> None:
+def _preparse_report_files(
+    max_pages: int,
+    include_market_evidence: bool,
+    ocr_mode: str,
+    min_text_chars: int,
+    max_ocr_pages: int,
+) -> None:
     files = list(st.session_state.get("unified_files", []))
     if not files:
         st.warning("업로드된 파일이 없습니다.")
@@ -582,23 +607,30 @@ def _preparse_report_files() -> None:
     total = len(files)
     for idx, path in enumerate(files, start=1):
         filename = Path(path).name
-        status.markdown(f"📥 {filename} 파싱 중...")
+        status.markdown(
+            f"<div class='report-preparse-status'>📥 {filename} 파싱 중...</div>",
+            unsafe_allow_html=True,
+        )
         ext = Path(path).suffix.lower()
         if ext == ".pdf":
             pdf_result = execute_read_pdf_as_text(
                 pdf_path=path,
-                max_pages=30,
-                output_mode="structured",
+                max_pages=max_pages,
+                output_mode="structured" if ocr_mode != "pymupdf" else "text_only",
+                extract_financial_tables=ocr_mode != "pymupdf",
+                ocr_mode=ocr_mode,
+                min_text_chars=min_text_chars,
+                max_ocr_pages=max_ocr_pages,
             )
-            evidence_result = execute_extract_pdf_market_evidence(
-                pdf_path=path,
-                max_pages=30,
-                max_results=20,
-            )
-            results[path] = {
-                "pdf": pdf_result,
-                "market_evidence": evidence_result,
-            }
+            result_entry = {"pdf": pdf_result}
+            if include_market_evidence:
+                evidence_result = execute_extract_pdf_market_evidence(
+                    pdf_path=path,
+                    max_pages=max_pages,
+                    max_results=20,
+                )
+                result_entry["market_evidence"] = evidence_result
+            results[path] = result_entry
         elif ext in [".xlsx", ".xls"]:
             excel_result = execute_read_excel_as_text(
                 excel_path=path,
@@ -764,10 +796,75 @@ if use_report_panel and report_col is not None:
                 for fpath in files:
                     st.markdown(f"- {Path(fpath).name}")
 
+                options_cols = st.columns([1, 1])
+                with options_cols[0]:
+                    st.session_state.report_preparse_max_pages = st.slider(
+                        "PDF 최대 페이지",
+                        min_value=5,
+                        max_value=80,
+                        value=st.session_state.report_preparse_max_pages,
+                        step=5,
+                        help="페이지 수가 많을수록 정확하지만 시간이 오래 걸립니다.",
+                    )
+                with options_cols[1]:
+                    st.session_state.report_preparse_market_evidence = st.checkbox(
+                        "시장근거 추출 포함 (느림)",
+                        value=st.session_state.report_preparse_market_evidence,
+                        help="PDF 내 시장규모 근거 문장을 별도 추출합니다.",
+                    )
+                st.session_state.report_preparse_mode = st.selectbox(
+                    "파싱 모드",
+                    options=[
+                        "정확도 우선 (Vision)",
+                        "중간 정확도 (Hybrid)",
+                        "빠른 파싱 (텍스트만)",
+                    ],
+                    index=[
+                        "정확도 우선 (Vision)",
+                        "중간 정확도 (Hybrid)",
+                        "빠른 파싱 (텍스트만)",
+                    ].index(st.session_state.report_preparse_mode),
+                    help="Hybrid는 텍스트가 거의 없는 페이지만 OCR로 보강합니다.",
+                )
+
+                if st.session_state.report_preparse_mode == "중간 정확도 (Hybrid)":
+                    hybrid_cols = st.columns([1, 1])
+                    with hybrid_cols[0]:
+                        st.session_state.report_preparse_min_text_chars = st.slider(
+                            "저텍스트 기준(문자 수)",
+                            min_value=50,
+                            max_value=400,
+                            value=st.session_state.report_preparse_min_text_chars,
+                            step=25,
+                            help="이 기준보다 텍스트가 적은 페이지는 OCR 보강 대상으로 간주합니다.",
+                        )
+                    with hybrid_cols[1]:
+                        st.session_state.report_preparse_max_ocr_pages = st.slider(
+                            "OCR 보강 페이지 수",
+                            min_value=1,
+                            max_value=15,
+                            value=st.session_state.report_preparse_max_ocr_pages,
+                            step=1,
+                            help="보강할 최대 페이지 수를 제한합니다.",
+                        )
+
                 cols = st.columns([1, 1])
                 with cols[0]:
                     if st.button("완료 (일괄 파싱)", use_container_width=True):
-                        _preparse_report_files()
+                        mode = st.session_state.report_preparse_mode
+                        ocr_mode = "vision"
+                        if mode == "중간 정확도 (Hybrid)":
+                            ocr_mode = "hybrid"
+                        elif mode == "빠른 파싱 (텍스트만)":
+                            ocr_mode = "pymupdf"
+
+                        _preparse_report_files(
+                            max_pages=st.session_state.report_preparse_max_pages,
+                            include_market_evidence=st.session_state.report_preparse_market_evidence,
+                            ocr_mode=ocr_mode,
+                            min_text_chars=st.session_state.report_preparse_min_text_chars,
+                            max_ocr_pages=st.session_state.report_preparse_max_ocr_pages,
+                        )
                         st.session_state.report_panel_uploader_seed += 1
                         st.rerun()
                 with cols[1]:
@@ -1165,8 +1262,27 @@ with chat_col:
                             response_placeholder.markdown(full_response)
                             if report_stream_placeholder is not None:
                                 report_stream_placeholder.markdown(full_response)
-                            if report_status_placeholder is not None:
-                                report_status_placeholder.markdown("✅ 상태: 작성 완료")
+                            if not full_response.strip():
+                                fallback_lines = [
+                                    "초안 생성에 실패했습니다.",
+                                    "도구 실행 결과가 비어 있거나 파싱이 실패한 것으로 보입니다.",
+                                    "조치: 파싱 모드를 Hybrid/빠른 파싱으로 변경하거나, 시장근거 추출을 끈 뒤 다시 시도하세요.",
+                                ]
+                                if tool_logs:
+                                    fallback_lines.append("")
+                                    fallback_lines.append("도구 로그(요약):")
+                                    for line in tool_logs[-6:]:
+                                        cleaned = line.replace("**", "").strip()
+                                        fallback_lines.append(f"- {cleaned}")
+                                full_response = "\n".join(fallback_lines)
+                                response_placeholder.markdown(full_response)
+                                if report_stream_placeholder is not None:
+                                    report_stream_placeholder.markdown(full_response)
+                                if report_status_placeholder is not None:
+                                    report_status_placeholder.markdown("⚠️ 상태: 작성 실패")
+                            else:
+                                if report_status_placeholder is not None:
+                                    report_status_placeholder.markdown("✅ 상태: 작성 완료")
                             return full_response
 
                         full_response = asyncio.run(stream_response())

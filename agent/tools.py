@@ -280,6 +280,64 @@ def _is_timeout_error_message(message: str) -> bool:
     return "timeout" in lowered or "timed out" in lowered or "readtimeout" in lowered
 
 
+def _extract_pdf_page_texts(pdf_path: str, max_pages: int) -> tuple:
+    import fitz
+
+    doc = fitz.open(pdf_path)
+    total_pages = len(doc)
+    pages_to_read = min(total_pages, max_pages)
+    page_texts = []
+    for idx in range(pages_to_read):
+        text = doc[idx].get_text()
+        page_texts.append({
+            "page": idx + 1,
+            "text": text or "",
+        })
+    doc.close()
+    return page_texts, total_pages
+
+
+def _compose_pdf_content_from_pages(pages: List[Dict[str, Any]]) -> str:
+    blocks = []
+    for item in pages:
+        page_num = item.get("page")
+        text = item.get("text", "")
+        blocks.append(f"\n{'='*60}")
+        blocks.append(f"페이지 {page_num}")
+        blocks.append(f"{'='*60}")
+        blocks.append(text)
+    return "\n".join(blocks)
+
+
+def _split_vision_text_pages(content: str) -> List[str]:
+    if not content:
+        return []
+    pattern = re.compile(r"=+\\s*페이지\\s*\\d+\\s*=+", re.IGNORECASE)
+    chunks = pattern.split(content)
+    # 첫 chunk는 페이지 헤더 이전 내용일 수 있음
+    cleaned = [chunk.strip() for chunk in chunks if chunk.strip()]
+    return cleaned
+
+
+def _create_pdf_subset(pdf_path: str, page_numbers: List[int]) -> str:
+    import fitz
+
+    src = fitz.open(pdf_path)
+    subset = fitz.open()
+    try:
+        for page_num in page_numbers:
+            page_index = max(page_num - 1, 0)
+            subset.insert_pdf(src, from_page=page_index, to_page=page_index)
+        output_path = Path(pdf_path).with_name(
+            f"{Path(pdf_path).stem}__ocr_subset_{len(page_numbers)}p.pdf"
+        )
+        subset.save(output_path)
+        return str(output_path)
+    finally:
+        subset.close()
+        src.close()
+
+
 def _validate_numeric_param(value: Any, param_name: str, min_val: float = None, max_val: float = None) -> tuple:
     """
     숫자 파라미터 검증
@@ -3697,7 +3755,11 @@ def execute_read_pdf_as_text(
     pdf_path: str,
     max_pages: int = 30,
     output_mode: str = "structured",
-    extract_financial_tables: bool = True
+    extract_financial_tables: bool = True,
+    force_pymupdf: bool = False,
+    ocr_mode: str = "vision",
+    min_text_chars: int = 200,
+    max_ocr_pages: int = 10,
 ) -> Dict[str, Any]:
     """PDF 파일을 Dolphin AI 모델로 파싱하여 읽기
 
@@ -3726,7 +3788,10 @@ def execute_read_pdf_as_text(
             "max_pages": max_pages,
             "output_mode": output_mode,
             "extract_financial_tables": extract_financial_tables,
-            "tool": "read_pdf_as_text_dolphin",
+            "ocr_mode": ocr_mode,
+            "min_text_chars": min_text_chars,
+            "max_ocr_pages": max_ocr_pages,
+            "tool": "read_pdf_as_text_pymupdf" if force_pymupdf else "read_pdf_as_text_dolphin",
         }
         cache_key = compute_payload_hash(payload)
         cache_dir = get_cache_dir("dolphin_pdf", "shared")
@@ -3738,6 +3803,115 @@ def execute_read_pdf_as_text(
             return cached
     except Exception:
         cache_path = None
+
+    if force_pymupdf or ocr_mode == "pymupdf":
+        result = _execute_read_pdf_as_text_pymupdf(pdf_path, max_pages, cache_path)
+        if isinstance(result, dict) and result.get("success"):
+            result["processing_method"] = "pymupdf_forced" if force_pymupdf else "pymupdf"
+            result["fallback_used"] = False
+            if cache_path:
+                save_json(cache_path, result)
+        return result
+
+    if ocr_mode == "hybrid":
+        try:
+            page_texts, total_pages = _extract_pdf_page_texts(pdf_path, max_pages)
+        except Exception as exc:
+            logger.warning(f"Hybrid 텍스트 추출 실패, PyMuPDF로 폴백: {exc}")
+            return _execute_read_pdf_as_text_pymupdf(pdf_path, max_pages, cache_path)
+
+        cleaned_counts = []
+        for item in page_texts:
+            cleaned = re.sub(r"\s+", "", item["text"] or "")
+            cleaned_counts.append((item["page"], len(cleaned), item["text"]))
+
+        low_text_pages = [p for p, count, _ in cleaned_counts if count < min_text_chars]
+        if not low_text_pages:
+            content = _compose_pdf_content_from_pages(page_texts)
+            result = {
+                "success": True,
+                "file_path": pdf_path,
+                "total_pages": total_pages,
+                "pages_read": min(total_pages, max_pages),
+                "content": content,
+                "char_count": len(content),
+                "processing_method": "hybrid_pymupdf_only",
+                "fallback_used": False,
+                "cache_hit": False,
+                "cached_at": datetime.utcnow().isoformat(),
+            }
+            if cache_path:
+                save_json(cache_path, result)
+            return result
+
+        low_text_pages_sorted = sorted(
+            [(p, count) for p, count, _ in cleaned_counts if p in low_text_pages],
+            key=lambda x: x[1]
+        )
+        selected_pages = [p for p, _ in low_text_pages_sorted[:max_ocr_pages]]
+
+        if not selected_pages:
+            return _execute_read_pdf_as_text_pymupdf(pdf_path, max_pages, cache_path)
+
+        try:
+            subset_path = _create_pdf_subset(pdf_path, selected_pages)
+        except Exception as exc:
+            logger.warning(f"Hybrid subset 생성 실패, PyMuPDF로 폴백: {exc}")
+            return _execute_read_pdf_as_text_pymupdf(pdf_path, max_pages, cache_path)
+
+        try:
+            from dolphin_service.processor import ClaudeVisionProcessor
+            processor = ClaudeVisionProcessor()
+            vision_result = processor.process_pdf(
+                pdf_path=subset_path,
+                max_pages=len(selected_pages),
+                output_mode="text_only",
+            )
+        except Exception as exc:
+            logger.warning(f"Hybrid Vision 실패, PyMuPDF로 폴백: {exc}")
+            return _execute_read_pdf_as_text_pymupdf(pdf_path, max_pages, cache_path)
+
+        if not isinstance(vision_result, dict) or not vision_result.get("success"):
+            return _execute_read_pdf_as_text_pymupdf(pdf_path, max_pages, cache_path)
+
+        vision_page_texts = _split_vision_text_pages(vision_result.get("content", ""))
+        vision_map = {}
+        for idx, page_text in enumerate(vision_page_texts):
+            if idx < len(selected_pages):
+                vision_map[selected_pages[idx]] = page_text
+
+        merged_pages = []
+        for item in page_texts:
+            page_num = item["page"]
+            text = vision_map.get(page_num, item["text"])
+            merged_pages.append({
+                "page": page_num,
+                "text": text,
+            })
+
+        content = _compose_pdf_content_from_pages(merged_pages)
+        warnings = []
+        if len(low_text_pages) > len(selected_pages):
+            warnings.append(
+                f"저텍스트 페이지 {len(low_text_pages)}개 중 {len(selected_pages)}개만 OCR 처리"
+            )
+        result = {
+            "success": True,
+            "file_path": pdf_path,
+            "total_pages": total_pages,
+            "pages_read": min(total_pages, max_pages),
+            "content": content,
+            "char_count": len(content),
+            "processing_method": "hybrid",
+            "fallback_used": False,
+            "hybrid_pages": selected_pages,
+            "warnings": warnings,
+            "cache_hit": False,
+            "cached_at": datetime.utcnow().isoformat(),
+        }
+        if cache_path:
+            save_json(cache_path, result)
+        return result
 
     # Claude Vision으로 처리 시도
     try:
