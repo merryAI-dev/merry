@@ -30,7 +30,7 @@ DOLPHIN_CONFIG = {
     # 처리 제한
     "default_max_pages": 30,
     "absolute_max_pages": 100,
-    "timeout_seconds": 300,  # 5분
+    "timeout_seconds": 900,  # 15분 (정확도 우선)
 
     # 이미지 변환 설정 (PDF → 이미지)
     "image_dpi": 150,  # 속도와 품질 균형
