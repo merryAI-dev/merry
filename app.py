@@ -1278,7 +1278,7 @@ def _preparse_report_files_batch(
         batch_result = process_documents_batch(
             pdf_paths=pdf_files,
             max_pages_per_pdf=max_pages,
-            max_total_images=20,  # Claude 제한
+            max_total_images=100,  # Claude 제한
             output_mode="structured",
             progress_callback=progress_cb,
         )
@@ -1411,7 +1411,7 @@ def _preparse_report_files(
                 evidence_result = execute_extract_pdf_market_evidence(
                     pdf_path=path,
                     max_pages=max_pages,
-                    max_results=20,
+                    max_results=100,
                 )
                 result_entry["market_evidence"] = evidence_result
             results[path] = result_entry
@@ -1509,7 +1509,7 @@ def compact_conversation(messages: list, api_key: str) -> tuple[list, bool]:
             messages=[{
                 "role": "user",
                 "content": f"""다음은 VC 투자 분석 대화의 일부입니다.
-이 대화를 간결하게 요약해주세요. 핵심 정보만 포함하고, 3-5문장으로 작성해주세요.
+이 대화를 풍부하게 요약해주세요. 핵심 정보만 포함하고,100자 이상으로 작성해주세요
 
 {conversation_text}
 
@@ -2176,21 +2176,21 @@ with chat_col:
                             log_lines = []
                             if report_status_placeholder is not None:
                                 report_status_placeholder.markdown("🟡 상태: 작성 중...")
-                        message_lower = (user_input or "").lower()
-                        explicit_parse_request = any(
-                            keyword in message_lower
-                            for keyword in ["pdf", "파일", "업로드", "파싱", "재분석", "추출", "읽어", "read"]
-                        )
-                        allow_tools = True
-                        if st.session_state.get("report_evidence_pack_md") and not explicit_parse_request:
-                            allow_tools = False
-                        async for chunk in agent.chat(
-                            full_message,
-                            mode=st.session_state.get("unified_mode", "report"),
-                            context_text=report_context_text,
-                            model_override="claude-opus-4-5-20251101",
-                            allow_tools=allow_tools,
-                        ):
+                            message_lower = (user_input or "").lower()
+                            explicit_parse_request = any(
+                                keyword in message_lower
+                                for keyword in ["pdf", "파일", "업로드", "파싱", "재분석", "추출", "읽어", "read"]
+                            )
+                            allow_tools = True
+                            if st.session_state.get("report_evidence_pack_md") and not explicit_parse_request:
+                                allow_tools = False
+                            async for chunk in agent.chat(
+                                full_message,
+                                mode=st.session_state.get("unified_mode", "report"),
+                                context_text=report_context_text,
+                                model_override="claude-opus-4-5-20251101",
+                                allow_tools=allow_tools,
+                            ):
                                 if "**도구:" in chunk:
                                     tool_logs.append(chunk.strip())
                                     log_lines.append(chunk.strip())
