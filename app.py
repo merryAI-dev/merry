@@ -1590,11 +1590,7 @@ with chat_col:
                 preparse_context,
                 (
                     "[Evidence Pack MD]\n"
-                    + (
-                        st.session_state.report_evidence_pack_md
-                        if len(st.session_state.report_evidence_pack_md) <= 12000
-                        else (st.session_state.report_evidence_pack_md[:12000] + "\n...(Evidence Pack truncated)")
-                    )
+                    + st.session_state.report_evidence_pack_md
                 )
                 if st.session_state.get("report_evidence_pack_md") else None,
                 f"현재 작성 챕터: {current_chapter}.\n"
