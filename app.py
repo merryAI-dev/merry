@@ -591,6 +591,8 @@ else:
     report_col = None
 
 report_stream_placeholder = None
+report_status_placeholder = None
+report_log_placeholder = None
 chapter_order = []
 current_chapter = None
 
@@ -610,6 +612,11 @@ if use_report_panel and report_col is not None:
             st.progress((st.session_state.report_chapter_index + 1) / len(chapter_order))
         else:
             st.caption("목차 정보를 불러올 수 없습니다.")
+
+        report_status_placeholder = st.empty()
+        report_log_placeholder = st.empty()
+        report_status_placeholder.markdown("⏳ 상태: 대기 중")
+        report_log_placeholder.markdown("도구 로그: 없음")
 
         report_stream_placeholder = st.empty()
         existing = st.session_state.get("report_chapters", {}).get(current_chapter, "") if current_chapter else ""
@@ -919,6 +926,9 @@ with chat_col:
 
                         async def stream_response():
                             full_response = ""
+                            log_lines = []
+                            if report_status_placeholder is not None:
+                                report_status_placeholder.markdown("🟡 상태: 작성 중...")
                             async for chunk in agent.chat(
                                 full_message,
                                 mode=st.session_state.get("unified_mode", "report"),
@@ -927,6 +937,11 @@ with chat_col:
                             ):
                                 if "**도구:" in chunk:
                                     tool_logs.append(chunk.strip())
+                                    log_lines.append(chunk.strip())
+                                    if report_log_placeholder is not None:
+                                        report_log_placeholder.markdown(
+                                            "도구 로그:\n" + "\n".join([f"- {line}" for line in log_lines])
+                                        )
                                 else:
                                     full_response += chunk
                                     response_placeholder.markdown(full_response + "▌")
@@ -935,6 +950,8 @@ with chat_col:
                             response_placeholder.markdown(full_response)
                             if report_stream_placeholder is not None:
                                 report_stream_placeholder.markdown(full_response)
+                            if report_status_placeholder is not None:
+                                report_status_placeholder.markdown("✅ 상태: 작성 완료")
                             return full_response
 
                         full_response = asyncio.run(stream_response())
