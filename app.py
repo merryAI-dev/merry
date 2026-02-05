@@ -429,6 +429,8 @@ if "unified_files" not in st.session_state:
     st.session_state.unified_files = []
 if "processed_upload_keys" not in st.session_state:
     st.session_state.processed_upload_keys = []
+if "reset_unified_uploader" not in st.session_state:
+    st.session_state.reset_unified_uploader = False
 if "report_panel_enabled" not in st.session_state:
     st.session_state.report_panel_enabled = False
 if "unified_mode" not in st.session_state:
@@ -822,6 +824,9 @@ with chat_col:
 
     # 파일 첨부 버튼
     with st.expander("파일 첨부", expanded=False):
+        if st.session_state.get("reset_unified_uploader"):
+            st.session_state["unified_file_uploader"] = []
+            st.session_state.reset_unified_uploader = False
         uploaded_files = st.file_uploader(
             "분석할 파일을 선택하세요 (PDF, 엑셀, DOCX)",
             type=["pdf", "xlsx", "xls", "docx", "doc"],
@@ -876,7 +881,8 @@ with chat_col:
                         st.toast(f"{uploaded_file.name} 업로드 완료")
 
             st.session_state.processed_upload_keys = sorted(processed_keys)
-            st.session_state["unified_file_uploader"] = []
+            st.session_state.reset_unified_uploader = True
+            st.rerun()
 
     # 채팅 입력
     user_input = st.chat_input("메시지를 입력하세요...", key="unified_chat_input")
