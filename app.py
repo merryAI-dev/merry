@@ -826,16 +826,29 @@ def _preparse_report_files(
     min_text_chars: int,
     max_ocr_pages: int,
 ) -> None:
-    files = list(st.session_state.get("unified_files", []))
-    if not files:
-        st.warning("업로드된 파일이 없습니다.")
-        return
-
     st.session_state.report_preparse_status = "running"
     st.session_state.report_preparse_progress = 0.0
     st.session_state.report_preparse_current = ""
-    st.session_state.report_preparse_total = len(files)
     st.session_state.report_preparse_log = []
+
+    files = list(st.session_state.get("unified_files", []))
+    missing_files = [f for f in files if not Path(f).exists()]
+    if missing_files:
+        st.warning(
+            "일부 업로드 파일이 임시 저장소에서 삭제되었습니다. "
+            "다시 업로드한 후 파싱을 진행해 주세요."
+        )
+        st.session_state.report_preparse_log.append(
+            f"누락 파일 {len(missing_files)}개 감지"
+        )
+        files = [f for f in files if Path(f).exists()]
+        st.session_state.unified_files = files
+    if not files:
+        st.warning("업로드된 파일이 없습니다.")
+        st.session_state.report_preparse_status = "idle"
+        return
+
+    st.session_state.report_preparse_total = len(files)
     results = {}
     progress = st.progress(0.0)
     status = st.empty()
@@ -916,7 +929,11 @@ def save_uploaded_file(uploaded_file) -> str:
     with open(file_path, "wb") as f:
         f.write(uploaded_file.getbuffer())
 
-    cleanup_user_temp_files(user_id, max_files=10)
+    # 투자심사 워크플로에서는 여러 파일을 동시에 유지해야 함
+    max_files = 10
+    if st.session_state.get("report_panel_enabled"):
+        max_files = max(50, len(st.session_state.get("unified_files", [])) + 10)
+    cleanup_user_temp_files(user_id, max_files=max_files)
     return str(file_path)
 
 
