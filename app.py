@@ -1262,54 +1262,132 @@ def _preparse_report_files_batch(
 
     results = {}
 
-    # 1. 모든 PDF를 한 번에 배치 처리
+    # 1. PDF 배치 처리 (이미지 제한 고려)
     if pdf_files:
-        status.markdown(
-            f"<div class='report-preparse-status'>📥 {len(pdf_files)}개 PDF 일괄 분석 중...</div>",
-            unsafe_allow_html=True,
+        max_total_images = 20  # API 안전 한도
+        import fitz
+
+        def _estimate_pages(path: str) -> int:
+            try:
+                doc = fitz.open(path)
+                total = len(doc)
+                doc.close()
+                return min(total, max_pages)
+            except Exception:
+                return max_pages
+
+        page_estimates = {p: _estimate_pages(p) for p in pdf_files}
+        batches = []
+        current_batch = []
+        current_images = 0
+        for pdf_path in pdf_files:
+            pages_to_read = page_estimates.get(pdf_path, max_pages)
+            if current_batch and current_images + pages_to_read > max_total_images:
+                batches.append(current_batch)
+                current_batch = []
+                current_images = 0
+            current_batch.append(pdf_path)
+            current_images += pages_to_read
+        if current_batch:
+            batches.append(current_batch)
+
+        st.session_state.report_preparse_log.append(
+            f"PDF {len(pdf_files)}개 → 배치 {len(batches)}개로 분할 처리"
         )
-        st.session_state.report_preparse_log.append(f"PDF {len(pdf_files)}개 일괄 처리 시작")
-        st.session_state.report_preparse_current = f"PDF {len(pdf_files)}개"
 
-        def progress_cb(event):
-            msg = event.get("content", "")
-            st.session_state.report_preparse_log.append(msg)
+        combined = {
+            "success": False,
+            "content": "",
+            "financial_tables": {},
+            "investment_terms": {},
+            "company_info": {},
+            "file_page_map": {},
+            "source_files": [],
+            "total_images": 0,
+            "processing_time_seconds": 0.0,
+        }
 
-        batch_result = process_documents_batch(
-            pdf_paths=pdf_files,
-            max_pages_per_pdf=max_pages,
-            max_total_images=100,  # Claude 제한
-            output_mode="structured",
-            progress_callback=progress_cb,
-        )
+        for batch_idx, batch_paths in enumerate(batches, start=1):
+            status.markdown(
+                f"<div class='report-preparse-status'>📥 PDF 배치 {batch_idx}/{len(batches)} 분석 중...</div>",
+                unsafe_allow_html=True,
+            )
+            st.session_state.report_preparse_current = f"PDF 배치 {batch_idx}/{len(batches)}"
 
-        progress.progress(0.7)
-        st.session_state.report_preparse_progress = 0.7
+            def progress_cb(event):
+                msg = event.get("content", "")
+                st.session_state.report_preparse_log.append(msg)
 
-        if batch_result.get("success"):
-            # 배치 결과를 개별 파일 결과로 분배 (호환성 유지)
+            batch_result = process_documents_batch(
+                pdf_paths=batch_paths,
+                max_pages_per_pdf=max_pages,
+                max_total_images=max_total_images,
+                output_mode="structured",
+                progress_callback=progress_cb,
+            )
+
+            if batch_result.get("success"):
+                combined["success"] = True
+                combined["content"] += "\n\n" + (batch_result.get("content", "") or "")
+                combined["source_files"] += batch_result.get("source_files", []) or []
+                combined["total_images"] += batch_result.get("total_images", 0) or 0
+                combined["processing_time_seconds"] += batch_result.get("processing_time_seconds", 0) or 0
+
+                for fname, pages in (batch_result.get("file_page_map") or {}).items():
+                    combined["file_page_map"][fname] = combined["file_page_map"].get(fname, 0) + pages
+
+                if not combined["financial_tables"] and batch_result.get("financial_tables"):
+                    combined["financial_tables"] = batch_result.get("financial_tables", {})
+                if not combined["investment_terms"] and batch_result.get("investment_terms"):
+                    combined["investment_terms"] = batch_result.get("investment_terms", {})
+                if not combined["company_info"] and batch_result.get("company_info"):
+                    combined["company_info"] = batch_result.get("company_info", {})
+            else:
+                st.session_state.report_preparse_log.append(
+                    f"배치 {batch_idx} 실패 → 개별 처리로 전환"
+                )
+                for pdf_path in batch_paths:
+                    pdf_result = execute_read_pdf_as_text(
+                        pdf_path=pdf_path,
+                        max_pages=max_pages,
+                        output_mode="structured",
+                        extract_financial_tables=True,
+                    )
+                    results[pdf_path] = {"pdf": pdf_result}
+                    if include_market_evidence:
+                        evidence_result = execute_extract_pdf_market_evidence(
+                            pdf_path=pdf_path,
+                            max_pages=max_pages,
+                            max_results=20,
+                        )
+                        results[pdf_path]["market_evidence"] = evidence_result
+
+            progress.progress(min(0.2 + (batch_idx / max(len(batches), 1)) * 0.6, 0.8))
+            st.session_state.report_preparse_progress = min(
+                0.2 + (batch_idx / max(len(batches), 1)) * 0.6, 0.8
+            )
+
+        if combined["success"]:
             for pdf_path in pdf_files:
                 filename = Path(pdf_path).name
                 results[pdf_path] = {
                     "pdf": {
                         "success": True,
-                        "content": batch_result.get("content", ""),
-                        "financial_tables": batch_result.get("financial_tables", {}),
-                        "investment_terms": batch_result.get("investment_terms", {}),
-                        "company_info": batch_result.get("company_info", {}),
+                        "content": combined.get("content", ""),
+                        "financial_tables": combined.get("financial_tables", {}),
+                        "investment_terms": combined.get("investment_terms", {}),
+                        "company_info": combined.get("company_info", {}),
                         "processing_method": "claude_opus_batch",
-                        "pages_read": batch_result.get("file_page_map", {}).get(filename, 0),
-                        "total_pages": batch_result.get("file_page_map", {}).get(filename, 0),
-                        # 배치 전체 정보
-                        "_batch_source_files": batch_result.get("source_files", []),
-                        "_batch_total_images": batch_result.get("total_images", 0),
+                        "pages_read": combined.get("file_page_map", {}).get(filename, 0),
+                        "total_pages": combined.get("file_page_map", {}).get(filename, 0),
+                        "_batch_source_files": combined.get("source_files", []),
+                        "_batch_total_images": combined.get("total_images", 0),
                     }
                 }
             st.session_state.report_preparse_log.append(
-                f"PDF 일괄 처리 완료 ({batch_result.get('processing_time_seconds', 0):.1f}초)"
+                f"PDF 배치 처리 완료 (총 {combined.get('processing_time_seconds', 0):.1f}초)"
             )
 
-            # Market evidence는 별도로 (선택적)
             if include_market_evidence:
                 for pdf_path in pdf_files:
                     evidence_result = execute_extract_pdf_market_evidence(
@@ -1318,10 +1396,6 @@ def _preparse_report_files_batch(
                         max_results=20,
                     )
                     results[pdf_path]["market_evidence"] = evidence_result
-        else:
-            st.error(f"PDF 배치 처리 실패: {batch_result.get('error', 'Unknown error')}")
-            for pdf_path in pdf_files:
-                results[pdf_path] = {"pdf": {"success": False, "error": batch_result.get("error")}}
 
     # 2. Excel/DOCX는 개별 처리
     for idx, path in enumerate(other_files):
