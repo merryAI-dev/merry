@@ -493,6 +493,14 @@ if "report_evidence_pack_raw_at" not in st.session_state:
     st.session_state.report_evidence_pack_raw_at = None
 if "report_evidence_pack_raw_status" not in st.session_state:
     st.session_state.report_evidence_pack_raw_status = "idle"
+if "report_evidence_pack_raw_started_at" not in st.session_state:
+    st.session_state.report_evidence_pack_raw_started_at = None
+if "report_evidence_pack_raw_eta_sec" not in st.session_state:
+    st.session_state.report_evidence_pack_raw_eta_sec = None
+if "report_evidence_pack_started_at" not in st.session_state:
+    st.session_state.report_evidence_pack_started_at = None
+if "report_evidence_pack_eta_sec" not in st.session_state:
+    st.session_state.report_evidence_pack_eta_sec = None
 
 if st.session_state.get("report_panel_enabled"):
     st.markdown(
@@ -641,6 +649,32 @@ def _condense_stage1_for_extract(stage1_md: str, max_chars: int = 60000) -> str:
         tail = stage1_md[-half:]
         condensed = (head + "\n...\n" + tail).strip()
     return condensed[:max_chars]
+
+
+def _estimate_evidence_pack_seconds(summary: list, mode: str) -> int:
+    """단순 휴리스틱 기반 ETA 추정 (초)"""
+    pdf_count = 0
+    total_pages = 0
+    for item in summary or []:
+        if item.get("type") != "PDF":
+            continue
+        pdf_count += 1
+        detail = item.get("detail", "")
+        match = re.search(r"(\\d+)\\s*/\\s*(\\d+)p", detail)
+        if match:
+            total_pages += int(match.group(2))
+
+    if mode == "raw":
+        base = 60
+        per_pdf = 6
+        per_page = 0.6
+    else:
+        base = 45
+        per_pdf = 3
+        per_page = 0.2
+
+    estimate = base + (pdf_count * per_pdf) + int(total_pages * per_page)
+    return max(60, estimate)
 
 
 def _derive_company_label(files: list) -> str:
@@ -1762,8 +1796,24 @@ if use_report_panel and report_col is not None:
             with st.expander("Evidence Pack 생성 (Opus)", expanded=False):
                 if st.session_state.report_evidence_pack_raw_status == "running":
                     st.info("Evidence Pack 빠른 추출 중입니다...")
+                    eta = st.session_state.get("report_evidence_pack_raw_eta_sec")
+                    started_at = st.session_state.get("report_evidence_pack_raw_started_at")
+                    if eta and started_at:
+                        elapsed = max(0, time.time() - started_at)
+                        progress_val = min(elapsed / eta, 0.95)
+                        st.progress(progress_val)
+                        remaining = max(eta - elapsed, 0)
+                        st.caption(f"예상 남은 시간: 약 {int(remaining // 60) + 1}분 · 총 예상 {int(eta // 60) + 1}분")
                 if st.session_state.report_evidence_pack_status == "running":
                     st.info("Evidence Pack 정리 중입니다...")
+                    eta = st.session_state.get("report_evidence_pack_eta_sec")
+                    started_at = st.session_state.get("report_evidence_pack_started_at")
+                    if eta and started_at:
+                        elapsed = max(0, time.time() - started_at)
+                        progress_val = min(elapsed / eta, 0.95)
+                        st.progress(progress_val)
+                        remaining = max(eta - elapsed, 0)
+                        st.caption(f"예상 남은 시간: 약 {int(remaining // 60) + 1}분 · 총 예상 {int(eta // 60) + 1}분")
                 st.session_state.report_evidence_pack_company = st.text_input(
                     "기업명",
                     value=st.session_state.report_evidence_pack_company,
@@ -1781,15 +1831,19 @@ if use_report_panel and report_col is not None:
                             st.error("Claude API Key가 필요합니다.")
                         else:
                             st.session_state.report_evidence_pack_raw_status = "running"
+                            summary_block = _build_preparse_summary_block(
+                                st.session_state.get("report_preparse_summary", [])
+                            )
+                            st.session_state.report_evidence_pack_raw_eta_sec = _estimate_evidence_pack_seconds(
+                                st.session_state.get("report_preparse_summary", []), "raw"
+                            )
+                            st.session_state.report_evidence_pack_raw_started_at = time.time()
                             stage1_md = st.session_state.get("report_preparse_stage1_md") or _build_stage1_markdown(
                                 st.session_state.get("report_preparse_results", {})
                             )
                             condensed = _condense_stage1_for_extract(stage1_md)
                             evidence_items = _collect_market_evidence(
                                 st.session_state.get("report_preparse_results", {})
-                            )
-                            summary_block = _build_preparse_summary_block(
-                                st.session_state.get("report_preparse_summary", [])
                             )
                             structured_financial = _collect_structured_financial_data(
                                 st.session_state.get("report_preparse_results", {})
@@ -1808,10 +1862,12 @@ if use_report_panel and report_col is not None:
                                 st.session_state.report_evidence_pack_raw = text.strip()
                                 st.session_state.report_evidence_pack_raw_at = datetime.now().isoformat()
                                 st.session_state.report_evidence_pack_raw_status = "done"
+                                st.session_state.report_evidence_pack_raw_started_at = None
                                 st.success("빠른 추출 완료")
                                 st.rerun()
                             except Exception as exc:
                                 st.session_state.report_evidence_pack_raw_status = "idle"
+                                st.session_state.report_evidence_pack_raw_started_at = None
                                 st.error(f"빠른 추출 실패: {exc}")
                 with format_col:
                     if st.button(
@@ -1824,6 +1880,10 @@ if use_report_panel and report_col is not None:
                             st.error("Claude API Key가 필요합니다.")
                         else:
                             st.session_state.report_evidence_pack_status = "running"
+                            st.session_state.report_evidence_pack_eta_sec = _estimate_evidence_pack_seconds(
+                                st.session_state.get("report_preparse_summary", []), "format"
+                            )
+                            st.session_state.report_evidence_pack_started_at = time.time()
                             summary_block = _build_preparse_summary_block(
                                 st.session_state.get("report_preparse_summary", [])
                             )
@@ -1843,6 +1903,7 @@ if use_report_panel and report_col is not None:
                                 st.session_state.report_evidence_pack_md = text.strip()
                                 st.session_state.report_evidence_pack_at = datetime.now().isoformat()
                                 st.session_state.report_evidence_pack_status = "done"
+                                st.session_state.report_evidence_pack_started_at = None
                                 quality = _extract_evidence_pack_quality(st.session_state.report_evidence_pack_md)
                                 if quality.get("evidence_count", 0) == 0:
                                     st.warning(
@@ -1854,6 +1915,7 @@ if use_report_panel and report_col is not None:
                                 st.rerun()
                             except Exception as exc:
                                 st.session_state.report_evidence_pack_status = "idle"
+                                st.session_state.report_evidence_pack_started_at = None
                                 st.error(f"Evidence Pack 생성 실패: {exc}")
 
                 if st.session_state.get("report_evidence_pack_raw"):
