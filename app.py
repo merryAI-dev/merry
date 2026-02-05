@@ -501,6 +501,8 @@ if "report_evidence_pack_started_at" not in st.session_state:
     st.session_state.report_evidence_pack_started_at = None
 if "report_evidence_pack_eta_sec" not in st.session_state:
     st.session_state.report_evidence_pack_eta_sec = None
+if "report_evidence_pack_focus_file" not in st.session_state:
+    st.session_state.report_evidence_pack_focus_file = "전체"
 
 if st.session_state.get("report_panel_enabled"):
     st.markdown(
@@ -649,6 +651,31 @@ def _condense_stage1_for_extract(stage1_md: str, max_chars: int = 60000) -> str:
         tail = stage1_md[-half:]
         condensed = (head + "\n...\n" + tail).strip()
     return condensed[:max_chars]
+
+
+def _extract_stage1_section(stage1_md: str, filename: str, max_chars: int = 120000) -> str:
+    if not stage1_md or not filename:
+        return stage1_md
+    target = filename.strip()
+    alt = re.sub(r"^[0-9a-f]{6,}_", "", target)
+    lines = stage1_md.splitlines()
+    collecting = False
+    collected = []
+    for line in lines:
+        if line.startswith("### "):
+            header = line.replace("###", "").strip()
+            if header == target or header == alt or header.endswith(alt):
+                collecting = True
+                collected = [line]
+                continue
+            if collecting:
+                break
+        if collecting:
+            collected.append(line)
+    section = "\n".join(collected).strip()
+    if not section:
+        return stage1_md[:max_chars]
+    return section[:max_chars]
 
 
 def _estimate_evidence_pack_seconds(summary: list, mode: str) -> int:
@@ -1021,7 +1048,13 @@ def _is_evidence_pack_stale() -> bool:
         return False
 
 
-def _build_evidence_pack_extract_prompt(stage1_md: str, evidence_items: list, preparse_summary: str, structured_financial: str = "") -> str:
+def _build_evidence_pack_extract_prompt(
+    stage1_md: str,
+    evidence_items: list,
+    preparse_summary: str,
+    structured_financial: str = "",
+    focus_file: Optional[str] = None,
+) -> str:
     company = st.session_state.get("report_evidence_pack_company") or "unknown"
     source_files = [Path(f).name for f in st.session_state.get("unified_files", [])]
     created_at = datetime.now().isoformat()
@@ -1078,6 +1111,9 @@ def _build_evidence_pack_extract_prompt(stage1_md: str, evidence_items: list, pr
 
         [자동 추출된 구조화 재무 데이터] (최우선 사용)
         {structured_block}
+
+        [추출 우선 파일]
+        {focus_file or "없음"}
 
         [Stage1 Markdown]
         {stage1_md}
@@ -1819,6 +1855,14 @@ if use_report_panel and report_col is not None:
                     value=st.session_state.report_evidence_pack_company,
                     placeholder="예: 주식회사 스트레스솔루션",
                 )
+                focus_options = ["전체"] + [Path(f).name for f in files]
+                st.session_state.report_evidence_pack_focus_file = st.selectbox(
+                    "추출 집중 파일 (선택)",
+                    options=focus_options,
+                    index=focus_options.index(st.session_state.report_evidence_pack_focus_file)
+                    if st.session_state.report_evidence_pack_focus_file in focus_options else 0,
+                    help="특정 파일의 내용이 풍부하면 선택해 더 깊게 추출합니다.",
+                )
                 extract_col, format_col = st.columns([1, 1])
                 with extract_col:
                     if st.button(
@@ -1841,14 +1885,24 @@ if use_report_panel and report_col is not None:
                             stage1_md = st.session_state.get("report_preparse_stage1_md") or _build_stage1_markdown(
                                 st.session_state.get("report_preparse_results", {})
                             )
-                            condensed = _condense_stage1_for_extract(stage1_md)
+                            focus_file = st.session_state.report_evidence_pack_focus_file
+                            if focus_file and focus_file != "전체":
+                                condensed = _extract_stage1_section(stage1_md, focus_file)
+                            else:
+                                condensed = _condense_stage1_for_extract(stage1_md)
                             evidence_items = _collect_market_evidence(
                                 st.session_state.get("report_preparse_results", {})
                             )
                             structured_financial = _collect_structured_financial_data(
                                 st.session_state.get("report_preparse_results", {})
                             )
-                            prompt = _build_evidence_pack_extract_prompt(condensed, evidence_items, summary_block, structured_financial)
+                            prompt = _build_evidence_pack_extract_prompt(
+                                condensed,
+                                evidence_items,
+                                summary_block,
+                                structured_financial,
+                                focus_file if focus_file != "전체" else None,
+                            )
                             try:
                                 from anthropic import Anthropic
                                 client = Anthropic(api_key=api_key)
