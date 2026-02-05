@@ -273,6 +273,13 @@ def _resolve_temp_file_path(file_path: str) -> tuple[str, Optional[str]]:
     return str(matches[0].resolve()), None
 
 
+def _is_timeout_error_message(message: str) -> bool:
+    if not message:
+        return False
+    lowered = message.lower()
+    return "timeout" in lowered or "timed out" in lowered or "readtimeout" in lowered
+
+
 def _validate_numeric_param(value: Any, param_name: str, min_val: float = None, max_val: float = None) -> tuple:
     """
     숫자 파라미터 검증
@@ -3742,6 +3749,24 @@ def execute_read_pdf_as_text(
             max_pages=max_pages,
             output_mode=output_mode,
         )
+
+        if isinstance(result, dict) and not result.get("success"):
+            error_text = result.get("error") or result.get("original_error") or ""
+            if _is_timeout_error_message(error_text):
+                retry_pages = min(max_pages, 8)
+                if retry_pages < max_pages:
+                    retry_result = processor.process_pdf(
+                        pdf_path=pdf_path,
+                        max_pages=retry_pages,
+                        output_mode="text_only",
+                    )
+                    if isinstance(retry_result, dict) and retry_result.get("success"):
+                        retry_result.setdefault("warnings", []).append(
+                            f"Claude Vision 타임아웃으로 {retry_pages}페이지 축소 재시도"
+                        )
+                        if cache_path:
+                            save_json(cache_path, retry_result)
+                        return retry_result
 
         # Claude가 이미 financial_tables를 추출하므로 별도 처리 불필요
         # 캐시 저장

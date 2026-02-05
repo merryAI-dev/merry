@@ -6,6 +6,7 @@ VC 투자 분석 에이전트 - Claude Code 스타일
 
 import asyncio
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 import streamlit as st
@@ -25,6 +26,12 @@ from shared.file_utils import (
     validate_upload,
 )
 from shared.logging_config import setup_logging
+from agent.tools import (
+    execute_read_pdf_as_text,
+    execute_extract_pdf_market_evidence,
+    execute_read_excel_as_text,
+    execute_read_docx_as_text,
+)
 
 # 로깅 초기화
 setup_logging()
@@ -435,6 +442,14 @@ if "report_panel_enabled" not in st.session_state:
     st.session_state.report_panel_enabled = False
 if "unified_mode" not in st.session_state:
     st.session_state.unified_mode = "unified"
+if "report_preparse_results" not in st.session_state:
+    st.session_state.report_preparse_results = {}
+if "report_preparse_status" not in st.session_state:
+    st.session_state.report_preparse_status = "idle"
+if "report_preparse_at" not in st.session_state:
+    st.session_state.report_preparse_at = None
+if "report_preparse_summary" not in st.session_state:
+    st.session_state.report_preparse_summary = []
 
 if st.session_state.get("report_panel_enabled"):
     st.markdown(
@@ -493,6 +508,117 @@ def _save_current_chapter(mark_done: bool = False) -> None:
         st.session_state.report_chapters,
         chapter_order,
     )
+
+
+def _build_preparse_summary(results: dict) -> list:
+    summary = []
+    for path, info in (results or {}).items():
+        entry = {
+            "file": Path(path).name,
+            "type": "",
+            "status": "실패",
+            "detail": "",
+        }
+        if "pdf" in info:
+            pdf_result = info.get("pdf", {})
+            entry["type"] = "PDF"
+            if pdf_result.get("success"):
+                entry["status"] = "성공"
+                pages = pdf_result.get("pages_read")
+                total_pages = pdf_result.get("total_pages")
+                method = pdf_result.get("processing_method", "")
+                entry["detail"] = f"{pages}/{total_pages}p · {method}"
+            else:
+                entry["detail"] = pdf_result.get("error", "PDF 파싱 실패")
+            evidence = info.get("market_evidence", {})
+            if isinstance(evidence, dict) and evidence.get("success"):
+                entry["detail"] += f" · 시장근거 {evidence.get('evidence_count', 0)}건"
+        elif "excel" in info:
+            excel_result = info.get("excel", {})
+            entry["type"] = "Excel"
+            if excel_result.get("success"):
+                entry["status"] = "성공"
+                entry["detail"] = f"시트 {excel_result.get('total_sheets', 0)}개"
+            else:
+                entry["detail"] = excel_result.get("error", "엑셀 파싱 실패")
+        elif "docx" in info:
+            docx_result = info.get("docx", {})
+            entry["type"] = "DOCX"
+            if docx_result.get("success"):
+                entry["status"] = "성공"
+                entry["detail"] = f"문단 {docx_result.get('parsed_paragraphs', 0)}개"
+            else:
+                entry["detail"] = docx_result.get("error", "DOCX 파싱 실패")
+        else:
+            entry["detail"] = info.get("error", "지원되지 않는 파일")
+        summary.append(entry)
+    return summary
+
+
+def _build_preparse_context(summary: list) -> Optional[str]:
+    if not summary:
+        return None
+    lines = ["사전 파싱 완료 (캐시 사용 가능):"]
+    for item in summary:
+        lines.append(
+            f"- {item.get('file')} [{item.get('type')}] {item.get('status')} · {item.get('detail')}"
+        )
+    return "\n".join(lines)
+
+
+def _preparse_report_files() -> None:
+    files = list(st.session_state.get("unified_files", []))
+    if not files:
+        st.warning("업로드된 파일이 없습니다.")
+        return
+
+    st.session_state.report_preparse_status = "running"
+    results = {}
+    progress = st.progress(0.0)
+    status = st.empty()
+
+    total = len(files)
+    for idx, path in enumerate(files, start=1):
+        filename = Path(path).name
+        status.markdown(f"📥 {filename} 파싱 중...")
+        ext = Path(path).suffix.lower()
+        if ext == ".pdf":
+            pdf_result = execute_read_pdf_as_text(
+                pdf_path=path,
+                max_pages=30,
+                output_mode="structured",
+            )
+            evidence_result = execute_extract_pdf_market_evidence(
+                pdf_path=path,
+                max_pages=30,
+                max_results=20,
+            )
+            results[path] = {
+                "pdf": pdf_result,
+                "market_evidence": evidence_result,
+            }
+        elif ext in [".xlsx", ".xls"]:
+            excel_result = execute_read_excel_as_text(
+                excel_path=path,
+                max_rows=80,
+            )
+            results[path] = {"excel": excel_result}
+        elif ext == ".docx":
+            docx_result = execute_read_docx_as_text(
+                docx_path=path,
+                max_paragraphs=200,
+            )
+            results[path] = {"docx": docx_result}
+        else:
+            results[path] = {"error": "지원되지 않는 파일 형식"}
+
+        progress.progress(idx / total)
+
+    st.session_state.report_preparse_results = results
+    st.session_state.report_preparse_summary = _build_preparse_summary(results)
+    st.session_state.report_preparse_at = datetime.now().isoformat()
+    st.session_state.report_preparse_status = "done"
+    status.markdown("✅ 일괄 파싱 완료")
 
 
 def save_uploaded_file(uploaded_file) -> str:
@@ -603,6 +729,33 @@ current_chapter = None
 if use_report_panel and report_col is not None:
     with report_col:
         st.markdown("## 투자심사 보고서")
+        with st.expander("자료 준비/일괄 파싱", expanded=True):
+            files = st.session_state.get("unified_files", [])
+            if files:
+                st.caption(f"업로드 파일 {len(files)}개")
+                for fpath in files:
+                    st.markdown(f"- {Path(fpath).name}")
+
+                cols = st.columns([1, 1])
+                with cols[0]:
+                    if st.button("일괄 파싱 시작", use_container_width=True):
+                        _preparse_report_files()
+                with cols[1]:
+                    if st.button("파싱 요약 새로고침", use_container_width=True):
+                        st.session_state.report_preparse_summary = _build_preparse_summary(
+                            st.session_state.get("report_preparse_results", {})
+                        )
+                        st.rerun()
+
+                if st.session_state.get("report_preparse_at"):
+                    st.caption(f"마지막 파싱: {st.session_state.report_preparse_at}")
+
+                summary = st.session_state.get("report_preparse_summary", [])
+                if summary:
+                    st.table(summary)
+            else:
+                st.info("업로드된 파일이 없습니다. 먼저 파일을 첨부해 주세요.")
+
         chapter_order = _init_report_chapters()
         if chapter_order:
             st.session_state.report_chapter_index = max(
@@ -915,8 +1068,12 @@ with chat_col:
             file_context = ""
             if st.session_state.unified_files:
                 file_context = f"업로드 파일: {', '.join(st.session_state.unified_files)}"
+            preparse_context = _build_preparse_context(
+                st.session_state.get("report_preparse_summary", [])
+            )
             report_context_text = "\n".join(filter(None, [
                 file_context,
+                preparse_context,
                 f"현재 작성 챕터: {current_chapter}.\n"
                 "이 챕터만 작성하고 다른 챕터는 출력하지 마세요.\n"
                 "형식: ### 챕터 제목 → 요약/근거/심사 판단 포함.\n"

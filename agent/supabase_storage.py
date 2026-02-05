@@ -5,6 +5,7 @@ Supabase Storage for Chat Sessions and Feedback
 
 import os
 import json
+import socket
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
@@ -18,6 +19,16 @@ try:
 except ImportError:
     SUPABASE_AVAILABLE = False
     logger.warning("Supabase library not installed")
+
+try:
+    import httpx
+except Exception:
+    httpx = None
+
+try:
+    import httpcore
+except Exception:
+    httpcore = None
 
 
 def _safe_json_loads(value: Any, default: Any = None) -> Any:
@@ -64,6 +75,20 @@ def get_supabase_client() -> Optional["Client"]:
     return create_client(url, key)
 
 
+def _is_network_error(exc: Exception) -> bool:
+    """네트워크/DNS 오류 여부 판단"""
+    if isinstance(exc, socket.gaierror):
+        return True
+    if isinstance(exc, OSError) and getattr(exc, "errno", None) in (-2, 110):
+        return True
+    if httpx is not None and isinstance(exc, (httpx.ConnectError, httpx.ReadTimeout, httpx.NetworkError)):
+        return True
+    if httpcore is not None and isinstance(exc, (httpcore.ConnectError, httpcore.ReadTimeout)):
+        return True
+    msg = str(exc)
+    return "Name or service not known" in msg or "timed out" in msg
+
+
 class SupabaseStorage:
     """
     Supabase 기반 영구 스토리지
@@ -78,6 +103,20 @@ class SupabaseStorage:
         self.user_id = user_id
         self.client = get_supabase_client()
         self.available = self.client is not None
+        self._disabled_reason = None
+
+    def _disable_supabase(self, action: str, exc: Exception) -> None:
+        if not self.available:
+            return
+        self.available = False
+        self._disabled_reason = f"{action}: {exc}"
+        logger.warning("Supabase disabled (%s)", self._disabled_reason)
+
+    def _handle_exception(self, action: str, exc: Exception) -> None:
+        if _is_network_error(exc):
+            self._disable_supabase(action, exc)
+        else:
+            logger.error(f"Failed to {action}: {exc}", exc_info=True)
 
     # ========================================
     # Chat Sessions
@@ -101,7 +140,7 @@ class SupabaseStorage:
             logger.info(f"Session created: {session_id}")
             return True
         except Exception as e:
-            logger.error(f"Failed to create session {session_id}: {e}", exc_info=True)
+            self._handle_exception(f"create session {session_id}", e)
             return False
 
     def get_session(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -123,7 +162,7 @@ class SupabaseStorage:
                 return session
             return None
         except Exception as e:
-            logger.error(f"Failed to get session {session_id}: {e}", exc_info=True)
+            self._handle_exception(f"get session {session_id}", e)
             return None
 
     def get_recent_sessions(self, limit: int = 10) -> List[Dict[str, Any]]:
@@ -154,7 +193,7 @@ class SupabaseStorage:
                 sessions.append(session)
             return sessions
         except Exception as e:
-            logger.error(f"Failed to get recent sessions: {e}", exc_info=True)
+            self._handle_exception("get recent sessions", e)
             return []
 
     def update_session(self, session_id: str, updates: Dict[str, Any]) -> bool:
@@ -176,7 +215,7 @@ class SupabaseStorage:
             ).eq("user_id", self.user_id).execute()
             return True
         except Exception as e:
-            logger.error(f"Failed to update session {session_id}: {e}", exc_info=True)
+            self._handle_exception(f"update session {session_id}", e)
             return False
 
     # ========================================
@@ -206,7 +245,7 @@ class SupabaseStorage:
             self.client.table("chat_messages").insert(data).execute()
             return True
         except Exception as e:
-            logger.error(f"Failed to add message to session {session_id}: {e}", exc_info=True)
+            self._handle_exception(f"add message to session {session_id}", e)
             return False
 
     def get_messages(self, session_id: str) -> List[Dict[str, Any]]:
@@ -225,7 +264,7 @@ class SupabaseStorage:
                 messages.append(msg)
             return messages
         except Exception as e:
-            logger.error(f"Failed to get messages for session {session_id}: {e}", exc_info=True)
+            self._handle_exception(f"get messages for session {session_id}", e)
             return []
 
     # ========================================
@@ -264,7 +303,7 @@ class SupabaseStorage:
             logger.info(f"Feedback added: {feedback_type} for session {session_id}")
             return True
         except Exception as e:
-            logger.error(f"Failed to add feedback: {e}", exc_info=True)
+            self._handle_exception("add feedback", e)
             return False
 
     def get_feedback_stats(self) -> Dict[str, Any]:
@@ -289,7 +328,7 @@ class SupabaseStorage:
                 "satisfaction_rate": positive / total if total > 0 else 0.0
             }
         except Exception as e:
-            logger.error(f"Failed to get feedback stats: {e}", exc_info=True)
+            self._handle_exception("get feedback stats", e)
             return {"total": 0, "positive": 0, "negative": 0, "satisfaction_rate": 0.0}
 
     def get_recent_feedback(self, limit: int = 10) -> List[Dict[str, Any]]:
@@ -310,7 +349,7 @@ class SupabaseStorage:
                 feedbacks.append(fb)
             return feedbacks
         except Exception as e:
-            logger.error(f"Failed to get recent feedback: {e}", exc_info=True)
+            self._handle_exception("get recent feedback", e)
             return []
 
     def _calculate_reward(self, feedback_type: str, feedback_value: Any = None) -> float:
