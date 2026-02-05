@@ -493,6 +493,8 @@ if "report_evidence_pack_raw_at" not in st.session_state:
     st.session_state.report_evidence_pack_raw_at = None
 if "report_evidence_pack_raw_status" not in st.session_state:
     st.session_state.report_evidence_pack_raw_status = "idle"
+if "report_evidence_pack_raw_chapters" not in st.session_state:
+    st.session_state.report_evidence_pack_raw_chapters = {}
 if "report_evidence_pack_raw_started_at" not in st.session_state:
     st.session_state.report_evidence_pack_raw_started_at = None
 if "report_evidence_pack_raw_eta_sec" not in st.session_state:
@@ -503,6 +505,12 @@ if "report_evidence_pack_eta_sec" not in st.session_state:
     st.session_state.report_evidence_pack_eta_sec = None
 if "report_evidence_pack_focus_file" not in st.session_state:
     st.session_state.report_evidence_pack_focus_file = "전체"
+if "report_evidence_pack_bulk_status" not in st.session_state:
+    st.session_state.report_evidence_pack_bulk_status = "idle"
+if "report_evidence_pack_bulk_eta_sec" not in st.session_state:
+    st.session_state.report_evidence_pack_bulk_eta_sec = None
+if "report_evidence_pack_bulk_started_at" not in st.session_state:
+    st.session_state.report_evidence_pack_bulk_started_at = None
 
 if st.session_state.get("report_panel_enabled"):
     st.markdown(
@@ -1054,6 +1062,7 @@ def _build_evidence_pack_extract_prompt(
     preparse_summary: str,
     structured_financial: str = "",
     focus_file: Optional[str] = None,
+    target_chapter: Optional[str] = None,
 ) -> str:
     company = st.session_state.get("report_evidence_pack_company") or "unknown"
     source_files = [Path(f).name for f in st.session_state.get("unified_files", [])]
@@ -1099,6 +1108,7 @@ def _build_evidence_pack_extract_prompt(
 
         규칙:
         - **자동 추출된 구조화 데이터를 최우선으로 사용** (이미 파싱 완료된 정확한 데이터)
+        - target_chapter가 지정된 경우 해당 챕터에 관련된 facts/numbers/missing만 출력
         - Fact/Number는 반드시 Source 포함 (파일명 p.페이지번호)
         - 자동 추출 데이터에 없는 항목만 텍스트에서 추가 추출
         - 추정은 text에 [추정] 표기 (자동 추출 데이터는 추정 아님)
@@ -1114,6 +1124,9 @@ def _build_evidence_pack_extract_prompt(
 
         [추출 우선 파일]
         {focus_file or "없음"}
+
+        [Target Chapter]
+        {target_chapter or "없음"}
 
         [Stage1 Markdown]
         {stage1_md}
@@ -1902,6 +1915,7 @@ if use_report_panel and report_col is not None:
                                 summary_block,
                                 structured_financial,
                                 focus_file if focus_file != "전체" else None,
+                                None,
                             )
                             try:
                                 from anthropic import Anthropic
@@ -1923,6 +1937,89 @@ if use_report_panel and report_col is not None:
                                 st.session_state.report_evidence_pack_raw_status = "idle"
                                 st.session_state.report_evidence_pack_raw_started_at = None
                                 st.error(f"빠른 추출 실패: {exc}")
+                    if st.button(
+                        "8챕터 일괄 추출",
+                        use_container_width=True,
+                        disabled=not files or not st.session_state.report_evidence_pack_company.strip(),
+                    ):
+                        api_key = st.session_state.get("user_api_key") or st.secrets.get("anthropic_api_key", "")
+                        if not api_key:
+                            st.error("Claude API Key가 필요합니다.")
+                        else:
+                            st.session_state.report_evidence_pack_raw_status = "running"
+                            st.session_state.report_evidence_pack_bulk_status = "running"
+                            st.session_state.report_evidence_pack_raw_chapters = {}
+                            summary_block = _build_preparse_summary_block(
+                                st.session_state.get("report_preparse_summary", [])
+                            )
+                            st.session_state.report_evidence_pack_raw_eta_sec = _estimate_evidence_pack_seconds(
+                                st.session_state.get("report_preparse_summary", []), "raw"
+                            )
+                            st.session_state.report_evidence_pack_bulk_eta_sec = (
+                                st.session_state.report_evidence_pack_raw_eta_sec * 8
+                                if st.session_state.report_evidence_pack_raw_eta_sec else None
+                            )
+                            st.session_state.report_evidence_pack_raw_started_at = time.time()
+                            st.session_state.report_evidence_pack_bulk_started_at = time.time()
+
+                            chapter_list = _init_report_chapters()
+                            stage1_md = st.session_state.get("report_preparse_stage1_md") or _build_stage1_markdown(
+                                st.session_state.get("report_preparse_results", {})
+                            )
+                            focus_file = st.session_state.report_evidence_pack_focus_file
+                            if focus_file and focus_file != "전체":
+                                base_text = _extract_stage1_section(stage1_md, focus_file)
+                            else:
+                                base_text = _condense_stage1_for_extract(stage1_md)
+
+                            evidence_items = _collect_market_evidence(
+                                st.session_state.get("report_preparse_results", {})
+                            )
+                            structured_financial = _collect_structured_financial_data(
+                                st.session_state.get("report_preparse_results", {})
+                            )
+
+                            progress_bar = st.progress(0.0)
+                            for idx, chapter in enumerate(chapter_list, start=1):
+                                progress_bar.progress(min(idx / max(len(chapter_list), 1), 0.95))
+                                try:
+                                    prompt = _build_evidence_pack_extract_prompt(
+                                        base_text,
+                                        evidence_items,
+                                        summary_block,
+                                        structured_financial,
+                                        focus_file if focus_file != "전체" else None,
+                                        chapter,
+                                    )
+                                    from anthropic import Anthropic
+                                    client = Anthropic(api_key=api_key)
+                                    response = client.messages.create(
+                                        model="claude-opus-4-5-20251101",
+                                        max_tokens=3500,
+                                        temperature=0.2,
+                                        messages=[{"role": "user", "content": prompt}],
+                                    )
+                                    text = response.content[0].text if response.content else ""
+                                    st.session_state.report_evidence_pack_raw_chapters[chapter] = text.strip()
+                                except Exception as exc:
+                                    st.session_state.report_evidence_pack_raw_chapters[chapter] = (
+                                        f'{{"error": "{str(exc)}"}}'
+                                    )
+
+                            combined_json = "\n\n".join(
+                                [
+                                    f"// {chapter}\n{content}"
+                                    for chapter, content in st.session_state.report_evidence_pack_raw_chapters.items()
+                                ]
+                            )
+                            st.session_state.report_evidence_pack_raw = combined_json.strip()
+                            st.session_state.report_evidence_pack_raw_at = datetime.now().isoformat()
+                            st.session_state.report_evidence_pack_raw_status = "done"
+                            st.session_state.report_evidence_pack_bulk_status = "done"
+                            st.session_state.report_evidence_pack_raw_started_at = None
+                            st.session_state.report_evidence_pack_bulk_started_at = None
+                            st.success("8챕터 일괄 추출 완료")
+                            st.rerun()
                 with format_col:
                     if st.button(
                         "정리해서 Evidence Pack 생성",
