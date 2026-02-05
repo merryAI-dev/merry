@@ -1588,7 +1588,14 @@ with chat_col:
             report_context_text = "\n".join(filter(None, [
                 file_context,
                 preparse_context,
-                (st.session_state.report_evidence_pack_md[:4000] + "\n...(Evidence Pack truncated)")
+                (
+                    "[Evidence Pack MD]\n"
+                    + (
+                        st.session_state.report_evidence_pack_md
+                        if len(st.session_state.report_evidence_pack_md) <= 12000
+                        else (st.session_state.report_evidence_pack_md[:12000] + "\n...(Evidence Pack truncated)")
+                    )
+                )
                 if st.session_state.get("report_evidence_pack_md") else None,
                 f"현재 작성 챕터: {current_chapter}.\n"
                 "이 챕터만 작성하고 다른 챕터는 출력하지 마세요.\n"
