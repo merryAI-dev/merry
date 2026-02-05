@@ -429,8 +429,8 @@ if "unified_files" not in st.session_state:
     st.session_state.unified_files = []
 if "processed_upload_keys" not in st.session_state:
     st.session_state.processed_upload_keys = []
-if "reset_unified_uploader" not in st.session_state:
-    st.session_state.reset_unified_uploader = False
+if "uploader_key_seed" not in st.session_state:
+    st.session_state.uploader_key_seed = 0
 if "report_panel_enabled" not in st.session_state:
     st.session_state.report_panel_enabled = False
 if "unified_mode" not in st.session_state:
@@ -824,19 +824,18 @@ with chat_col:
 
     # 파일 첨부 버튼
     with st.expander("파일 첨부", expanded=False):
-        if st.session_state.get("reset_unified_uploader"):
-            st.session_state["unified_file_uploader"] = []
-            st.session_state.reset_unified_uploader = False
+        uploader_key = f"unified_file_uploader_{st.session_state.uploader_key_seed}"
         uploaded_files = st.file_uploader(
             "분석할 파일을 선택하세요 (PDF, 엑셀, DOCX)",
             type=["pdf", "xlsx", "xls", "docx", "doc"],
             accept_multiple_files=True,
-            key="unified_file_uploader",
+            key=uploader_key,
             help="투자검토 엑셀, 기업소개서 PDF, 진단시트, 계약서 등 모든 파일을 지원합니다"
         )
 
         if uploaded_files:
             processed_keys = set(st.session_state.get("processed_upload_keys", []))
+            new_upload_processed = False
             for uploaded_file in uploaded_files:
                 upload_key = f"{uploaded_file.name}|{uploaded_file.size}"
                 if upload_key in processed_keys:
@@ -864,6 +863,7 @@ with chat_col:
 
                     if file_path and file_path not in st.session_state.unified_files:
                         st.session_state.unified_files.append(file_path)
+                        new_upload_processed = True
                         progress_bar.empty()
                         status_text.empty()
 
@@ -879,10 +879,12 @@ with chat_col:
                     if file_path and file_path not in st.session_state.unified_files:
                         st.session_state.unified_files.append(file_path)
                         st.toast(f"{uploaded_file.name} 업로드 완료")
+                        new_upload_processed = True
 
             st.session_state.processed_upload_keys = sorted(processed_keys)
-            st.session_state.reset_unified_uploader = True
-            st.rerun()
+            if new_upload_processed:
+                st.session_state.uploader_key_seed += 1
+                st.rerun()
 
     # 채팅 입력
     user_input = st.chat_input("메시지를 입력하세요...", key="unified_chat_input")
