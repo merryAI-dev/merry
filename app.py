@@ -5,6 +5,7 @@ VC 투자 분석 에이전트 - Claude Code 스타일
 """
 
 import asyncio
+import re
 from pathlib import Path
 from typing import Optional
 import streamlit as st
@@ -426,6 +427,68 @@ if "unified_messages" not in st.session_state:
     st.session_state.unified_messages = []
 if "unified_files" not in st.session_state:
     st.session_state.unified_files = []
+if "report_panel_enabled" not in st.session_state:
+    st.session_state.report_panel_enabled = False
+if "unified_mode" not in st.session_state:
+    st.session_state.unified_mode = "unified"
+
+if st.session_state.get("report_panel_enabled"):
+    st.markdown(
+        """
+        <style>
+        .main .block-container { max-width: 1400px; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _init_report_chapters() -> list:
+    outline = st.session_state.get("report_outline") or []
+    chapter_order = [item for item in outline if re.match(r'^[IVX]+\\.', item)]
+    if not chapter_order:
+        chapter_order = [
+            "I. 투자 개요",
+            "II. 기업 현황",
+            "III. 시장 분석",
+            "IV. 사업 분석",
+            "V. 투자 적합성 및 임팩트",
+            "VI. 수익성/Valuation",
+            "VII. 임팩트 리스크",
+            "VIII. 종합 결론",
+        ]
+    if not st.session_state.get("report_chapter_order"):
+        st.session_state.report_chapter_order = chapter_order
+    return st.session_state.report_chapter_order
+
+
+def _compose_full_draft(chapters: dict, order: list) -> str:
+    blocks = []
+    for key in order:
+        content = (chapters or {}).get(key)
+        if content:
+            blocks.append(content.strip())
+    return "\n\n".join(blocks).strip()
+
+
+def _save_current_chapter(mark_done: bool = False) -> None:
+    chapter_order = st.session_state.get("report_chapter_order") or []
+    idx = st.session_state.get("report_chapter_index", 0)
+    if not chapter_order:
+        return
+    idx = max(0, min(idx, len(chapter_order) - 1))
+    current = chapter_order[idx]
+    current_text = st.session_state.get("report_edit_buffer", "").strip()
+    if current_text:
+        st.session_state.report_chapters[current] = current_text
+    if mark_done:
+        st.session_state.report_chapter_status[current] = "done"
+    else:
+        st.session_state.report_chapter_status.setdefault(current, "draft")
+    st.session_state.report_draft_content = _compose_full_draft(
+        st.session_state.report_chapters,
+        chapter_order,
+    )
 
 
 def save_uploaded_file(uploaded_file) -> str:
@@ -519,283 +582,404 @@ def compact_conversation(messages: list, api_key: str) -> tuple[list, bool]:
         return messages[-COMPACTION_TRIGGER:], False
 
 
-# ========================================
-# Welcome 화면 (메시지가 없을 때만 표시)
-# ========================================
-if not st.session_state.unified_messages:
-    st.markdown("""
-    <div class="welcome-screen">
-        <div class="welcome-screen__title">무엇을 도와드릴까요?</div>
-        <div class="welcome-screen__subtitle">
-            투자 분석, 기업 진단, 계약서 검토 등 다양한 기능을 자연스러운 대화로 이용하세요
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+use_report_panel = st.session_state.get("report_panel_enabled", False)
+if use_report_panel:
+    st.session_state.unified_mode = "report"
+    chat_col, report_col = st.columns([1.15, 0.85], gap="large")
+else:
+    chat_col = st.container()
+    report_col = None
 
-    # 기능 Pills
-    st.markdown("### 주요 기능")
+report_stream_placeholder = None
+chapter_order = []
+current_chapter = None
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        if st.button("Exit 프로젝션", key="pill_exit", use_container_width=True):
-            st.session_state.quick_cmd = "투자검토 엑셀 파일을 분석해서 Exit 프로젝션을 만들어줘"
-            st.rerun()
+if use_report_panel and report_col is not None:
+    with report_col:
+        st.markdown("## 투자심사 보고서")
+        chapter_order = _init_report_chapters()
+        if chapter_order:
+            st.session_state.report_chapter_index = max(
+                0,
+                min(st.session_state.get("report_chapter_index", 0), len(chapter_order) - 1),
+            )
+            current_chapter = chapter_order[st.session_state.report_chapter_index]
+            status = st.session_state.get("report_chapter_status", {}).get(current_chapter, "draft")
+            st.caption(f"현재 챕터: {current_chapter} · 상태: {status} · "
+                       f"{st.session_state.report_chapter_index + 1}/{len(chapter_order)}")
+            st.progress((st.session_state.report_chapter_index + 1) / len(chapter_order))
+        else:
+            st.caption("목차 정보를 불러올 수 없습니다.")
 
-    with col2:
-        if st.button("Peer PER 분석", key="pill_peer", use_container_width=True):
-            st.session_state.quick_cmd = "유사기업 PER을 비교 분석해줘"
-            st.rerun()
+        report_stream_placeholder = st.empty()
+        existing = st.session_state.get("report_chapters", {}).get(current_chapter, "") if current_chapter else ""
+        if existing and not st.session_state.get("report_edit_buffer"):
+            st.session_state.report_edit_buffer = existing
+        if not existing:
+            report_stream_placeholder.markdown("초안이 생성되면 여기에 표시됩니다.")
 
-    with col3:
-        if st.button("기업 진단", key="pill_diagnosis", use_container_width=True):
-            st.session_state.quick_cmd = "진단시트를 분석하고 컨설턴트 보고서를 작성해줘"
-            st.rerun()
+        st.text_area(
+            "편집",
+            key="report_edit_buffer",
+            height=280,
+            placeholder="챕터 내용을 편집하세요.",
+        )
 
-    col4, col5, col6 = st.columns(3)
-    with col4:
-        if st.button("투자보고서", key="pill_report", use_container_width=True):
-            st.session_state.quick_cmd = "PDF에서 시장 근거를 추출하고 투자보고서를 써줘"
-            st.rerun()
+        if chapter_order:
+            btn_cols = st.columns(3)
+            idx = st.session_state.get("report_chapter_index", 0)
+            idx = max(0, min(idx, len(chapter_order) - 1))
+            with btn_cols[0]:
+                if st.button("이전", use_container_width=True, disabled=idx == 0):
+                    _save_current_chapter(mark_done=False)
+                    st.session_state.report_chapter_index = max(0, idx - 1)
+                    st.session_state.report_edit_buffer = st.session_state.report_chapters.get(
+                        chapter_order[st.session_state.report_chapter_index], ""
+                    )
+                    st.rerun()
+            with btn_cols[1]:
+                if st.button("완료", use_container_width=True):
+                    _save_current_chapter(mark_done=True)
+                    if idx < len(chapter_order) - 1:
+                        st.session_state.report_chapter_index = idx + 1
+                        st.session_state.report_edit_buffer = st.session_state.report_chapters.get(
+                            chapter_order[idx + 1], ""
+                        )
+                    st.rerun()
+            with btn_cols[2]:
+                if st.button("다음", use_container_width=True, disabled=idx >= len(chapter_order) - 1):
+                    _save_current_chapter(mark_done=False)
+                    st.session_state.report_chapter_index = min(len(chapter_order) - 1, idx + 1)
+                    st.session_state.report_edit_buffer = st.session_state.report_chapters.get(
+                        chapter_order[st.session_state.report_chapter_index], ""
+                    )
+                    st.rerun()
 
-    with col5:
-        if st.button("스타트업 발굴", key="pill_discovery", use_container_width=True):
-            st.session_state.quick_cmd = "정책 PDF를 분석해서 유망 산업을 추천해줘"
-            st.rerun()
-
-    with col6:
-        if st.button("계약서 검토", key="pill_contract", use_container_width=True):
-            st.session_state.quick_cmd = "계약서를 분석하고 주요 조항을 검토해줘"
-            st.rerun()
-
-    col7, col8 = st.columns(2)
-    with col7:
-        if st.button("팀 협업", key="pill_collab", use_container_width=True):
-            st.session_state.quick_cmd = "팀 과업 현황을 보여줘"
-            st.rerun()
-
-    with col8:
-        if st.button("공공입찰 검색", key="pill_bid", use_container_width=True):
-            st.session_state.quick_cmd = "나라장터에서 관련 입찰 공고를 찾아줘"
-            st.rerun()
-
-# ========================================
-# 대화 영역
-# ========================================
-chat_container = st.container()
-
-with chat_container:
-    for msg in st.session_state.unified_messages:
-        role = msg.get("role", "")
-        content = msg.get("content", "")
-        tool_logs = msg.get("tool_logs", [])
-
-        if role == "user":
-            with st.chat_message("user", avatar=user_avatar_image):
-                st.markdown(content)
-
-        elif role == "system":
-            # 시스템 메시지 (대화 요약)
-            st.markdown(f"""
-            <div class="system-message">
-                <strong>📝 {content.split(']')[0]}]</strong>
-                <div style="margin-top: 0.5rem; color: var(--text-secondary);">
-                    {content.split(']', 1)[1] if ']' in content else content}
-                </div>
+with chat_col:
+    # ========================================
+    # Welcome 화면 (메시지가 없을 때만 표시)
+    # ========================================
+    if not st.session_state.unified_messages:
+        st.markdown("""
+        <div class="welcome-screen">
+            <div class="welcome-screen__title">무엇을 도와드릴까요?</div>
+            <div class="welcome-screen__subtitle">
+                투자 분석, 기업 진단, 계약서 검토 등 다양한 기능을 자연스러운 대화로 이용하세요
             </div>
-            """, unsafe_allow_html=True)
+        </div>
+        """, unsafe_allow_html=True)
 
-        elif role == "assistant":
-            with st.chat_message("assistant", avatar=avatar_image):
-                # Tool logs 표시
-                if tool_logs:
-                    for log in tool_logs:
-                        if log.startswith("**도구:"):
-                            # Tool execution 카드
-                            tool_name = log.replace("**도구:", "").replace("**", "").strip()
-                            st.markdown(f"""
-                            <div class="tool-card tool-card--running">
-                                <div class="tool-card__header">
-                                    {tool_name}
-                                    <div class="tool-spinner"></div>
+        # 기능 Pills
+        st.markdown("### 주요 기능")
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("Exit 프로젝션", key="pill_exit", use_container_width=True):
+                st.session_state.quick_cmd = "투자검토 엑셀 파일을 분석해서 Exit 프로젝션을 만들어줘"
+                st.rerun()
+
+        with col2:
+            if st.button("Peer PER 분석", key="pill_peer", use_container_width=True):
+                st.session_state.quick_cmd = "유사기업 PER을 비교 분석해줘"
+                st.rerun()
+
+        with col3:
+            if st.button("기업 진단", key="pill_diagnosis", use_container_width=True):
+                st.session_state.quick_cmd = "진단시트를 분석하고 컨설턴트 보고서를 작성해줘"
+                st.rerun()
+
+        col4, col5, col6 = st.columns(3)
+        with col4:
+            if st.button("투자보고서", key="pill_report", use_container_width=True):
+                st.session_state.report_panel_enabled = True
+                st.session_state.unified_mode = "report"
+                st.toast("투자보고서 모드가 활성화되었습니다.")
+                st.rerun()
+
+        with col5:
+            if st.button("스타트업 발굴", key="pill_discovery", use_container_width=True):
+                st.session_state.quick_cmd = "정책 PDF를 분석해서 유망 산업을 추천해줘"
+                st.rerun()
+
+        with col6:
+            if st.button("계약서 검토", key="pill_contract", use_container_width=True):
+                st.session_state.quick_cmd = "계약서를 분석하고 주요 조항을 검토해줘"
+                st.rerun()
+
+        col7, col8 = st.columns(2)
+        with col7:
+            if st.button("팀 협업", key="pill_collab", use_container_width=True):
+                st.session_state.quick_cmd = "팀 과업 현황을 보여줘"
+                st.rerun()
+
+        with col8:
+            if st.button("공공입찰 검색", key="pill_bid", use_container_width=True):
+                st.session_state.quick_cmd = "나라장터에서 관련 입찰 공고를 찾아줘"
+                st.rerun()
+
+    # ========================================
+    # 대화 영역
+    # ========================================
+    chat_container = st.container()
+
+    with chat_container:
+        for msg in st.session_state.unified_messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            tool_logs = msg.get("tool_logs", [])
+
+            if role == "user":
+                with st.chat_message("user", avatar=user_avatar_image):
+                    st.markdown(content)
+
+            elif role == "system":
+                # 시스템 메시지 (대화 요약)
+                st.markdown(f"""
+                <div class="system-message">
+                    <strong>📝 {content.split(']')[0]}]</strong>
+                    <div style="margin-top: 0.5rem; color: var(--text-secondary);">
+                        {content.split(']', 1)[1] if ']' in content else content}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            elif role == "assistant":
+                with st.chat_message("assistant", avatar=avatar_image):
+                    # Tool logs 표시
+                    if tool_logs:
+                        for log in tool_logs:
+                            if log.startswith("**도구:"):
+                                # Tool execution 카드
+                                tool_name = log.replace("**도구:", "").replace("**", "").strip()
+                                st.markdown(f"""
+                                <div class="tool-card tool-card--running">
+                                    <div class="tool-card__header">
+                                        {tool_name}
+                                        <div class="tool-spinner"></div>
+                                    </div>
+                                    <div class="tool-card__body">
+                                        실행 중...
+                                    </div>
                                 </div>
-                                <div class="tool-card__body">
-                                    실행 중...
-                                </div>
-                            </div>
-                            """, unsafe_allow_html=True)
+                                """, unsafe_allow_html=True)
 
-                st.markdown(content)
+                    st.markdown(content)
 
-                # Tool logs expander
-                if tool_logs:
-                    with st.expander("실행 로그", expanded=False):
-                        for line in tool_logs:
-                            st.caption(line)
+                    # Tool logs expander
+                    if tool_logs:
+                        with st.expander("실행 로그", expanded=False):
+                            for line in tool_logs:
+                                st.caption(line)
 
-# Auto-scroll to bottom
-if st.session_state.unified_messages:
-    st.markdown("""
-    <script>
-    window.scrollTo(0, document.body.scrollHeight);
-    </script>
-    """, unsafe_allow_html=True)
+    # Auto-scroll to bottom
+    if st.session_state.unified_messages:
+        st.markdown("""
+        <script>
+        window.scrollTo(0, document.body.scrollHeight);
+        </script>
+        """, unsafe_allow_html=True)
 
 # ========================================
 # 하단 고정 영역: 파일 첨부 + 채팅 입력
 # ========================================
 
-# 첨부된 파일 표시 (하단 고정)
-if st.session_state.unified_files:
-    st.markdown('<div class="fixed-file-area">', unsafe_allow_html=True)
-    for i, fpath in enumerate(st.session_state.unified_files):
-        fname = Path(fpath).name
-        col1, col2 = st.columns([5, 1])
-        with col1:
-            st.markdown(f"""
-            <div class="file-chip">
-                {fname}
-            </div>
-            """, unsafe_allow_html=True)
-        with col2:
-            if st.button("×", key=f"remove_{i}", help="제거"):
-                st.session_state.unified_files.pop(i)
-                st.rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
-
-# 파일 첨부 버튼
-with st.expander("파일 첨부", expanded=False):
-    uploaded_files = st.file_uploader(
-        "분석할 파일을 선택하세요 (PDF, 엑셀, DOCX)",
-        type=["pdf", "xlsx", "xls", "docx", "doc"],
-        accept_multiple_files=True,
-        key="unified_file_uploader",
-        help="투자검토 엑셀, 기업소개서 PDF, 진단시트, 계약서 등 모든 파일을 지원합니다"
-    )
-
-    if uploaded_files:
-        for uploaded_file in uploaded_files:
-            # PDF 파일인 경우 로딩바 표시
-            if uploaded_file.name.lower().endswith('.pdf'):
-                import time
-
-                # 로딩바 표시
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-
-                status_text.text(f"📄 {uploaded_file.name} 업로드 중...")
-
-                # 30초 동안 진행
-                for percent in range(101):
-                    time.sleep(0.3)  # 30초 = 100 * 0.3
-                    progress_bar.progress(percent)
-                    if percent < 100:
-                        status_text.text(f"📄 {uploaded_file.name} 업로드 중... {percent}%")
-
-                # 파일 저장
-                file_path = save_uploaded_file(uploaded_file)
-
-                if file_path and file_path not in st.session_state.unified_files:
-                    st.session_state.unified_files.append(file_path)
-                    progress_bar.empty()
-                    status_text.empty()
-
-                    # 완료 토스트
-                    st.toast(f"✅ {uploaded_file.name} 업로드 완료", icon="✅")
-
-                    # 주의 문구 표시
-                    st.warning(f"⚠️ **{uploaded_file.name}** 업로드가 완료되었습니다. 이제 파일 분석을 요청하실 수 있습니다.", icon="⚠️")
-                    time.sleep(2)  # 2초간 표시
-            else:
-                # PDF가 아닌 파일은 즉시 업로드
-                file_path = save_uploaded_file(uploaded_file)
-                if file_path and file_path not in st.session_state.unified_files:
-                    st.session_state.unified_files.append(file_path)
-                    st.toast(f"{uploaded_file.name} 업로드 완료")
-
-# 채팅 입력
-user_input = st.chat_input("메시지를 입력하세요...", key="unified_chat_input")
-
-# 빠른 명령어 처리
-if "quick_cmd" in st.session_state:
-    user_input = st.session_state.quick_cmd
-    del st.session_state.quick_cmd
-
-# 메시지 처리
-if user_input:
-    # 파일 컨텍스트 추가
-    context_info = ""
+    # 첨부된 파일 표시 (하단 고정)
     if st.session_state.unified_files:
-        paths_str = ", ".join(st.session_state.unified_files)
-        if "파일" not in user_input and "분석" not in user_input:
-            context_info = f"\n[업로드된 파일: {paths_str}]"
+        st.markdown('<div class="fixed-file-area">', unsafe_allow_html=True)
+        for i, fpath in enumerate(st.session_state.unified_files):
+            fname = Path(fpath).name
+            col1, col2 = st.columns([5, 1])
+            with col1:
+                st.markdown(f"""
+                <div class="file-chip">
+                    {fname}
+                </div>
+                """, unsafe_allow_html=True)
+            with col2:
+                if st.button("×", key=f"remove_{i}", help="제거"):
+                    st.session_state.unified_files.pop(i)
+                    st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
-    full_message = user_input + context_info
-    st.session_state.unified_messages.append({"role": "user", "content": user_input})
+    # 파일 첨부 버튼
+    with st.expander("파일 첨부", expanded=False):
+        uploaded_files = st.file_uploader(
+            "분석할 파일을 선택하세요 (PDF, 엑셀, DOCX)",
+            type=["pdf", "xlsx", "xls", "docx", "doc"],
+            accept_multiple_files=True,
+            key="unified_file_uploader",
+            help="투자검토 엑셀, 기업소개서 PDF, 진단시트, 계약서 등 모든 파일을 지원합니다"
+        )
 
-    with chat_container:
-        with st.chat_message("assistant", avatar=avatar_image):
-            response_placeholder = st.empty()
+        if uploaded_files:
+            for uploaded_file in uploaded_files:
+                # PDF 파일인 경우 로딩바 표시
+                if uploaded_file.name.lower().endswith('.pdf'):
+                    import time
 
-            # VCAgent 동기 호출 (간단 버전)
-            agent = st.session_state.agent
+                    # 로딩바 표시
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
 
-            # 간단한 응답 생성
-            try:
-                # 대화 히스토리 컴팩션: 15개 이상 시 요약하여 컨텍스트 유지
-                if len(st.session_state.unified_messages) >= 15:
-                    # 컴팩션 중 명확한 시각적 피드백
-                    with st.status("📝 대화 내용 요약 중...", expanded=True) as status:
-                        status.write("💬 15개 이상의 메시지를 압축하고 있습니다.")
-                        status.write("⏳ Claude Haiku API로 이전 대화를 요약하는 중입니다...")
-                        status.write("🔒 잠시만 기다려주세요. (중복 요청 방지)")
+                    status_text.text(f"📄 {uploaded_file.name} 업로드 중...")
 
-                        api_key = st.session_state.get("user_api_key", "")
-                        compacted_messages, success = compact_conversation(
-                            st.session_state.unified_messages,
-                            api_key
-                        )
-                        st.session_state.unified_messages = compacted_messages
+                    # 30초 동안 진행
+                    for percent in range(101):
+                        time.sleep(0.3)  # 30초 = 100 * 0.3
+                        progress_bar.progress(percent)
+                        if percent < 100:
+                            status_text.text(f"📄 {uploaded_file.name} 업로드 중... {percent}%")
 
-                        if success:
-                            status.update(label="✅ 대화 요약 완료!", state="complete", expanded=False)
-                            st.toast("대화가 길어져 이전 내용을 요약했습니다", icon="📝")
-                        else:
-                            status.update(label="⚠️ 요약 실패 (기존 방식 사용)", state="error", expanded=False)
+                    # 파일 저장
+                    file_path = save_uploaded_file(uploaded_file)
 
-                # 응답 생성 중 표시
-                with st.spinner("🤖 생각 중..."):
-                    # 동기 chat 메서드 사용 (returns string)
-                    full_response = agent.chat_sync(full_message, mode="unified")
-                    tool_logs = []  # chat_sync doesn't return tool logs
-            except Exception as e:
-                full_response = f"오류가 발생했습니다: {str(e)}"
-                tool_logs = []
+                    if file_path and file_path not in st.session_state.unified_files:
+                        st.session_state.unified_files.append(file_path)
+                        progress_bar.empty()
+                        status_text.empty()
 
-            response_placeholder.markdown(full_response)
+                        # 완료 토스트
+                        st.toast(f"✅ {uploaded_file.name} 업로드 완료", icon="✅")
 
-            # 응답 저장
-            st.session_state.unified_messages.append({
-                "role": "assistant",
-                "content": full_response,
-                "tool_logs": tool_logs
-            })
+                        # 주의 문구 표시
+                        st.warning(f"⚠️ **{uploaded_file.name}** 업로드가 완료되었습니다. 이제 파일 분석을 요청하실 수 있습니다.", icon="⚠️")
+                        time.sleep(2)  # 2초간 표시
+                else:
+                    # PDF가 아닌 파일은 즉시 업로드
+                    file_path = save_uploaded_file(uploaded_file)
+                    if file_path and file_path not in st.session_state.unified_files:
+                        st.session_state.unified_files.append(file_path)
+                        st.toast(f"{uploaded_file.name} 업로드 완료")
 
-            # 대화 자동 저장 (백그라운드)
-            try:
-                current_team = st.session_state.get("current_team", "CIC 봄날")
-                current_conv_id = st.session_state.get("current_conversation_id")
-                new_conv_id = save_conversation(
-                    current_team,
-                    st.session_state.unified_messages,
-                    conversation_id=current_conv_id
-                )
-                if not current_conv_id and new_conv_id:
-                    # 첫 저장
-                    st.session_state.current_conversation_id = new_conv_id
-            except Exception as e:
-                logger.warning(f"대화 자동 저장 실패: {e}")
+    # 채팅 입력
+    user_input = st.chat_input("메시지를 입력하세요...", key="unified_chat_input")
 
-    st.rerun()
+with chat_col:
+    # 빠른 명령어 처리
+    if "quick_cmd" in st.session_state:
+        user_input = st.session_state.quick_cmd
+        del st.session_state.quick_cmd
+
+    # 메시지 처리
+    if user_input:
+        # 파일 컨텍스트 추가
+        context_info = ""
+        if st.session_state.unified_files:
+            paths_str = ", ".join(st.session_state.unified_files)
+            if "파일" not in user_input and "분석" not in user_input:
+                context_info = f"\n[업로드된 파일: {paths_str}]"
+
+        full_message = user_input + context_info
+        st.session_state.unified_messages.append({"role": "user", "content": user_input})
+
+        report_context_text = None
+        if st.session_state.get("report_panel_enabled") and chapter_order:
+            idx = st.session_state.get("report_chapter_index", 0)
+            idx = max(0, min(idx, len(chapter_order) - 1))
+            current_chapter = chapter_order[idx]
+            file_context = ""
+            if st.session_state.unified_files:
+                file_context = f"업로드 파일: {', '.join(st.session_state.unified_files)}"
+            report_context_text = "\n".join(filter(None, [
+                file_context,
+                f"현재 작성 챕터: {current_chapter}.\n"
+                "이 챕터만 작성하고 다른 챕터는 출력하지 마세요.\n"
+                "형식: ### 챕터 제목 → 요약/근거/심사 판단 포함.\n"
+                "마지막에 ### 검증 로그(해당 챕터) 포함.",
+            ]))
+
+        with chat_container:
+            with st.chat_message("assistant", avatar=avatar_image):
+                response_placeholder = st.empty()
+
+                agent = st.session_state.agent
+
+                try:
+                    if len(st.session_state.unified_messages) >= 15:
+                        with st.status("📝 대화 내용 요약 중...", expanded=True) as status:
+                            status.write("💬 15개 이상의 메시지를 압축하고 있습니다.")
+                            status.write("⏳ Claude Haiku API로 이전 대화를 요약하는 중입니다...")
+                            status.write("🔒 잠시만 기다려주세요. (중복 요청 방지)")
+
+                            api_key = st.session_state.get("user_api_key", "")
+                            compacted_messages, success = compact_conversation(
+                                st.session_state.unified_messages,
+                                api_key
+                            )
+                            st.session_state.unified_messages = compacted_messages
+
+                            if success:
+                                status.update(label="✅ 대화 요약 완료!", state="complete", expanded=False)
+                                st.toast("대화가 길어져 이전 내용을 요약했습니다", icon="📝")
+                            else:
+                                status.update(label="⚠️ 요약 실패 (기존 방식 사용)", state="error", expanded=False)
+
+                    if st.session_state.get("report_panel_enabled"):
+                        tool_logs = []
+
+                        async def stream_response():
+                            full_response = ""
+                            async for chunk in agent.chat(
+                                full_message,
+                                mode=st.session_state.get("unified_mode", "report"),
+                                context_text=report_context_text,
+                                model_override="claude-opus-4-5-20251101",
+                            ):
+                                if "**도구:" in chunk:
+                                    tool_logs.append(chunk.strip())
+                                else:
+                                    full_response += chunk
+                                    response_placeholder.markdown(full_response + "▌")
+                                    if report_stream_placeholder is not None:
+                                        report_stream_placeholder.markdown(full_response + "▌")
+                            response_placeholder.markdown(full_response)
+                            if report_stream_placeholder is not None:
+                                report_stream_placeholder.markdown(full_response)
+                            return full_response
+
+                        full_response = asyncio.run(stream_response())
+                    else:
+                        with st.spinner("🤖 생각 중..."):
+                            full_response = agent.chat_sync(
+                                full_message,
+                                mode=st.session_state.get("unified_mode", "unified"),
+                            )
+                            tool_logs = []
+                except Exception as e:
+                    full_response = f"오류가 발생했습니다: {str(e)}"
+                    tool_logs = []
+
+                response_placeholder.markdown(full_response)
+
+                st.session_state.unified_messages.append({
+                    "role": "assistant",
+                    "content": full_response,
+                    "tool_logs": tool_logs
+                })
+
+                if st.session_state.get("report_panel_enabled") and chapter_order:
+                    st.session_state.report_chapters[current_chapter] = full_response
+                    st.session_state.report_edit_buffer = full_response
+                    st.session_state.report_chapter_status[current_chapter] = "draft"
+                    st.session_state.report_draft_content = _compose_full_draft(
+                        st.session_state.report_chapters,
+                        chapter_order,
+                    )
+
+                try:
+                    current_team = st.session_state.get("current_team", "CIC 봄날")
+                    current_conv_id = st.session_state.get("current_conversation_id")
+                    new_conv_id = save_conversation(
+                        current_team,
+                        st.session_state.unified_messages,
+                        conversation_id=current_conv_id
+                    )
+                    if not current_conv_id and new_conv_id:
+                        st.session_state.current_conversation_id = new_conv_id
+                except Exception as e:
+                    logger.warning(f"대화 자동 저장 실패: {e}")
+
+        st.rerun()
 
 # ========================================
 # 팁 로테이션 배너
