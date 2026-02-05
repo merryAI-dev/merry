@@ -8,6 +8,7 @@ import asyncio
 import re
 from datetime import datetime
 import io
+import textwrap
 from pathlib import Path
 from typing import Optional
 import streamlit as st
@@ -478,6 +479,12 @@ if "report_preparse_stage2_md" not in st.session_state:
     st.session_state.report_preparse_stage2_md = ""
 if "report_md_imported_at" not in st.session_state:
     st.session_state.report_md_imported_at = None
+if "report_evidence_pack_md" not in st.session_state:
+    st.session_state.report_evidence_pack_md = ""
+if "report_evidence_pack_at" not in st.session_state:
+    st.session_state.report_evidence_pack_at = None
+if "report_evidence_pack_status" not in st.session_state:
+    st.session_state.report_evidence_pack_status = "idle"
 
 if st.session_state.get("report_panel_enabled"):
     st.markdown(
@@ -686,12 +693,90 @@ def _parse_md_sections(md_text: str) -> dict:
 
 
 def _restore_from_md(md_text: str) -> None:
+    if md_text.lstrip().startswith("# Investment Review Evidence Pack"):
+        st.session_state.report_evidence_pack_md = md_text
+        st.session_state.report_evidence_pack_at = datetime.now().isoformat()
+        st.session_state.report_md_imported_at = datetime.now().isoformat()
+        return
     parsed = _parse_md_sections(md_text)
     st.session_state.report_preparse_stage1_md = parsed.get("stage1", "")
     st.session_state.report_preparse_stage2_md = parsed.get("stage2", "")
     st.session_state.report_preparse_summary = parsed.get("summary", [])
     st.session_state.report_preparse_at = datetime.now().isoformat()
     st.session_state.report_md_imported_at = datetime.now().isoformat()
+
+
+def _collect_market_evidence(results: dict, max_items: int = 30) -> list:
+    items = []
+    for path, info in (results or {}).items():
+        evidence = info.get("market_evidence", {})
+        if not isinstance(evidence, dict):
+            continue
+        for entry in evidence.get("evidence", [])[:max_items]:
+            items.append({
+                "file": Path(path).name,
+                "page": entry.get("page"),
+                "text": entry.get("text"),
+                "numbers": entry.get("numbers", []),
+            })
+            if len(items) >= max_items:
+                return items
+    return items
+
+
+def _build_evidence_pack_prompt(stage1_md: str, evidence_items: list) -> str:
+    evidence_lines = []
+    for item in evidence_items:
+        page = item.get("page")
+        page_text = f"p.{page}" if page else "p.?"
+        text = (item.get("text") or "").strip()
+        numbers = item.get("numbers") or []
+        number_str = ", ".join(numbers) if numbers else ""
+        evidence_lines.append(
+            f"- [{item.get('file')}] {page_text}: {text} {number_str}".strip()
+        )
+
+    evidence_block = "\n".join(evidence_lines) if evidence_lines else "- (근거 없음)"
+
+    return textwrap.dedent(
+        f"""
+        당신은 시니어 VC 심사역입니다. 아래 제공된 자료만으로 **Evidence Pack MD**를 작성하세요.
+
+        출력 형식은 반드시 다음 템플릿을 따르세요:
+
+        # Investment Review Evidence Pack
+        - company: <기업명 또는 unknown>
+        - created_at: <ISO datetime>
+        - source_files: [파일명 리스트]
+
+        ## I. 투자 개요
+        ### 요약
+        - ...
+        ### 근거 문항
+        - [근거-1] 출처: ...
+        ### HF 검증
+        - [ ] ...
+
+        ...
+
+        ## VIII. 종합 결론
+        ### 요약
+        ### 근거 문항
+        ### HF 검증
+
+        규칙:
+        - 반드시 각 챕터별로 요약/근거/HF 검증을 포함
+        - 근거 문항은 최소 5개, 출처는 파일+페이지로 표기
+        - 자료가 부족하면 "판단 유보(근거 부족)"으로 명시
+        - 불필요한 서론/설명 없이 MD만 출력
+
+        [Stage1 Markdown]
+        {stage1_md}
+
+        [Market Evidence]
+        {evidence_block}
+        """
+    ).strip()
 
 def _preparse_report_files(
     max_pages: int,
@@ -990,13 +1075,54 @@ if use_report_panel and report_col is not None:
                     st.table(summary)
 
                 md_content, md_label = _build_preparse_md()
+                evidence_pack_md = st.session_state.get("report_evidence_pack_md")
+                if evidence_pack_md:
+                    md_content = evidence_pack_md
+                    md_label = _derive_company_label(files)
                 st.download_button(
-                    label="MD 다운로드",
+                    label="Evidence Pack MD 다운로드",
                     data=md_content,
-                    file_name=f"merryparse_{md_label}_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
+                    file_name=f"evidence_pack_{md_label}_{datetime.now().strftime('%Y%m%d_%H%M')}.md",
                     mime="text/markdown",
                     use_container_width=True,
                 )
+
+                with st.expander("Evidence Pack 생성 (Opus)", expanded=False):
+                    if st.session_state.report_evidence_pack_status == "running":
+                        st.info("Evidence Pack 생성 중입니다...")
+                    if st.button("Evidence Pack 생성", use_container_width=True):
+                        api_key = st.session_state.get("user_api_key") or st.secrets.get("anthropic_api_key", "")
+                        if not api_key:
+                            st.error("Claude API Key가 필요합니다.")
+                        else:
+                            st.session_state.report_evidence_pack_status = "running"
+                            stage1_md = st.session_state.get("report_preparse_stage1_md") or _build_stage1_markdown(
+                                st.session_state.get("report_preparse_results", {})
+                            )
+                            if len(stage1_md) > 20000:
+                                stage1_md = stage1_md[:20000] + "\n\n...(truncated)"
+                            evidence_items = _collect_market_evidence(
+                                st.session_state.get("report_preparse_results", {})
+                            )
+                            prompt = _build_evidence_pack_prompt(stage1_md, evidence_items)
+                            try:
+                                from anthropic import Anthropic
+                                client = Anthropic(api_key=api_key)
+                                response = client.messages.create(
+                                    model="claude-opus-4-5-20251101",
+                                    max_tokens=6000,
+                                    temperature=0.2,
+                                    messages=[{"role": "user", "content": prompt}],
+                                )
+                                text = response.content[0].text if response.content else ""
+                                st.session_state.report_evidence_pack_md = text.strip()
+                                st.session_state.report_evidence_pack_at = datetime.now().isoformat()
+                                st.session_state.report_evidence_pack_status = "done"
+                                st.success("Evidence Pack 생성 완료")
+                                st.rerun()
+                            except Exception as exc:
+                                st.session_state.report_evidence_pack_status = "idle"
+                                st.error(f"Evidence Pack 생성 실패: {exc}")
 
                 md_upload = st.file_uploader(
                     "MD 업로드 (복구)",
@@ -1334,6 +1460,8 @@ with chat_col:
             report_context_text = "\n".join(filter(None, [
                 file_context,
                 preparse_context,
+                (st.session_state.report_evidence_pack_md[:4000] + "\n...(Evidence Pack truncated)")
+                if st.session_state.get("report_evidence_pack_md") else None,
                 f"현재 작성 챕터: {current_chapter}.\n"
                 "이 챕터만 작성하고 다른 챕터는 출력하지 마세요.\n"
                 "형식: ### 챕터 제목 → 요약/근거/심사 판단 포함.\n"
