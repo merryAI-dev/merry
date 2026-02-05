@@ -1647,7 +1647,10 @@ if use_report_panel and report_col is not None:
                 try:
                     md_text = md_upload.getvalue().decode("utf-8", errors="ignore")
                     _restore_from_md(md_text)
-                    st.success("MD 복구 완료. 파싱 요약을 다시 확인하세요.")
+                    if md_text.lstrip().startswith("# Investment Review Evidence Pack"):
+                        st.success("Evidence Pack MD 로드 완료. 바로 챕터 작성을 시작할 수 있습니다.")
+                    else:
+                        st.success("MD 복구 완료. 파싱 요약을 다시 확인하세요.")
                     st.rerun()
                 except Exception as exc:
                     st.error(f"MD 복구 실패: {exc}")
@@ -1793,7 +1796,11 @@ if use_report_panel and report_col is not None:
 
         report_status_placeholder = st.empty()
         report_log_placeholder = st.empty()
-        report_status_placeholder.markdown("⏳ 상태: 대기 중")
+        # Evidence Pack MD가 있으면 준비 완료 상태 표시
+        if st.session_state.get("report_evidence_pack_md"):
+            report_status_placeholder.markdown("✅ 상태: Evidence Pack 로드됨 - 챕터 작성 가능")
+        else:
+            report_status_placeholder.markdown("⏳ 상태: 대기 중")
         report_log_placeholder.markdown("도구 로그: 없음")
 
         report_stream_placeholder = st.empty()
@@ -2086,10 +2093,11 @@ with chat_col:
             has_md = bool(st.session_state.get("report_evidence_pack_md"))
             if not has_files and not has_md:
                 guidance = (
-                    "투자심사 보고서를 이어서 작성하려면 자료가 필요합니다.\n"
-                    "- 방법 1: 오른쪽 패널에서 파일을 드래그앤드롭 후 ‘완료(일괄 파싱)’\n"
-                    "- 방법 2: Evidence Pack MD를 업로드하여 바로 이어쓰기\n"
-                    "필요한 자료를 업로드하면 즉시 계속 작성할 수 있습니다."
+                    "투자심사 보고서를 작성하려면 자료가 필요합니다.\n\n"
+                    "**방법 1: Evidence Pack MD 업로드 (추천)**\n"
+                    "오른쪽 패널 하단에서 MD 파일을 업로드하면 바로 작성을 시작합니다.\n\n"
+                    "**방법 2: PDF 파일 업로드 후 파싱**\n"
+                    "오른쪽 패널에서 파일을 드래그앤드롭 후 'PDF 분석 시작' 클릭"
                 )
                 st.session_state.unified_messages.append({
                     "role": "assistant",
