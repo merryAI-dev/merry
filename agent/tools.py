@@ -217,6 +217,62 @@ def _validate_file_path(file_path: str, allowed_extensions: List[str] = None, re
     return True, None
 
 
+def _resolve_temp_file_path(file_path: str) -> tuple[str, Optional[str]]:
+    """temp/ 하위에서 파일 경로를 보정 (basename만 있어도 검색)"""
+    if not file_path:
+        return file_path, "파일 경로가 비어있습니다"
+
+    temp_dir = (PROJECT_ROOT / "temp").resolve()
+    try:
+        path = Path(file_path)
+    except Exception:
+        return file_path, "파일 경로를 해석할 수 없습니다"
+
+    # 절대 경로 + temp 하위라면 그대로 사용
+    try:
+        resolved = path.resolve()
+        if resolved.is_absolute():
+            try:
+                resolved.relative_to(temp_dir)
+                return str(resolved), None
+            except ValueError:
+                pass
+    except Exception:
+        pass
+
+    # 상대 경로가 temp/ 로 시작하면 프로젝트 루트 기준으로 보정
+    if not path.is_absolute() and str(path).startswith("temp"):
+        candidate = (PROJECT_ROOT / path).resolve()
+        try:
+            candidate.relative_to(temp_dir)
+            if candidate.exists():
+                return str(candidate), None
+        except ValueError:
+            pass
+
+    # basename만 들어왔을 경우 temp/ 하위에서 검색
+    basename = path.name
+    if not basename:
+        return file_path, "파일명이 비어있습니다"
+
+    try:
+        matches = list(temp_dir.rglob(basename))
+    except Exception:
+        return file_path, "temp 디렉토리 검색에 실패했습니다"
+
+    if not matches:
+        return file_path, f"temp/ 하위에서 '{basename}'를 찾지 못했습니다"
+
+    if len(matches) > 1:
+        try:
+            matches.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+        except Exception:
+            pass
+        logger.warning("Multiple temp matches for %s. Using latest: %s", basename, matches[0])
+
+    return str(matches[0].resolve()), None
+
+
 def _validate_numeric_param(value: Any, param_name: str, min_val: float = None, max_val: float = None) -> tuple:
     """
     숫자 파라미터 검증
@@ -1359,9 +1415,14 @@ def execute_read_excel_as_text(
     max_rows: int = 50
 ) -> Dict[str, Any]:
     """엑셀 파일을 텍스트로 변환하여 읽기"""
+    resolved_path, resolve_error = _resolve_temp_file_path(excel_path)
+    if resolved_path:
+        excel_path = resolved_path
     # 입력 검증: 파일 경로 (temp 디렉토리 내부만 허용)
     is_valid, error = _validate_file_path(excel_path, allowed_extensions=['.xlsx', '.xls'], require_temp_dir=True)
     if not is_valid:
+        if resolve_error:
+            error = f"{error} (경로 검색 실패: {resolve_error})"
         return {"success": False, "error": error}
 
     wb = None
@@ -3367,8 +3428,13 @@ def execute_extract_pdf_market_evidence(
     keywords: List[str] = None
 ) -> Dict[str, Any]:
     """PDF에서 시장규모 근거 문장을 추출"""
+    resolved_path, resolve_error = _resolve_temp_file_path(pdf_path)
+    if resolved_path:
+        pdf_path = resolved_path
     is_valid, error = _validate_file_path(pdf_path, allowed_extensions=['.pdf'], require_temp_dir=True)
     if not is_valid:
+        if resolve_error:
+            error = f"{error} (경로 검색 실패: {resolve_error})"
         return {"success": False, "error": error}
 
     if not os.path.exists(pdf_path):
@@ -3630,9 +3696,14 @@ def execute_read_pdf_as_text(
 
     Dolphin 사용 불가 시 PyMuPDF로 자동 폴백합니다.
     """
+    resolved_path, resolve_error = _resolve_temp_file_path(pdf_path)
+    if resolved_path:
+        pdf_path = resolved_path
     # 입력 검증: 파일 경로 (temp 디렉토리 내부만 허용)
     is_valid, error = _validate_file_path(pdf_path, allowed_extensions=['.pdf'], require_temp_dir=True)
     if not is_valid:
+        if resolve_error:
+            error = f"{error} (경로 검색 실패: {resolve_error})"
         return {"success": False, "error": error}
 
     # 파일 존재 확인
@@ -3754,8 +3825,13 @@ def execute_read_docx_as_text(
     max_paragraphs: int = 200,
 ) -> Dict[str, Any]:
     """DOCX 파일을 텍스트로 변환하여 읽기"""
+    resolved_path, resolve_error = _resolve_temp_file_path(docx_path)
+    if resolved_path:
+        docx_path = resolved_path
     is_valid, error = _validate_file_path(docx_path, allowed_extensions=['.docx'], require_temp_dir=True)
     if not is_valid:
+        if resolve_error:
+            error = f"{error} (경로 검색 실패: {resolve_error})"
         return {"success": False, "error": error}
 
     if not os.path.exists(docx_path):
