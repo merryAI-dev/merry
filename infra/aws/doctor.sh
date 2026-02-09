@@ -7,9 +7,14 @@ if ! command -v aws >/dev/null 2>&1; then
 fi
 
 AWS_REGION="${AWS_REGION:-ap-northeast-2}"
-MERRY_S3_BUCKET="${MERRY_S3_BUCKET:-merry-private-apne2}"
+MERRY_S3_BUCKET="${MERRY_S3_BUCKET:-}"
 MERRY_DDB_TABLE="${MERRY_DDB_TABLE:-merry-main}"
 MERRY_SQS_QUEUE_NAME="${MERRY_SQS_QUEUE_NAME:-merry-analysis-jobs}"
+
+if [[ -z "$MERRY_S3_BUCKET" ]]; then
+  echo "ERROR: MERRY_S3_BUCKET is required (S3 bucket name in ap-northeast-2)." >&2
+  exit 1
+fi
 
 echo "[doctor] region=$AWS_REGION"
 

@@ -7,10 +7,15 @@ if ! command -v aws >/dev/null 2>&1; then
 fi
 
 AWS_REGION="${AWS_REGION:-ap-northeast-2}"
-MERRY_S3_BUCKET="${MERRY_S3_BUCKET:-merry-private-apne2}"
+MERRY_S3_BUCKET="${MERRY_S3_BUCKET:-}"
 MERRY_DDB_TABLE="${MERRY_DDB_TABLE:-merry-main}"
 MERRY_SQS_QUEUE_NAME="${MERRY_SQS_QUEUE_NAME:-merry-analysis-jobs}"
 MERRY_SQS_DLQ_NAME="${MERRY_SQS_DLQ_NAME:-${MERRY_SQS_QUEUE_NAME}-dlq}"
+
+if [[ -z "$MERRY_S3_BUCKET" ]]; then
+  echo "ERROR: MERRY_S3_BUCKET is required (create an S3 bucket in ap-northeast-2 and export it)." >&2
+  exit 1
+fi
 
 export AWS_REGION
 export MERRY_S3_BUCKET
