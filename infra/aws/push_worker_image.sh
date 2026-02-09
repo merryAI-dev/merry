@@ -13,6 +13,8 @@ fi
 AWS_REGION="${AWS_REGION:-ap-northeast-2}"
 MERRY_ECR_REPO="${MERRY_ECR_REPO:-merry-worker}"
 IMAGE_TAG="${IMAGE_TAG:-latest}"
+PLATFORMS="${PLATFORMS:-linux/amd64,linux/arm64}"
+BUILDER_NAME="${BUILDER_NAME:-merry-builder}"
 
 aws sts get-caller-identity --region "$AWS_REGION" >/dev/null
 ACCOUNT_ID="$(aws sts get-caller-identity --region "$AWS_REGION" --query Account --output text)"
@@ -30,13 +32,20 @@ fi
 echo "[push] logging into ECR..."
 aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "${ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com" >/dev/null
 
-echo "[push] building worker image..."
-docker build -f worker/Dockerfile -t "merry-worker:${IMAGE_TAG}" . >/dev/null
+echo "[push] preparing buildx builder..."
+if docker buildx inspect "$BUILDER_NAME" >/dev/null 2>&1; then
+  docker buildx use "$BUILDER_NAME" >/dev/null
+else
+  docker buildx create --name "$BUILDER_NAME" --use >/dev/null
+fi
 
-echo "[push] tagging + pushing: ${REPO_URI}:${IMAGE_TAG}"
-docker tag "merry-worker:${IMAGE_TAG}" "${REPO_URI}:${IMAGE_TAG}"
-docker push "${REPO_URI}:${IMAGE_TAG}" >/dev/null
+echo "[push] building + pushing worker image: ${REPO_URI}:${IMAGE_TAG} (platforms=${PLATFORMS})"
+docker buildx build \
+  --file worker/Dockerfile \
+  --platform "$PLATFORMS" \
+  --tag "${REPO_URI}:${IMAGE_TAG}" \
+  --push \
+  .
 
 echo "[push] done"
 echo "ECR_IMAGE=${REPO_URI}:${IMAGE_TAG}"
-
