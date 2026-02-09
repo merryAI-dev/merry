@@ -328,7 +328,12 @@ class FinancialTableExtractor:
         return [self._parse_single_numeric(v) for v in values]
 
     def _parse_single_numeric(self, value: Any) -> Optional[float]:
-        """단일 숫자 값 파싱"""
+        """단일 숫자 값 파싱 (복합 한국어 단위 지원).
+
+        "5억2천만" → 520,000,000
+        "1조3천억" → 1,300,000,000,000
+        "32억4500만원" → 3,245,000,000
+        """
         if value is None:
             return None
 
@@ -338,36 +343,100 @@ class FinancialTableExtractor:
         if not text or text in ["-", "N/A", "n/a", ""]:
             return None
 
-        # 숫자 추출
-        text = text.replace(",", "").replace(" ", "")
+        # 부호 감지 후 제거
+        negative = text.startswith("-") or text.startswith("△") or text.startswith("▲")
+        text = text.lstrip("-△▲")
 
-        # 단위 처리
-        multiplier = 1
-        if "조" in text:
-            multiplier = 1_000_000_000_000
-            text = text.replace("조", "")
-        elif "억" in text:
-            multiplier = 100_000_000
-            text = text.replace("억", "")
-        elif "백만" in text:
-            multiplier = 1_000_000
-            text = text.replace("백만", "")
-        elif "천만" in text:
-            multiplier = 10_000_000
-            text = text.replace("천만", "")
-        elif "만" in text:
-            multiplier = 10_000
-            text = text.replace("만", "")
+        # 통화/단위 접미사 제거
+        text = re.sub(r"[원달러$%\s,]", "", text)
 
-        # 숫자 파싱
+        # 한국어 단위가 하나라도 있으면 복합 파싱
+        if re.search(r"[조억천백만]", text):
+            return self._parse_korean_compound(text, negative)
+
+        # 순수 숫자
         try:
             num_match = re.search(r"-?[\d.]+", text)
             if num_match:
-                return float(num_match.group()) * multiplier
+                result = float(num_match.group())
+                return -result if negative else result
         except ValueError:
             pass
 
         return None
+
+    @staticmethod
+    def _parse_coeff(num_part: str) -> float:
+        """계수 문자열에서 천/백 sub-multiplier를 처리.
+
+        "3천" → 3000, "2천5백" → 2500, "15백" → 1500, "42" → 42, "" → 1
+        """
+        if not num_part:
+            return 1.0
+
+        total = 0.0
+        remaining = num_part
+
+        for sub_unit, sub_mult in [("천", 1000), ("백", 100)]:
+            if sub_unit in remaining:
+                parts = remaining.split(sub_unit, 1)
+                left = parts[0].strip()
+                remaining = parts[1] if len(parts) > 1 else ""
+                sub_coeff = 1.0
+                if left:
+                    m = re.search(r"[\d.]+", left)
+                    if m:
+                        sub_coeff = float(m.group())
+                total += sub_coeff * sub_mult
+
+        if remaining:
+            m = re.search(r"[\d.]+", remaining)
+            if m:
+                total += float(m.group())
+
+        return total if total > 0 else 1.0
+
+    def _parse_korean_compound(self, text: str, negative: bool = False) -> Optional[float]:
+        """복합 한국어 숫자를 순차 파싱.
+
+        큰 단위부터 분리하여 누적합산:
+        조(1e12) → 억(1e8) → 천만(1e7) → 백만(1e6) → 만(1e4)
+
+        각 단위 앞의 계수는 천/백 sub-multiplier도 처리:
+        "3천억" → 3000 * 1e8 = 3e11
+        """
+        total = 0.0
+        remaining = text
+
+        # (단위문자, 승수) — 큰 단위부터, 천만/백만은 만 앞에 처리
+        units = [
+            ("조", 1_000_000_000_000),
+            ("억", 100_000_000),
+            ("천만", 10_000_000),
+            ("백만", 1_000_000),
+            ("만", 10_000),
+        ]
+
+        for unit_str, multiplier in units:
+            if unit_str not in remaining:
+                continue
+            parts = remaining.split(unit_str, 1)
+            num_part = parts[0].strip()
+            remaining = parts[1] if len(parts) > 1 else ""
+
+            coeff = self._parse_coeff(num_part)
+            total += coeff * multiplier
+
+        # 잔여 숫자 (예: "5억200" 같은 경우)
+        if remaining:
+            m = re.search(r"[\d.]+", remaining)
+            if m:
+                total += float(m.group())
+
+        if total == 0.0:
+            return None
+
+        return -total if negative else total
 
 
 def extract_financial_tables(

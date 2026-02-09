@@ -16,6 +16,7 @@ from shared.config import initialize_session_state, get_avatar_image, get_user_a
 from shared.auth import check_authentication, get_user_email, get_user_api_key
 from shared.sidebar import render_sidebar
 from shared.discovery_store import DiscoveryRecordStore
+from shared.ui import render_page_header
 
 # 에이전트 임포트
 from agent.discovery_agent import DiscoveryAgent, run_discovery_analysis, run_fusion_proposals
@@ -219,7 +220,10 @@ def save_uploaded_file(uploaded_file):
 # ========================================
 # 메인 영역
 # ========================================
-st.markdown("# 스타트업 발굴 지원")
+render_page_header(
+    "스타트업 발굴 지원",
+    "정부 정책 자료와 IRIS+ 임팩트 기준으로 유망 산업을 분석합니다.",
+)
 st.markdown("정부 정책 자료를 분석하고 IRIS+ 임팩트 기준으로 유망 산업을 추천합니다.")
 
 # 가이드 표시 (분석 전에만)

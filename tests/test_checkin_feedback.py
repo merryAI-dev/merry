@@ -2,9 +2,12 @@
 체크인 피드백 기능 TDD 테스트
 """
 
+import os
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 # 프로젝트 루트 추가
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -245,6 +248,10 @@ class TestCheckinPageIntegration:
         print("✅ 페이지 정보 추출 테스트 성공")
 
 
+@pytest.mark.skipif(
+    os.getenv("RUN_REAL_SUPABASE_TESTS") != "1",
+    reason="Real Supabase integration tests are opt-in. Set RUN_REAL_SUPABASE_TESTS=1 to run.",
+)
 class TestRealSupabase:
     """실제 Supabase 연결 테스트"""
 

@@ -26,13 +26,13 @@ class ConversationalVCAgent:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "claude-sonnet-4",
+        model: str = "claude-sonnet-4-5-20250929",
         user_id: Optional[str] = None,
     ):
         """
         Args:
             api_key: Anthropic API 키 (없으면 환경변수에서 로드)
-            model: 사용할 모델 (claude-sonnet-4, claude-opus-4 등)
+            model: 사용할 모델 (claude-sonnet-4-5-20250929, claude-opus-4-6 등)
             user_id: 세션 저장용 사용자 ID (없으면 anonymous)
         """
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")

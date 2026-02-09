@@ -50,7 +50,7 @@ class VCAgent:
     def __init__(
         self,
         api_key: str = None,
-        model: str = "claude-opus-4-5-20251101",
+        model: str = "claude-opus-4-6",
         user_id: str = None,
         member_name: str = None,
         team_id: str = None,

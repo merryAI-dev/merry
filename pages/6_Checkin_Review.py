@@ -12,6 +12,7 @@ import streamlit as st
 from shared.auth import check_authentication, get_user_id, get_user_email, get_user_api_key
 from shared.config import initialize_session_state, inject_custom_css
 from shared.team_tasks import TeamTaskStore, STATUS_LABELS, format_remaining_kst, normalize_status
+from shared.ui import render_page_header
 
 # 발굴 분석 임포트
 try:
@@ -79,8 +80,10 @@ if VOICE_LOGS_IMPORT_ERROR:
     st.caption("Streamlit Cloud 로그에서 상세 원인을 확인해주세요.")
     st.stop()
 
-st.markdown("# 체크인 기록")
-st.caption("Supabase에 저장된 체크인 요약과 원본 로그를 확인합니다.")
+render_page_header(
+    "체크인 기록",
+    "Supabase에 저장된 체크인 요약과 원본 로그를 확인합니다.",
+)
 
 # ========================================
 # 스타트업 발굴 추천 (있으면 표시)

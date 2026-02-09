@@ -23,7 +23,7 @@ def cli():
 
 
 @cli.command()
-@click.option("--model", default="claude-opus-4-5-20251101", help="사용할 Claude 모델 (기본: Opus 4.5)")
+@click.option("--model", default="claude-opus-4-6", help="사용할 Claude 모델 (기본: Opus 4.5)")
 @click.option(
     "--mode",
     type=click.Choice(["exit", "peer", "diagnosis", "report"], case_sensitive=False),
@@ -88,7 +88,7 @@ def chat(model, mode):
 
 
 @cli.command()
-@click.option("--model", default="claude-opus-4-5-20251101", help="사용할 Claude 모델 (기본: Opus 4.5)")
+@click.option("--model", default="claude-opus-4-6", help="사용할 Claude 모델 (기본: Opus 4.5)")
 @click.option("--language", default="Korean", show_default=True, help="응답 언어 (예: Korean, English)")
 def critic(model, language):
     """근거/의견/피드백 비판을 포함하는 상호작용 에이전트"""
@@ -149,7 +149,7 @@ def critic(model, language):
 
 @cli.command()
 @click.argument("input_file", type=click.Path(exists=True))
-@click.option("--model", default="claude-opus-4-5-20251101", help="사용할 Claude 모델 (기본: Opus 4.5)")
+@click.option("--model", default="claude-opus-4-6", help="사용할 Claude 모델 (기본: Opus 4.5)")
 @click.option(
     "--mode",
     type=click.Choice(["exit", "peer", "diagnosis", "report"], case_sensitive=False),
@@ -205,7 +205,7 @@ def analyze(input_file, model, mode):
 
 
 @cli.command()
-@click.option("--model", default="claude-opus-4-5-20251101", help="사용할 Claude 모델 (기본: Opus 4.5)")
+@click.option("--model", default="claude-opus-4-6", help="사용할 Claude 모델 (기본: Opus 4.5)")
 def test(model):
     """에이전트 연결 테스트"""
 
@@ -230,7 +230,7 @@ def test(model):
 @click.argument("goal_text", type=str)
 @click.option("--file", "-f", help="엑셀 파일 경로")
 @click.option("--params", "-p", help="추가 파라미터 (JSON 형식)")
-@click.option("--model", default="claude-opus-4-5-20251101", help="사용할 Claude 모델 (기본: Opus 4.5)")
+@click.option("--model", default="claude-opus-4-6", help="사용할 Claude 모델 (기본: Opus 4.5)")
 def goal(goal_text, file, params, model):
     """
     Goal 기반 자율 실행 (True Agent)

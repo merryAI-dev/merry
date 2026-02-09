@@ -8,12 +8,19 @@ import json
 import os
 from datetime import datetime, timedelta
 import pandas as pd
+import altair as alt
 
+from shared.config import inject_custom_css
+from shared.ui import render_page_header
 
 st.set_page_config(page_title="공공입찰 검색", page_icon="🏛️", layout="wide")
 
-st.title("🏛️ 공공입찰 검색")
-st.markdown("나라장터 입찰공고를 검색하고 분석합니다.")
+inject_custom_css()
+
+render_page_header(
+    "공공입찰 검색",
+    "나라장터 입찰공고를 검색하고 분석합니다.",
+)
 
 # API 설정
 API_KEY = os.environ.get("G2B_API_KEY", "")
@@ -369,8 +376,29 @@ if st.button("🔍 검색", type="primary", use_container_width=True):
         # 발주기관별 현황
         if "발주기관" in df.columns:
             st.markdown("**발주기관별 공고 수**")
-            org_counts = df["발주기관"].value_counts().head(10)
-            st.bar_chart(org_counts)
+            org_counts = df["발주기관"].value_counts().head(10).reset_index()
+            org_counts.columns = ["발주기관", "공고 수"]
+
+            chart = (
+                alt.Chart(org_counts)
+                .mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6)
+                .encode(
+                    x=alt.X("공고 수:Q", title="공고 수"),
+                    y=alt.Y("발주기관:N", sort="-x", title="발주기관"),
+                    color=alt.value("#4318ff"),
+                    tooltip=["발주기관", "공고 수"]
+                )
+                .properties(height=320)
+                .configure_view(strokeWidth=0)
+                .configure_axis(
+                    labelColor="#718096",
+                    titleColor="#1a202c",
+                    gridColor="#e2e8f0",
+                    tickColor="#e2e8f0"
+                )
+            )
+
+            st.altair_chart(chart, use_container_width=True)
 
     else:
         st.warning("검색 결과가 없습니다.")

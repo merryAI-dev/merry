@@ -174,7 +174,7 @@ MASK_TOKEN_MAP = {
     "governing_law": "[MASKED]",
 }
 
-OCR_DEFAULT_MODEL = "claude-opus-4-5-20251101"
+OCR_DEFAULT_MODEL = "claude-opus-4-6"
 OCR_DEFAULT_DPI = 200
 OCR_DENSITY_DPI = 36
 OCR_FAST_DPI = 150

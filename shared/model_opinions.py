@@ -10,7 +10,7 @@ from typing import Dict, List
 from anthropic import Anthropic
 
 
-DEFAULT_CLAUDE_MODEL = "claude-opus-4-5-20251101"
+DEFAULT_CLAUDE_MODEL = "claude-opus-4-6"
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 
 

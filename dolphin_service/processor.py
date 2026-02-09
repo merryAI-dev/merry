@@ -15,11 +15,16 @@ from datetime import datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
-from dotenv import load_dotenv
+try:
+    # Optional in minimal/runtime environments (e.g., worker containers).
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover
+    load_dotenv = None
 
 # 프로젝트 루트의 .env 파일 로드 (절대 경로 사용)
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-load_dotenv(PROJECT_ROOT / ".env")
+if load_dotenv:
+    load_dotenv(PROJECT_ROOT / ".env")
 
 from .config import DOLPHIN_CONFIG
 from . import classifier as doc_classifier
@@ -42,6 +47,103 @@ def _rows_to_markdown(rows: List[List]) -> str:
         if i == 0:
             lines.append("| " + " | ".join(["---"] * len(cells)) + " |")
     return "\n".join(lines)
+
+
+def _llm_provider() -> str:
+    return (os.getenv("LLM_PROVIDER", "anthropic") or "anthropic").strip().lower()
+
+
+def _resolve_bedrock_model_id(model_hint: Optional[str]) -> str:
+    """Resolve a Bedrock modelId from a model hint.
+
+    - If model_hint already looks like a Bedrock modelId (anthropic.*), use it.
+    - Otherwise, map common Anthropic name hints to env-configured Bedrock IDs.
+    """
+    hint = (model_hint or "").strip()
+    if hint.startswith("anthropic."):
+        return hint
+
+    default = (os.getenv("BEDROCK_MODEL_ID") or "").strip()
+    if not default:
+        raise ValueError("Missing env BEDROCK_MODEL_ID (required when LLM_PROVIDER=bedrock)")
+
+    if not hint:
+        return default
+
+    h = hint.lower()
+    if "haiku" in h:
+        return (os.getenv("BEDROCK_HAIKU_MODEL_ID") or default).strip()
+    if "opus" in h:
+        return (os.getenv("BEDROCK_OPUS_MODEL_ID") or default).strip()
+    if "sonnet" in h:
+        return (os.getenv("BEDROCK_SONNET_MODEL_ID") or default).strip()
+    return default
+
+
+def _extract_text_blocks(content: object) -> str:
+    if not isinstance(content, list):
+        return ""
+    parts: List[str] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        if block.get("type") == "text" and isinstance(block.get("text"), str):
+            parts.append(block["text"])
+    return "\n".join(parts).strip()
+
+
+def _normalize_usage(usage: object) -> Dict[str, int]:
+    if not isinstance(usage, dict):
+        return {}
+    in_tok = usage.get("input_tokens") if isinstance(usage.get("input_tokens"), int) else usage.get("inputTokens")
+    out_tok = usage.get("output_tokens") if isinstance(usage.get("output_tokens"), int) else usage.get("outputTokens")
+    out: Dict[str, int] = {}
+    if isinstance(in_tok, int):
+        out["input_tokens"] = int(in_tok)
+    if isinstance(out_tok, int):
+        out["output_tokens"] = int(out_tok)
+    return out
+
+
+def _invoke_bedrock_anthropic_messages(
+    *,
+    model_id: str,
+    system_prompt: str,
+    content_blocks: List[Dict[str, Any]],
+    max_tokens: int,
+    temperature: float,
+    timeout_seconds: int,
+) -> tuple[str, Dict[str, int], str]:
+    import boto3
+    from botocore.config import Config
+
+    region = (os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "ap-northeast-2").strip()
+    client = boto3.client(
+        "bedrock-runtime",
+        region_name=region,
+        config=Config(connect_timeout=30, read_timeout=timeout_seconds, retries={"max_attempts": 4}),
+    )
+
+    payload = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "system": system_prompt,
+        "messages": [{"role": "user", "content": content_blocks}],
+    }
+
+    resp = client.invoke_model(
+        modelId=model_id,
+        contentType="application/json",
+        accept="application/json",
+        body=json.dumps(payload).encode("utf-8"),
+    )
+    raw = resp.get("body").read()
+    parsed = json.loads(raw)
+
+    text = _extract_text_blocks(parsed.get("content"))
+    usage = _normalize_usage(parsed.get("usage"))
+    return text, usage, model_id
 
 # 캐시 디렉토리
 CACHE_DIR = Path(os.getenv("PDF_CACHE_DIR", "/tmp/claude_pdf_cache"))
@@ -211,6 +313,9 @@ class ClaudeVisionProcessor:
                 "char_count": len(result.get("content", "")),
                 "structured_content": result.get("structured_content", {}),
                 "financial_tables": result.get("financial_tables", {}),
+                "usage": result.get("usage", {}),
+                "model": result.get("model", strategy.model),
+                "provider": result.get("provider", _llm_provider() if strategy.use_vision else "pymupdf"),
                 "doc_type": classification.doc_type.value,
                 "processing_method": (
                     "pymupdf_direct" if not strategy.use_vision
@@ -307,18 +412,15 @@ class ClaudeVisionProcessor:
             max_tokens_override: max_tokens 오버라이드 (0이면 기본값)
             page_offset: 청크의 시작 페이지 번호 (페이지 라벨에 사용)
         """
-        import httpx
-        import anthropic
-
-        # 타임아웃 설정 (5분)
-        timeout_config = httpx.Timeout(
-            timeout=DOLPHIN_CONFIG.get("timeout_seconds", 300),
-            connect=30.0,
-        )
-        client = anthropic.Anthropic(timeout=timeout_config)
+        timeout_seconds = int(DOLPHIN_CONFIG.get("timeout_seconds", 300))
+        provider = _llm_provider()
 
         # 프롬프트 구성 (prompts.py 레지스트리 사용)
-        system_prompt, user_prompt = prompt_registry.get_prompts(prompt_type, output_mode)
+        system_prompt, user_prompt = prompt_registry.get_prompts(
+            prompt_type,
+            output_mode=output_mode,
+            page_count=len(images_base64) or 1,
+        )
 
         # 이미지 콘텐츠 구성
         content = []
@@ -344,7 +446,30 @@ class ClaudeVisionProcessor:
         model = model_override or "claude-sonnet-4-5-20250929"
         max_tokens = max_tokens_override if max_tokens_override > 0 else 16384
 
-        # Claude API 호출 (시스템 프롬프트에 cache_control 적용)
+        if provider == "bedrock":
+            model_id = _resolve_bedrock_model_id(model)
+            response_text, usage, used_model_id = _invoke_bedrock_anthropic_messages(
+                model_id=model_id,
+                system_prompt=system_prompt,
+                content_blocks=content,
+                max_tokens=max_tokens,
+                temperature=0,
+                timeout_seconds=timeout_seconds,
+            )
+            parsed = self._parse_claude_response(response_text, output_mode)
+            parsed["provider"] = "bedrock"
+            parsed["model"] = used_model_id
+            if usage:
+                parsed["usage"] = usage
+            return parsed
+
+        # Anthropic direct API (fallback / legacy).
+        import httpx
+        import anthropic
+
+        timeout_config = httpx.Timeout(timeout=timeout_seconds, connect=30.0)
+        client = anthropic.Anthropic(timeout=timeout_config)
+
         response = client.messages.create(
             model=model,
             max_tokens=max_tokens,
@@ -355,17 +480,17 @@ class ClaudeVisionProcessor:
                     "cache_control": {"type": "ephemeral"},
                 }
             ],
-            messages=[
-                {
-                    "role": "user",
-                    "content": content
-                }
-            ]
+            messages=[{"role": "user", "content": content}],
         )
 
-        # 응답 파싱
         response_text = response.content[0].text if response.content else ""
-        return self._parse_claude_response(response_text, output_mode)
+        parsed = self._parse_claude_response(response_text, output_mode)
+        parsed["provider"] = "anthropic"
+        parsed["model"] = model
+        usage = _normalize_usage(getattr(response, "usage", {}) or {})
+        if usage:
+            parsed["usage"] = usage
+        return parsed
 
     def _process_chunks_parallel(
         self,
@@ -646,26 +771,41 @@ class InteractiveAnalysisSession:
         """
         import json
         import re
-        import anthropic
 
         try:
-            client = anthropic.Anthropic()
             prompt = self._get_text_parsing_prompt(text, data_type)
 
-            response = client.messages.create(
-                model="claude-haiku-4-5-20251001",  # 텍스트 파싱은 Haiku로 충분 (비용 95% 절감)
-                max_tokens=4096,
-                system=[
-                    {
-                        "type": "text",
-                        "text": self.processor._get_system_prompt(),
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ],
-                messages=[{"role": "user", "content": prompt}]
-            )
+            provider = _llm_provider()
+            if provider == "bedrock":
+                # Prefer a cheaper model when available.
+                model_hint = os.getenv("DOLPHIN_TEXT_MODEL") or "claude-haiku-4-5-20251001"
+                model_id = _resolve_bedrock_model_id(model_hint)
+                response_text, _, _ = _invoke_bedrock_anthropic_messages(
+                    model_id=model_id,
+                    system_prompt=self.processor._get_system_prompt(),
+                    content_blocks=[{"type": "text", "text": prompt}],
+                    max_tokens=4096,
+                    temperature=0,
+                    timeout_seconds=int(DOLPHIN_CONFIG.get("timeout_seconds", 300)),
+                )
+            else:
+                import anthropic
 
-            response_text = response.content[0].text
+                client = anthropic.Anthropic()
+                response = client.messages.create(
+                    model="claude-haiku-4-5-20251001",  # 텍스트 파싱은 Haiku로 충분 (비용 95% 절감)
+                    max_tokens=4096,
+                    system=[
+                        {
+                            "type": "text",
+                            "text": self.processor._get_system_prompt(),
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                    messages=[{"role": "user", "content": prompt}],
+                )
+                response_text = response.content[0].text
+
             json_match = re.search(r"```json\s*(.*?)\s*```", response_text, re.DOTALL)
             if json_match:
                 parsed = json.loads(json_match.group(1))
@@ -678,24 +818,6 @@ class InteractiveAnalysisSession:
                 "content": text[:500],  # 요약 저장
             })
 
-        except anthropic.APIConnectionError as e:
-            logger.error(f"API 연결 실패: {e}")
-            return {
-                "success": False,
-                "error": "API 연결에 실패했습니다. 네트워크를 확인해주세요.",
-            }
-        except anthropic.RateLimitError as e:
-            logger.error(f"Rate limit: {e}")
-            return {
-                "success": False,
-                "error": "API 호출 한도에 도달했습니다. 잠시 후 다시 시도해주세요.",
-            }
-        except anthropic.APIStatusError as e:
-            logger.error(f"API 오류: {e}")
-            return {
-                "success": False,
-                "error": f"API 오류: {e.message}",
-            }
         except json.JSONDecodeError as e:
             logger.warning(f"JSON 파싱 실패: {e}")
             return {
@@ -703,11 +825,16 @@ class InteractiveAnalysisSession:
                 "error": "응답 파싱에 실패했습니다. 다시 시도해주세요.",
             }
         except Exception as e:
+            # Keep error messaging user-friendly; specific SDK exceptions differ by provider.
+            msg = str(e) or type(e).__name__
+            if "Rate" in msg and "limit" in msg.lower():
+                logger.error(f"Rate limit: {e}")
+                return {"success": False, "error": "API 호출 한도에 도달했습니다. 잠시 후 다시 시도해주세요."}
+            if "connect" in msg.lower():
+                logger.error(f"API 연결 실패: {e}")
+                return {"success": False, "error": "API 연결에 실패했습니다. 네트워크를 확인해주세요."}
             logger.exception("텍스트 입력 처리 실패")
-            return {
-                "success": False,
-                "error": f"처리 실패: {str(e)}",
-            }
+            return {"success": False, "error": f"처리 실패: {msg}"}
 
         return self._get_status()
 

@@ -1,0 +1,17 @@
+**/.git
+**/.DS_Store
+
+# Python
+venv
+**/__pycache__
+**/*.pyc
+
+# Runtime outputs
+temp
+chat_history
+feedback
+
+# Next.js
+web/node_modules
+web/.next
+

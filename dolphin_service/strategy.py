@@ -106,6 +106,10 @@ def get_strategy(doc_type: DocType) -> ProcessingStrategy:
     Raises:
         ValueError: Unknown document type
     """
+    # Accept either DocType or ClassificationResult (tests often pass the full result).
+    if hasattr(doc_type, "doc_type"):
+        doc_type = getattr(doc_type, "doc_type")
+
     if doc_type not in STRATEGY_MAP:
         raise ValueError(f"Unknown document type: {doc_type}")
 

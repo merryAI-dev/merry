@@ -65,7 +65,7 @@ class HypothesisGenerator:
         for attempt in range(MAX_RETRIES):
             try:
                 response = self.client.messages.create(
-                    model="claude-opus-4-5-20251101",
+                    model="claude-opus-4-6",
                     max_tokens=2048,
                     messages=[{"role": "user", "content": prompt}],
                 )
@@ -365,7 +365,7 @@ JSON만 출력하세요.
         for attempt in range(MAX_RETRIES):
             try:
                 response = self.client.messages.create(
-                    model="claude-opus-4-5-20251101",
+                    model="claude-opus-4-6",
                     max_tokens=2048,
                     messages=[{"role": "user", "content": prompt}],
                 )

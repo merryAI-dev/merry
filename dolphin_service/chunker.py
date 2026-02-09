@@ -173,6 +173,33 @@ def merge_chunk_results(chunk_results: List[dict], page_offsets: List[int]) -> d
     if merged_company_info:
         merged["structured_content"]["company_info"] = merged_company_info
 
+    # Merge token usage (best-effort).
+    total_in = 0
+    total_out = 0
+    model = None
+    provider = None
+    for result in chunk_results:
+        if not model and isinstance(result.get("model"), str):
+            model = result.get("model")
+        if not provider and isinstance(result.get("provider"), str):
+            provider = result.get("provider")
+        usage = result.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        it = usage.get("input_tokens")
+        ot = usage.get("output_tokens")
+        if isinstance(it, int):
+            total_in += it
+        if isinstance(ot, int):
+            total_out += ot
+
+    if model:
+        merged["model"] = model
+    if provider:
+        merged["provider"] = provider
+    if total_in or total_out:
+        merged["usage"] = {"input_tokens": total_in, "output_tokens": total_out}
+
     logger.info(
         f"Merged {len(chunk_results)} chunks into single result "
         f"({len(all_pages)} pages, {len(merged['content'])} chars)"

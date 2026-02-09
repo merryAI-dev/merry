@@ -16,6 +16,7 @@ import altair as alt
 from shared.config import initialize_session_state, get_avatar_image, get_user_avatar_image, initialize_agent, inject_custom_css
 from shared.auth import check_authentication, get_user_email
 from shared.sidebar import render_sidebar
+from shared.ui import render_page_header
 
 # 페이지 설정
 st.set_page_config(
@@ -168,8 +169,10 @@ _sync_exit_projection_data_from_memory()
 # ========================================
 # 메인 영역
 # ========================================
-st.markdown("# Exit 프로젝션")
-st.markdown("투자검토 엑셀 파일을 분석하고 PER 기반 Exit 프로젝션을 생성합니다")
+render_page_header(
+    "Exit 프로젝션",
+    "투자검토 엑셀 파일을 분석하고 PER 기반 Exit 프로젝션을 생성합니다",
+)
 
 st.divider()
 
@@ -401,19 +404,31 @@ if st.session_state.projection_data:
         display_df["Multiple"] = display_df["Multiple"].map(lambda x: f"{x:.2f}x")
         st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-    chart = (
-        alt.Chart(df)
-        .mark_bar()
-        .encode(
-            x=alt.X("PER:O", title="PER 배수"),
-            y=alt.Y("IRR:Q", title="IRR (%)"),
-            color=alt.Color("PER:N", legend=None),
-            tooltip=["PER", "IRR", "Multiple"]
+    if not df.empty:
+        chart = (
+            alt.Chart(df)
+            .mark_bar(cornerRadiusTopLeft=6, cornerRadiusTopRight=6)
+            .encode(
+                x=alt.X("PER:O", title="PER 배수"),
+                y=alt.Y("IRR:Q", title="IRR (%)"),
+                color=alt.Color(
+                    "PER:N",
+                    legend=None,
+                    scale=alt.Scale(range=["#4318ff", "#7551ff", "#9374ff", "#b9a2ff"])
+                ),
+                tooltip=["PER", "IRR", "Multiple"]
+            )
+            .properties(height=320)
+            .configure_view(strokeWidth=0)
+            .configure_axis(
+                labelColor="#718096",
+                titleColor="#1a202c",
+                gridColor="#e2e8f0",
+                tickColor="#e2e8f0"
+            )
         )
-        .properties(height=300)
-    )
 
-    st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, use_container_width=True)
 
 # 푸터
 st.divider()

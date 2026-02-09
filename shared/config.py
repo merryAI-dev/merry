@@ -90,7 +90,7 @@ def initialize_session_state():
 
         "collab_brief": None,
         "collab_brief_error": None,
-        "collab_brief_model": "claude-opus-4-5-20251101",
+        "collab_brief_model": "claude-opus-4-6",
         "collab_last_move": "",
 
         "voice_messages": [],
@@ -110,7 +110,7 @@ def initialize_session_state():
         "voice_audio_display_count": 1,
         "voice_prefer_clova": True,
         "voice_fast_mode": True,
-        "voice_fast_model": "claude-3-5-haiku-20241022",
+        "voice_fast_model": "claude-haiku-4-5-20251001",
         "whisper_model": "small",
         "whisper_compute_type": "int8",
         "whisper_language": "ko",
@@ -129,12 +129,12 @@ def initialize_session_state():
         "contract_masking": True,
         "contract_cache_version": 0,
         "contract_ocr_mode": "자동(권장)",
-        "contract_ocr_model": "claude-opus-4-5-20251101",
+        "contract_ocr_model": "claude-opus-4-6",
         "contract_ocr_refine": True,
-        "contract_ocr_refine_model": "claude-opus-4-5-20251101",
+        "contract_ocr_refine_model": "claude-opus-4-6",
         "contract_ocr_lang": "kor+eng",
         "contract_llm_opinion": True,
-        "contract_opinion_model": "claude-opus-4-5-20251101",
+        "contract_opinion_model": "claude-opus-4-6",
         "contract_opinion_text": "",
         "contract_opinion_cache_key": "",
         "contract_analysis_mode": "빠른 스캔",
@@ -290,32 +290,219 @@ def get_user_avatar_image() -> Image.Image:
 
 
 def inject_custom_css():
-    """빨간색 버튼 및 커스텀 스타일 주입"""
+    """Global UI theme and component styling (Horizon UI inspired)."""
     st.markdown("""
     <style>
-    /* Primary 버튼 빨간색 */
-    .stButton > button[kind="primary"] {
-        background-color: #dc2626 !important;
-        border-color: #dc2626 !important;
-    }
-    .stButton > button[kind="primary"]:hover {
-        background-color: #b91c1c !important;
-        border-color: #b91c1c !important;
-    }
-    .stButton > button[kind="primary"]:active {
-        background-color: #991b1b !important;
-        border-color: #991b1b !important;
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Poppins:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+    :root {
+        --hz-bg: #f7fafc;
+        --hz-ink: #1a202c;
+        --hz-muted: #718096;
+        --hz-card: #ffffff;
+        --hz-card-soft: rgba(255, 255, 255, 0.92);
+        --hz-border: #e2e8f0;
+        --hz-primary: #4318ff;
+        --hz-primary-600: #3311db;
+        --hz-primary-700: #2200b7;
+        --hz-shadow: 0 14px 28px rgba(112, 144, 176, 0.15);
+        --hz-radius: 20px;
+        --hz-font-body: "DM Sans", "Noto Sans KR", sans-serif;
+        --hz-font-display: "Poppins", "Noto Sans KR", sans-serif;
+        --hz-font-mono: "IBM Plex Mono", monospace;
     }
 
-    /* Secondary 버튼 */
+    html, body, [class*="css"] {
+        font-family: var(--hz-font-body);
+        color: var(--hz-ink);
+    }
+
+    h1, h2, h3, h4, h5, h6,
+    .stMarkdown h1, .stMarkdown h2, .stMarkdown h3,
+    .stMarkdown h4, .stMarkdown h5, .stMarkdown h6 {
+        font-family: var(--hz-font-display);
+        letter-spacing: -0.01em;
+    }
+
+    .stApp {
+        background-color: var(--hz-bg);
+        background-image:
+            radial-gradient(circle at 8% 10%, rgba(67, 24, 255, 0.08), rgba(67, 24, 255, 0) 35%),
+            radial-gradient(circle at 92% 14%, rgba(185, 162, 255, 0.18), rgba(185, 162, 255, 0) 42%);
+        background-attachment: fixed;
+    }
+
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 250, 252, 0.95));
+        border-right: 1px solid var(--hz-border);
+    }
+
+    section[data-testid="stSidebar"] > div {
+        padding: 1.25rem 1.25rem 2rem;
+    }
+
+    .page-hero {
+        padding: 18px 22px;
+        border-radius: var(--hz-radius);
+        background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(243, 240, 255, 0.7));
+        border: 1px solid var(--hz-border);
+        box-shadow: var(--hz-shadow);
+        margin: 6px 0 16px 0;
+    }
+
+    .page-hero__kicker {
+        font-family: var(--hz-font-mono);
+        font-size: 11px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--hz-muted);
+    }
+
+    .page-hero__title {
+        font-size: 34px;
+        font-weight: 600;
+        margin: 6px 0 6px 0;
+    }
+
+    .page-hero__desc {
+        margin: 0;
+        font-size: 15px;
+        color: var(--hz-muted);
+        max-width: 720px;
+    }
+
+    .page-hero__meta {
+        margin-top: 8px;
+        color: var(--hz-muted);
+        font-size: 12px;
+    }
+
+    div[data-testid="stContainer"][style*="border"] {
+        border: 1px solid var(--hz-border) !important;
+        border-radius: var(--hz-radius);
+        background: var(--hz-card-soft);
+        box-shadow: var(--hz-shadow);
+    }
+
+    div[data-testid="stMetric"] {
+        background: var(--hz-card);
+        border: 1px solid var(--hz-border);
+        border-radius: 18px;
+        padding: 12px 14px;
+        box-shadow: 0 12px 24px rgba(112, 144, 176, 0.12);
+    }
+
+    div[data-testid="stMetricLabel"] {
+        font-size: 11px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--hz-muted);
+    }
+
+    div[data-testid="stMetricValue"] {
+        font-size: 24px;
+        font-weight: 600;
+    }
+
+    div[data-testid="stFileUploader"] {
+        border: 1px dashed var(--hz-border);
+        border-radius: 16px;
+        padding: 12px 14px;
+        background: rgba(255, 255, 255, 0.9);
+    }
+
+    div[data-testid="stChatMessage"] {
+        border-radius: 16px;
+        border: 1px solid var(--hz-border);
+        background: rgba(255, 255, 255, 0.95);
+        box-shadow: 0 8px 16px rgba(112, 144, 176, 0.12);
+        padding: 4px 8px;
+    }
+
+    div[data-testid="stDataFrame"] {
+        border: 1px solid var(--hz-border);
+        border-radius: 16px;
+        overflow: hidden;
+        background: var(--hz-card);
+    }
+
+    div[data-testid="stTextInput"] input,
+    div[data-testid="stNumberInput"] input,
+    div[data-testid="stDateInput"] input,
+    div[data-testid="stTextArea"] textarea {
+        border-radius: 12px !important;
+        border: 1px solid var(--hz-border) !important;
+        background: var(--hz-card);
+    }
+
+    div[data-baseweb="select"] > div {
+        border-radius: 12px !important;
+        border-color: var(--hz-border) !important;
+        background: var(--hz-card);
+    }
+
+    div[data-baseweb="select"] > div:focus-within {
+        border-color: var(--hz-primary) !important;
+        box-shadow: 0 0 0 2px rgba(67, 24, 255, 0.18);
+    }
+
+    div[data-testid="stTextInput"] input:focus,
+    div[data-testid="stNumberInput"] input:focus,
+    div[data-testid="stDateInput"] input:focus,
+    div[data-testid="stTextArea"] textarea:focus {
+        border-color: var(--hz-primary) !important;
+        box-shadow: 0 0 0 2px rgba(67, 24, 255, 0.18);
+    }
+
+    .stButton > button {
+        border-radius: 999px !important;
+        font-weight: 600 !important;
+        letter-spacing: 0.01em;
+    }
+
+    .stButton > button[kind="primary"] {
+        background-color: var(--hz-primary) !important;
+        border-color: var(--hz-primary) !important;
+        box-shadow: 0 8px 18px rgba(67, 24, 255, 0.28);
+    }
+    .stButton > button[kind="primary"]:hover {
+        background-color: var(--hz-primary-600) !important;
+        border-color: var(--hz-primary-600) !important;
+    }
+    .stButton > button[kind="primary"]:active {
+        background-color: var(--hz-primary-700) !important;
+        border-color: var(--hz-primary-700) !important;
+    }
+
     .stButton > button[kind="secondary"] {
-        border-color: #dc2626 !important;
-        color: #dc2626 !important;
+        border-color: var(--hz-primary) !important;
+        color: var(--hz-primary) !important;
     }
     .stButton > button[kind="secondary"]:hover {
-        background-color: #fef2f2 !important;
-        border-color: #b91c1c !important;
-        color: #b91c1c !important;
+        background-color: rgba(67, 24, 255, 0.08) !important;
+        border-color: var(--hz-primary-600) !important;
+        color: var(--hz-primary-600) !important;
+    }
+
+    div[data-testid="stTabs"] button[role="tab"] {
+        border-radius: 999px !important;
+        padding: 8px 16px !important;
+        margin-right: 6px;
+        border: 1px solid transparent;
+    }
+
+    div[data-testid="stTabs"] button[aria-selected="true"] {
+        background: rgba(67, 24, 255, 0.12) !important;
+        color: var(--hz-primary) !important;
+        border-color: rgba(67, 24, 255, 0.25) !important;
+    }
+
+    div[data-testid="stDivider"] {
+        border-color: rgba(226, 232, 240, 0.9);
+    }
+
+    .stCaption, div[data-testid="stCaptionContainer"] {
+        color: var(--hz-muted);
     }
     </style>
     """, unsafe_allow_html=True)

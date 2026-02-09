@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any, Dict, List
 
 import fitz  # PyMuPDF
 
@@ -35,6 +35,7 @@ class ClassificationResult:
     doc_type: DocType
     total_pages: int
     total_size_bytes: int
+    per_page_text: List[str]  # Raw page text from PyMuPDF (for debugging/QA)
     text_chars: int  # Total characters from PyMuPDF
     image_count: int  # Embedded images
     table_count: int  # PyMuPDF find_tables() count
@@ -71,6 +72,7 @@ def classify_document(pdf_path: str) -> ClassificationResult:
         total_pages = len(doc)
         total_size = path.stat().st_size
         text_chars = 0
+        per_page_text: List[str] = []
         image_count = 0
         table_count = 0
         scanned_pages = 0
@@ -81,6 +83,7 @@ def classify_document(pdf_path: str) -> ClassificationResult:
             # Text extraction
             text = page.get_text("text")
             text_chars += len(text)
+            per_page_text.append(text)
 
             # Scanned page detection (< 50 chars)
             if len(text) < 50:
@@ -123,6 +126,7 @@ def classify_document(pdf_path: str) -> ClassificationResult:
             doc_type=doc_type,
             total_pages=total_pages,
             total_size_bytes=total_size,
+            per_page_text=per_page_text,
             text_chars=text_chars,
             image_count=image_count,
             table_count=table_count,
@@ -135,6 +139,11 @@ def classify_document(pdf_path: str) -> ClassificationResult:
     except Exception as e:
         logger.error(f"Failed to classify {pdf_path}: {e}", exc_info=True)
         raise
+
+
+def classify(pdf_path: str) -> ClassificationResult:
+    """Backward-compatible alias for older imports/tests."""
+    return classify_document(pdf_path)
 
 
 def _determine_doc_type(
@@ -175,6 +184,11 @@ def _determine_doc_type(
     # Rule 5: Small table (1 page, 1 table)
     if total_pages == 1 and table_count == 1:
         return DocType.SMALL_TABLE, 0.9
+
+    # Rule 5.5: Table-heavy text PDFs (e.g., financial statements) even if they embed a few images.
+    # Keep this narrow so rich decks/review docs aren't misclassified.
+    if table_count > 0 and total_pages <= 10 and scanned_page_ratio < 0.2 and avg_images_per_page <= 10:
+        return DocType.TEXT_WITH_TABLES, 0.85
 
     # Rule 6: Image-heavy (> 50 images per page average)
     if avg_images_per_page > 50:

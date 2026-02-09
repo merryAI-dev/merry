@@ -16,6 +16,7 @@ from shared.config import initialize_session_state, get_avatar_image, get_user_a
 from shared.auth import check_authentication
 from shared.sidebar import render_sidebar
 from shared.file_utils import get_secure_upload_path, cleanup_user_temp_files, validate_upload, ALLOWED_EXTENSIONS_PDF
+from shared.ui import render_page_header
 
 # 페이지 설정
 st.set_page_config(
@@ -63,8 +64,10 @@ _sync_peer_analysis_result_from_memory()
 # ========================================
 # 메인 영역
 # ========================================
-st.markdown("# Peer PER 분석")
-st.markdown("유사 상장 기업의 PER을 분석하여 적정 밸류에이션을 산정합니다")
+render_page_header(
+    "Peer PER 분석",
+    "유사 상장 기업의 PER을 분석하여 적정 밸류에이션을 산정합니다",
+)
 
 st.divider()
 

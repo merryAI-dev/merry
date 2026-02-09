@@ -21,6 +21,7 @@ from shared.calendar_store import TeamCalendarStore
 from shared.comments_store import TeamCommentStore
 from shared.activity_feed import get_recent_activity
 from shared.collab_assistant import build_collab_brief, DEFAULT_MODEL
+from shared.ui import render_page_header
 
 
 def _parse_due_date(value: Optional[str]) -> Optional[date]:
@@ -75,49 +76,9 @@ docs = doc_store.list_docs()
 events = calendar_store.list_events(limit=12)
 comments = comment_store.list_comments(limit=10)
 
-st.markdown(
-    """
-    <style>
-    .hub-hero {
-        padding: 8px 0 6px 0;
-    }
-    .hub-hero h1 {
-        font-size: 30px;
-        margin-bottom: 4px;
-    }
-    .hub-hero p {
-        color: #6b5f53;
-        font-size: 14px;
-        margin-top: 0;
-    }
-    .hub-card {
-        border-radius: 16px;
-        border: 1px solid rgba(31, 26, 20, 0.08);
-        padding: 12px 14px;
-        background: rgba(255, 255, 255, 0.85);
-        box-shadow: 0 12px 24px rgba(25, 18, 9, 0.06);
-    }
-    .hub-chip {
-        display: inline-block;
-        font-size: 11px;
-        padding: 3px 8px;
-        border-radius: 999px;
-        background: rgba(31, 26, 20, 0.08);
-        margin-right: 6px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    """
-    <div class="hub-hero">
-        <h1>팀 협업 허브</h1>
-        <p>팀 과업, 서류, 일정, 코멘트를 한 곳에서 정리합니다. 메리가 오늘의 흐름을 빠르게 정돈해드릴게요.</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
+render_page_header(
+    "팀 협업 허브",
+    "팀 과업, 서류, 일정, 코멘트를 한 곳에서 정리합니다. 메리가 오늘의 흐름을 빠르게 정돈해드릴게요.",
 )
 
 st.caption(f"현재 팀: {st.session_state.get('team_label', 'Team')} · 담당자: {member_name}")
@@ -280,7 +241,7 @@ board_html = f"""
 <style>
     body {{
         margin: 0;
-        font-family: "Space Grotesk", "Noto Sans KR", sans-serif;
+        font-family: "DM Sans", "Noto Sans KR", sans-serif;
         background: transparent;
     }}
     .board {{
@@ -290,13 +251,13 @@ board_html = f"""
         padding: 4px 2px 12px 2px;
     }}
     .column {{
-        background: rgba(255, 255, 255, 0.75);
-        border: 1px solid rgba(31, 26, 20, 0.08);
-        border-radius: 18px;
+        background: rgba(255, 255, 255, 0.92);
+        border: 1px solid #e2e8f0;
+        border-radius: 20px;
         display: flex;
         flex-direction: column;
         min-height: 320px;
-        box-shadow: 0 12px 30px rgba(25, 18, 9, 0.08);
+        box-shadow: 0 12px 28px rgba(112, 144, 176, 0.14);
     }}
     .column-header {{
         display: flex;
@@ -305,14 +266,15 @@ board_html = f"""
         padding: 12px 14px 8px 14px;
         font-size: 13px;
         font-weight: 600;
-        color: #1f1a14;
-        border-bottom: 1px solid rgba(31, 26, 20, 0.06);
+        color: #1a202c;
+        border-bottom: 1px solid #edf2f7;
     }}
     .count {{
         font-size: 11px;
         padding: 3px 8px;
         border-radius: 999px;
-        background: rgba(31, 26, 20, 0.08);
+        background: rgba(67, 24, 255, 0.12);
+        color: #4318ff;
     }}
     .column-body {{
         padding: 10px;
@@ -324,16 +286,16 @@ board_html = f"""
         min-height: 200px;
     }}
     .column-body.drag-over {{
-        outline: 2px dashed rgba(204, 58, 43, 0.5);
+        outline: 2px dashed rgba(67, 24, 255, 0.45);
         outline-offset: -6px;
-        background: rgba(204, 58, 43, 0.04);
+        background: rgba(67, 24, 255, 0.05);
     }}
     .card {{
-        background: rgba(255, 255, 255, 0.95);
-        border-radius: 14px;
-        border: 1px solid rgba(31, 26, 20, 0.1);
+        background: rgba(255, 255, 255, 0.98);
+        border-radius: 16px;
+        border: 1px solid #e2e8f0;
         padding: 10px 12px;
-        box-shadow: 0 8px 20px rgba(25, 18, 9, 0.08);
+        box-shadow: 0 8px 18px rgba(112, 144, 176, 0.12);
         cursor: grab;
         transition: transform 0.15s ease, box-shadow 0.15s ease;
     }}
@@ -347,12 +309,12 @@ board_html = f"""
     .card-title {{
         font-size: 13px;
         font-weight: 600;
-        color: #1f1a14;
+        color: #1a202c;
     }}
     .card-meta {{
         margin-top: 6px;
         font-size: 11px;
-        color: #6b5f53;
+        color: #718096;
         display: flex;
         flex-wrap: wrap;
         gap: 6px;
@@ -360,11 +322,12 @@ board_html = f"""
     .card-tag {{
         padding: 2px 6px;
         border-radius: 999px;
-        background: rgba(31, 26, 20, 0.08);
+        background: rgba(67, 24, 255, 0.12);
+        color: #4318ff;
     }}
     .empty {{
         font-size: 12px;
-        color: #8a7d6f;
+        color: #a0aec0;
         padding: 8px 4px;
     }}
 </style>

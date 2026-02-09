@@ -8,6 +8,7 @@ venv/
 env/
 ENV/
 .venv
+.tdd_venv/
 
 # Environment variables (보안)
 .env*
@@ -51,6 +52,10 @@ logs/
 
 # Temporary files
 temp/
+
+# Local sensitive data (do not commit)
+companyData/
+0206.md
 
 # Test coverage
 .coverage

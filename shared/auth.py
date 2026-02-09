@@ -73,7 +73,7 @@ def validate_api_key(api_key: str) -> bool:
         client = Anthropic(api_key=api_key)
         # 최소 비용으로 키 검증 (짧은 메시지)
         response = client.messages.create(
-            model="claude-3-5-haiku-20241022",
+            model="claude-haiku-4-5-20251001",
             max_tokens=10,
             messages=[{"role": "user", "content": "Hi"}]
         )
@@ -97,22 +97,22 @@ def check_authentication() -> bool:
     st.markdown(
         """
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Poppins:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
         :root {
-            --merry-bg: #fbf4ea;
-            --merry-ink: #1f1a14;
-            --merry-muted: #6b5f53;
-            --merry-accent: #c7422f;
-            --merry-card: rgba(255, 255, 255, 0.86);
+            --merry-bg: #f7fafc;
+            --merry-ink: #1a202c;
+            --merry-muted: #718096;
+            --merry-accent: #4318ff;
+            --merry-card: rgba(255, 255, 255, 0.95);
         }
 
         .merry-login {
             padding: 24px 28px;
             border-radius: 22px;
             background: var(--merry-card);
-            border: 1px solid rgba(31, 26, 20, 0.08);
-            box-shadow: 0 24px 50px rgba(25, 18, 9, 0.08);
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 24px 50px rgba(112, 144, 176, 0.18);
         }
 
         .merry-kicker {
@@ -124,7 +124,7 @@ def check_authentication() -> bool:
         }
 
         .merry-title {
-            font-family: "Space Grotesk", "Noto Sans KR", sans-serif;
+            font-family: "Poppins", "Noto Sans KR", sans-serif;
             font-size: 28px;
             font-weight: 700;
             margin: 6px 0 8px 0;
@@ -132,7 +132,7 @@ def check_authentication() -> bool:
         }
 
         .merry-subtitle {
-            font-family: "Space Grotesk", "Noto Sans KR", sans-serif;
+            font-family: "DM Sans", "Noto Sans KR", sans-serif;
             font-size: 15px;
             color: var(--merry-muted);
             margin-bottom: 12px;
@@ -146,8 +146,8 @@ def check_authentication() -> bool:
 
         div[data-testid="stTextInput"] input {
             border-radius: 12px !important;
-            border: 1px solid rgba(31, 26, 20, 0.16) !important;
-            background: #fffaf3 !important;
+            border: 1px solid #e2e8f0 !important;
+            background: #ffffff !important;
         }
         </style>
         """,

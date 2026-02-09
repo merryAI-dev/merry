@@ -12,7 +12,10 @@ from typing import Any, Dict, List, Optional
 from anthropic import Anthropic
 
 
-DEFAULT_MODEL = "claude-opus-4-5-20251101"
+DEFAULT_MODEL = "claude-opus-4-6"
+# 모델 라우팅: 비용 최적화를 위해 작업별 모델 분리
+ROUTING_SONNET = "claude-sonnet-4-5-20250929"  # Steps 2-4 (cross-examine, hallucination, impact)
+ROUTING_HAIKU = "claude-haiku-4-5-20251001"    # JSON repair
 DEFAULT_LENSES = [
     "Bull",
     "Bear",
@@ -136,7 +139,13 @@ def _call_opus(
     client = Anthropic(api_key=api_key)
     response = client.messages.create(
         model=model,
-        system=system_prompt,
+        system=[
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"},
+            }
+        ],
         max_tokens=max_tokens,
         messages=[{"role": "user", "content": user_prompt}],
     )
@@ -145,7 +154,7 @@ def _call_opus(
         if getattr(block, "type", "") == "text":
             text_blocks.append(block.text)
     raw_text = "\n".join(text_blocks).strip()
-    return _extract_json(raw_text, api_key=api_key, model=model)
+    return _extract_json(raw_text, api_key=api_key, model=ROUTING_HAIKU)
 
 
 def generate_lens_group(

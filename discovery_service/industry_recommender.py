@@ -452,7 +452,7 @@ JSON만 출력하세요.
 
         try:
             response = self.client.messages.create(
-                model="claude-opus-4-5-20251101",
+                model="claude-opus-4-6",
                 max_tokens=4096,
                 messages=[{"role": "user", "content": prompt}]
             )

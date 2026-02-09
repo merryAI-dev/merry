@@ -13,6 +13,7 @@ import streamlit as st
 
 from shared.auth import check_authentication, get_user_api_key, get_user_id
 from shared.config import initialize_session_state, inject_custom_css
+from shared.ui import render_page_header
 from shared.file_utils import (
     ALLOWED_EXTENSIONS_PDF,
     cleanup_user_temp_files,
@@ -90,8 +91,10 @@ inject_custom_css()
 user_id = get_user_id()
 user_api_key = get_user_api_key()
 
-st.markdown("# 계약서 리서치 에이전트")
-st.caption("텀싯/투자계약서를 근거 기반으로 검토합니다. 법률 자문이 아니라 리서치 보조 도구입니다.")
+render_page_header(
+    "계약서 리서치 에이전트",
+    "텀싯/투자계약서를 근거 기반으로 검토합니다. 법률 자문이 아니라 리서치 보조 도구입니다.",
+)
 
 st.warning("이 도구는 법률 자문이 아닙니다. 최종 판단은 반드시 법무 검토가 필요합니다.")
 

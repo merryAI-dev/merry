@@ -26,6 +26,7 @@ from shared.file_utils import (
     validate_upload,
 )
 from shared.sidebar import render_sidebar
+from shared.ui import render_page_header
 
 
 def _sync_diagnosis_analysis_from_memory():
@@ -93,8 +94,10 @@ _sync_diagnosis_draft_from_memory()
 # ========================================
 # 메인 영역
 # ========================================
-st.markdown("# 기업현황 진단시트")
-st.markdown("진단시트를 분석하고 컨설턴트용 분석보고서를 대화로 완성합니다")
+render_page_header(
+    "기업현황 진단시트",
+    "진단시트를 분석하고 컨설턴트용 분석보고서를 대화로 완성합니다",
+)
 st.divider()
 
 # 업로드

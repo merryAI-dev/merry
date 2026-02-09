@@ -73,6 +73,8 @@ JSON 형식으로만 응답하세요.""",
 - 금액은 숫자로 변환""",
         "user_template": """다음 법률 문서를 OCR하여 구조화된 정보로 추출하세요.
 
+예: 법인등기부등본, 정관, 계약서
+
 **페이지 이미지**: {page_count}장
 
 JSON 형식으로만 응답하세요.""",
@@ -135,6 +137,41 @@ def get_prompt(prompt_type: str, page_count: int = 1) -> dict:
         "system": system_prompt,
         "user": user_prompt,
     }
+
+
+def get_prompts(prompt_type: str, output_mode: str = "structured", page_count: int = 1) -> tuple[str, str]:
+    """Backward-compatible helper expected by older code.
+
+    Args:
+        prompt_type: Prompt registry key
+        output_mode: Output mode hint (currently informational)
+        page_count: Number of pages in this chunk
+
+    Returns:
+        (system_prompt, user_prompt)
+    """
+    # Unknown prompt types fall back to the default, to keep processing resilient.
+    if prompt_type not in PROMPTS:
+        prompt_type = "financial_structured"
+
+    p = get_prompt(prompt_type, page_count=page_count)
+    system, user = p["system"], p["user"]
+
+    # Output-mode overrides used in tests and in some tool flows.
+    if output_mode == "text_only":
+        user = (
+            "다음 문서를 텍스트로 추출하세요. 테이블/구조화 JSON은 필요 없습니다.\n\n"
+            f"**페이지 이미지**: {page_count}장\n\n"
+            "가능한 한 원문에 가깝게, 중요한 제목/항목은 유지하세요."
+        )
+    elif output_mode == "tables_only":
+        user = (
+            "다음 문서에서 테이블만 추출하세요. 가능한 경우 재무제표/Cap Table을 우선합니다.\n\n"
+            f"**페이지 이미지**: {page_count}장\n\n"
+            "JSON 형식으로만 응답하세요."
+        )
+
+    return system, user
 
 
 def list_prompt_types() -> list:

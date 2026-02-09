@@ -43,33 +43,33 @@ inject_custom_css()
 st.markdown(
     """
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Poppins:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
     :root {
-        --graph-bg: #f7f2ea;
-        --graph-ink: #1c1914;
-        --graph-muted: #60554b;
-        --graph-node-bg: rgba(255, 255, 255, 0.9);
-        --graph-node-border: rgba(28, 25, 20, 0.14);
-        --graph-grid: rgba(28, 25, 20, 0.06);
-        --graph-accent: #cc3a2b;
-        --graph-accent-amber: #d08a2e;
-        --graph-accent-teal: #1a8c86;
-        --graph-shadow: 0 18px 40px rgba(25, 18, 9, 0.12);
+        --graph-bg: #f7fafc;
+        --graph-ink: #1a202c;
+        --graph-muted: #718096;
+        --graph-node-bg: rgba(255, 255, 255, 0.92);
+        --graph-node-border: rgba(226, 232, 240, 0.9);
+        --graph-grid: rgba(226, 232, 240, 0.6);
+        --graph-accent: #4318ff;
+        --graph-accent-amber: #9374ff;
+        --graph-accent-teal: #7551ff;
+        --graph-shadow: 0 18px 40px rgba(112, 144, 176, 0.12);
     }
 
     .stApp {
         background-color: var(--graph-bg);
         background-image:
-            radial-gradient(circle at 15% 10%, rgba(255, 247, 236, 0.9), rgba(255, 247, 236, 0) 40%),
-            radial-gradient(circle at 85% 20%, rgba(255, 232, 218, 0.7), rgba(255, 232, 218, 0) 35%),
+            radial-gradient(circle at 15% 10%, rgba(67, 24, 255, 0.08), rgba(67, 24, 255, 0) 40%),
+            radial-gradient(circle at 85% 20%, rgba(185, 162, 255, 0.22), rgba(185, 162, 255, 0) 35%),
             repeating-linear-gradient(0deg, var(--graph-grid), var(--graph-grid) 1px, transparent 1px, transparent 28px),
             repeating-linear-gradient(90deg, var(--graph-grid), var(--graph-grid) 1px, transparent 1px, transparent 28px);
         background-attachment: fixed;
     }
 
     html, body, [class*="css"] {
-        font-family: "Space Grotesk", "Noto Sans KR", sans-serif;
+        font-family: "DM Sans", "Noto Sans KR", sans-serif;
         color: var(--graph-ink);
     }
 
@@ -92,6 +92,7 @@ st.markdown(
         font-size: 36px;
         font-weight: 700;
         margin: 0;
+        font-family: "Poppins", "Noto Sans KR", sans-serif;
     }
 
     .graph-hero__desc {
@@ -134,9 +135,9 @@ st.markdown(
         position: absolute;
         inset: -6% -4%;
         background-image:
-            radial-gradient(circle, rgba(204, 58, 43, 0.12) 0, rgba(204, 58, 43, 0) 55%),
-            radial-gradient(circle, rgba(208, 138, 46, 0.12) 0, rgba(208, 138, 46, 0) 55%),
-            radial-gradient(circle, rgba(26, 140, 134, 0.16) 0, rgba(26, 140, 134, 0) 60%);
+            radial-gradient(circle, rgba(67, 24, 255, 0.12) 0, rgba(67, 24, 255, 0) 55%),
+            radial-gradient(circle, rgba(117, 81, 255, 0.12) 0, rgba(117, 81, 255, 0) 55%),
+            radial-gradient(circle, rgba(185, 162, 255, 0.16) 0, rgba(185, 162, 255, 0) 60%);
         background-size: 180px 180px, 220px 220px, 260px 260px;
         background-position: 10% 20%, 85% 15%, 40% 80%;
         opacity: 0.7;
@@ -519,31 +520,31 @@ graph_html = f"""
 <head>
 <meta charset="utf-8" />
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Poppins:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
 
 html, body {{
     margin: 0;
     padding: 0;
     background: transparent;
-    font-family: "Space Grotesk", "Noto Sans KR", sans-serif;
+    font-family: "DM Sans", "Noto Sans KR", sans-serif;
 }}
 
 .graph-shell {{
-    --graph-bg: #f7f2ea;
-    --graph-ink: #1c1914;
-    --graph-muted: #5f554b;
-    --graph-node-bg: rgba(255, 255, 255, 0.92);
-    --graph-border: rgba(28, 25, 20, 0.16);
-    --graph-shadow: 0 18px 40px rgba(25, 18, 9, 0.12);
-    --accent-ember: #cc3a2b;
-    --accent-amber: #d08a2e;
-    --accent-teal: #1a8c86;
+    --graph-bg: #f7fafc;
+    --graph-ink: #1a202c;
+    --graph-muted: #718096;
+    --graph-node-bg: rgba(255, 255, 255, 0.94);
+    --graph-border: rgba(226, 232, 240, 0.9);
+    --graph-shadow: 0 18px 40px rgba(112, 144, 176, 0.12);
+    --accent-ember: #4318ff;
+    --accent-amber: #7551ff;
+    --accent-teal: #b9a2ff;
     position: relative;
     height: 780px;
     border-radius: 32px;
     background: var(--graph-bg);
     overflow: hidden;
-    box-shadow: 0 30px 60px rgba(25, 18, 9, 0.08);
+    box-shadow: 0 30px 60px rgba(112, 144, 176, 0.18);
     cursor: grab;
 }}
 
@@ -565,10 +566,10 @@ html, body {{
     position: absolute;
     inset: 0;
     background-image:
-        radial-gradient(circle at 15% 10%, rgba(255, 247, 236, 0.9), rgba(255, 247, 236, 0) 40%),
-        radial-gradient(circle at 85% 20%, rgba(255, 232, 218, 0.7), rgba(255, 232, 218, 0) 35%),
-        repeating-linear-gradient(0deg, rgba(28, 25, 20, 0.06), rgba(28, 25, 20, 0.06) 1px, transparent 1px, transparent 28px),
-        repeating-linear-gradient(90deg, rgba(28, 25, 20, 0.06), rgba(28, 25, 20, 0.06) 1px, transparent 1px, transparent 28px);
+        radial-gradient(circle at 15% 10%, rgba(67, 24, 255, 0.08), rgba(67, 24, 255, 0) 40%),
+        radial-gradient(circle at 85% 20%, rgba(185, 162, 255, 0.22), rgba(185, 162, 255, 0) 35%),
+        repeating-linear-gradient(0deg, rgba(226, 232, 240, 0.6), rgba(226, 232, 240, 0.6) 1px, transparent 1px, transparent 28px),
+        repeating-linear-gradient(90deg, rgba(226, 232, 240, 0.6), rgba(226, 232, 240, 0.6) 1px, transparent 1px, transparent 28px);
     opacity: 0.9;
     animation: haze 16s ease-in-out infinite;
     z-index: 0;

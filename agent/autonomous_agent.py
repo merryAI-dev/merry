@@ -29,7 +29,7 @@ class AutonomousVCAgent:
     - Goal Verification: 목표 달성 여부 검증
     """
 
-    def __init__(self, api_key: str = None, model: str = "claude-sonnet-4"):
+    def __init__(self, api_key: str = None, model: str = "claude-sonnet-4-5-20250929"):
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
 
         if not self.api_key:

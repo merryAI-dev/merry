@@ -18,6 +18,7 @@ from shared.config import get_avatar_image, get_user_avatar_image, initialize_ag
 from shared.clova_speech import clova_credentials_present, clova_stt, clova_tts
 from shared.local_speech import local_stt_faster_whisper, local_tts_mms, local_tts_piper
 from shared.team_tasks import TeamTaskStore, STATUS_LABELS, format_remaining_kst, normalize_status
+from shared.ui import render_page_header
 try:
     from shared.voice_logs import (
         append_checkin_summary,
@@ -294,7 +295,7 @@ with st.sidebar:
         st.text_input(
             "Fast Model",
             key="voice_fast_model",
-            placeholder="claude-3-5-haiku-20241022",
+            placeholder="claude-haiku-4-5-20251001",
         )
 
     speaker = st.session_state.get("voice_speaker", "nara")
@@ -417,7 +418,10 @@ with st.sidebar:
 # ========================================
 # Main UI
 # ========================================
-st.markdown("# Voice Agent")
+render_page_header(
+    "Voice Agent",
+    "음성 기반 체크인과 팀 요약을 빠르게 정리합니다",
+)
 st.caption("로컬 STT/TTS 또는 Naver CLOVA로 음성 대화를 제공합니다.")
 
 user_id = get_user_id()
@@ -777,7 +781,7 @@ if send_clicked:
         model_override = None
         if st.session_state.voice_fast_mode:
             last_checkin_text = None
-            model_override = (st.session_state.voice_fast_model or "claude-3-5-haiku-20241022").strip()
+            model_override = (st.session_state.voice_fast_model or "claude-haiku-4-5-20251001").strip()
         voice_mode = f"voice_{st.session_state.voice_mode}"
         response = st.session_state.agent.chat_sync(
             user_message=user_text,

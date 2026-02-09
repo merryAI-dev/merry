@@ -84,6 +84,26 @@ ELEMENT_TYPE_MAP = {
 # 출력 모드
 OUTPUT_MODES = ["text_only", "structured", "tables_only"]
 
+# 문서 분류 설정
+CLASSIFICATION_CONFIG = {
+    # 스캔 페이지 판별: 텍스트가 이 값 미만이면 스캔된 페이지로 간주
+    "scanned_page_text_threshold": 50,
+    # 이미지 중심 문서 판별: 페이지당 이미지 수가 이 값 초과면 IMAGE_HEAVY
+    "image_heavy_per_page_threshold": 50,
+    # 단순 양식 판별: 이 페이지 수 이하이면 SIMPLE_FORM 후보
+    "simple_form_max_pages": 4,
+    # 단순 양식 판별: 이 테이블 수 이하이면 SIMPLE_FORM
+    "simple_form_max_tables": 2,
+    # 완전 스캔 판별: 스캔 비율이 이 값 이상이면 FULLY_SCANNED
+    "fully_scanned_ratio_threshold": 0.9,
+}
+
+# 청킹 설정
+CHUNKING_CONFIG = {
+    # 병렬 처리 워커 수
+    "max_workers": 3,
+}
+
 # 로깅 설정
 LOG_CONFIG = {
     "level": os.getenv("DOLPHIN_LOG_LEVEL", "INFO"),

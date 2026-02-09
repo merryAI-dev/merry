@@ -12,6 +12,7 @@ import streamlit as st
 
 from agent.tools import _resolve_underwriter_data_path, execute_fetch_underwriter_opinion_data
 from shared.deep_opinion import (
+    ROUTING_SONNET,
     build_evidence_context,
     cross_examine_and_score,
     generate_hallucination_check,
@@ -37,6 +38,7 @@ from shared.file_utils import (
 )
 from shared.sidebar import render_sidebar
 from shared.team_tasks import TeamTaskStore, STATUS_LABELS, format_remaining_kst, normalize_status
+from shared.ui import render_page_header
 
 
 st.set_page_config(
@@ -117,35 +119,52 @@ def _run_deep_opinion_generation(auto_run: bool = False) -> None:
         progress.progress(0.2)
         _append_deep_log(logs, "1/5 다중 관점 생성 완료", status)
 
-        _append_deep_log(logs, "2/5 교차 검토 및 점수화 시작", status)
-        scoring = cross_examine_and_score(
-            api_key=api_key,
-            evidence_context=evidence_context,
-            lens_outputs=lens_outputs,
-        )
+        # Steps 2-4 병렬 실행 (모두 lens_outputs만 필요, 서로 독립적)
+        _append_deep_log(logs, "2-4/5 교차검토 + 할루시네이션 + 임팩트 병렬 시작", status)
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            future_scoring = executor.submit(
+                cross_examine_and_score,
+                api_key=api_key,
+                evidence_context=evidence_context,
+                lens_outputs=lens_outputs,
+                model=ROUTING_SONNET,
+            )
+            future_hallucination = executor.submit(
+                generate_hallucination_check,
+                api_key=api_key,
+                evidence_context=evidence_context,
+                lens_outputs=lens_outputs,
+                model=ROUTING_SONNET,
+            )
+            future_impact = executor.submit(
+                generate_impact_analysis,
+                api_key=api_key,
+                evidence_context=evidence_context,
+                lens_outputs=lens_outputs,
+                model=ROUTING_SONNET,
+            )
+
+            futures = {
+                future_scoring: "2/5 교차 검토 및 점수화",
+                future_hallucination: "3/5 할루시네이션 검증",
+                future_impact: "4/5 임팩트 분석",
+            }
+            completed = 0
+            for future in as_completed(futures):
+                completed += 1
+                label = futures[future]
+                future.result()  # raise if failed
+                _append_deep_log(logs, f"{label} 완료", status)
+                progress.progress(0.2 + completed * 0.2)
+
+        scoring = future_scoring.result()
+        hallucination = future_hallucination.result()
+        impact = future_impact.result()
         st.session_state.report_deep_scoring = scoring
-        progress.progress(0.4)
-        _append_deep_log(logs, "2/5 교차 검토 및 점수화 완료", status)
-
-        _append_deep_log(logs, "3/5 할루시네이션 검증 시작", status)
-        hallucination = generate_hallucination_check(
-            api_key=api_key,
-            evidence_context=evidence_context,
-            lens_outputs=lens_outputs,
-        )
         st.session_state.report_deep_hallucination = hallucination
-        progress.progress(0.6)
-        _append_deep_log(logs, "3/5 할루시네이션 검증 완료", status)
-
-        _append_deep_log(logs, "4/5 임팩트 분석 시작", status)
-        impact = generate_impact_analysis(
-            api_key=api_key,
-            evidence_context=evidence_context,
-            lens_outputs=lens_outputs,
-        )
         st.session_state.report_deep_impact = impact
-        progress.progress(0.8)
-        _append_deep_log(logs, "4/5 임팩트 분석 완료", status)
 
         _append_deep_log(logs, "5/5 최종 종합 시작", status)
         final_result = synthesize_deep_opinion(
@@ -178,7 +197,10 @@ def _run_deep_opinion_generation(auto_run: bool = False) -> None:
     finally:
         st.session_state.report_deep_logs = logs
 
-st.markdown("# 투자심사 보고서 작성")
+render_page_header(
+    "투자심사 보고서 작성",
+    "기업 자료에서 시장규모 근거를 추출하고 인수인의견 스타일 초안을 구성합니다",
+)
 st.markdown("시장규모 근거를 추출하고 인수인의견 스타일 초안을 작성합니다")
 st.divider()
 

@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 from anthropic import Anthropic
 
 
-DEFAULT_MODEL = "claude-opus-4-5-20251101"
+DEFAULT_MODEL = "claude-opus-4-6"
 
 
 def _extract_json(text: str) -> Dict[str, object]:

@@ -76,7 +76,7 @@ class CheckinAgent:
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
         self.user_id = user_id
         self.client = Anthropic(api_key=self.api_key)
-        self.model = "claude-sonnet-4-20250514"
+        self.model = "claude-sonnet-4-5-20250929"
 
     def analyze_feedbacks(
         self,
