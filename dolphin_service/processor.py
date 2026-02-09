@@ -138,8 +138,8 @@ class ClaudeVisionProcessor:
         try:
             # 1. 문서 분류
             self._emit_progress(progress_callback, "classifying", "문서 유형 분류 중...")
-            classification = doc_classifier.classify(pdf_path, max_pages)
-            strategy = get_strategy(classification)
+            classification = doc_classifier.classify_document(pdf_path)
+            strategy = get_strategy(classification.doc_type)
 
             logger.info(
                 f"문서 분류: {classification.doc_type.value}, "
@@ -415,7 +415,7 @@ class ClaudeVisionProcessor:
     def _process_with_pymupdf(
         self,
         pdf_path: str,
-        classification: "doc_classifier.ClassificationResult",
+        classification: doc_classifier.ClassificationResult,
     ) -> Dict[str, Any]:
         """Vision API 없이 PyMuPDF만으로 처리 (PURE_TEXT, TEXT_WITH_TABLES, SMALL_TABLE)."""
         import fitz
@@ -469,18 +469,6 @@ class ClaudeVisionProcessor:
             }
         finally:
             doc.close()
-
-    def _get_text_only_prompt(self) -> str:
-        """텍스트 전용 프롬프트 (하위 호환성)."""
-        return prompt_registry.TEXT_ONLY_USER
-
-    def _get_structured_prompt(self) -> str:
-        """구조화 추출 프롬프트 (하위 호환성)."""
-        return prompt_registry.FINANCIAL_STRUCTURED_USER
-
-    def _get_tables_only_prompt(self) -> str:
-        """테이블 전용 프롬프트 (하위 호환성)."""
-        return prompt_registry.TABLE_EXTRACTION_USER
 
     def _parse_claude_response(
         self, response_text: str, output_mode: str

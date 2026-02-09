@@ -94,12 +94,29 @@ def create_chunks(
     return chunks
 
 
-def merge_chunk_results(chunk_results: List[dict], total_pages: int) -> dict:
+def compute_page_offsets(chunks: List[List[str]]) -> List[int]:
+    """Compute page number offsets for each chunk.
+
+    Args:
+        chunks: List of chunks (each chunk is a list of images)
+
+    Returns:
+        List of starting page numbers for each chunk (0-indexed)
+    """
+    offsets = []
+    current_offset = 0
+    for chunk in chunks:
+        offsets.append(current_offset)
+        current_offset += len(chunk)
+    return offsets
+
+
+def merge_chunk_results(chunk_results: List[dict], page_offsets: List[int]) -> dict:
     """Merge results from multiple chunks into single result.
 
     Args:
         chunk_results: List of results from each chunk
-        total_pages: Total pages in document
+        page_offsets: Starting page numbers for each chunk
 
     Returns:
         Merged result dictionary
