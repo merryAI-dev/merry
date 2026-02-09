@@ -1,5 +1,10 @@
 {
   "builds": [
     { "src": "web/package.json", "use": "@vercel/next" }
+  ],
+  "rewrites": [
+    { "source": "/web/:path*", "destination": "/web/:path*" },
+    { "source": "/", "destination": "/web" },
+    { "source": "/:path*", "destination": "/web/:path*" }
   ]
 }

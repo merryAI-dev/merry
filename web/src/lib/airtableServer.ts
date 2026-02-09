@@ -34,7 +34,13 @@ export function getAirtableConfig(): AirtableConfig | null {
   const baseId = getEnv("AIRTABLE_BASE_ID");
   if (!token || !baseId) return null;
 
-  const fundsTable = getEnv("AIRTABLE_FUNDS_TABLE") ?? "Funds";
+  // Support both the new canonical env name and legacy variants.
+  // Prefer table ID over name for stability when Airtable table names change.
+  const fundsTable =
+    getEnv("AIRTABLE_FUND_TABLE_ID") ??
+    getEnv("AIRTABLE_FUND_TABLE_NAME") ??
+    getEnv("AIRTABLE_FUNDS_TABLE") ??
+    "Funds";
   const fundsView = getEnv("AIRTABLE_FUNDS_VIEW");
 
   const snapshotsTable = getEnv("AIRTABLE_SNAPSHOTS_TABLE") ?? "Fund Snapshots";
@@ -270,4 +276,3 @@ export async function getFundDetail(cfg: AirtableConfig, fundId: string): Promis
 
   return { fund, snapshots, warnings };
 }
-

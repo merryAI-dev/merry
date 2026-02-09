@@ -46,7 +46,9 @@ export default function FundsPage() {
       setFunds(res.funds || []);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "FAILED";
-      if (msg === "AIRTABLE_NOT_CONFIGURED") {
+      if (msg === "UNAUTHORIZED") {
+        setError("로그인이 필요합니다. 다시 로그인 후 시도하세요.");
+      } else if (msg === "AIRTABLE_NOT_CONFIGURED") {
         setError("Airtable 환경변수(AIRTABLE_API_TOKEN / AIRTABLE_BASE_ID)를 설정해야 합니다.");
       } else {
         setError("펀드 목록을 불러오지 못했습니다. Airtable 연결/권한을 확인하세요.");
@@ -193,4 +195,3 @@ export default function FundsPage() {
     </div>
   );
 }
-

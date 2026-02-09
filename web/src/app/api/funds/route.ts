@@ -16,8 +16,9 @@ export async function GET() {
     const funds = await listFunds(cfg);
     return NextResponse.json({ ok: true, funds });
   } catch (err) {
-    const status = err instanceof Error && err.message === "UNAUTHORIZED" ? 401 : 500;
-    return NextResponse.json({ ok: false, error: "FAILED" }, { status });
+    const unauthorized = err instanceof Error && err.message === "UNAUTHORIZED";
+    const status = unauthorized ? 401 : 500;
+    const code = unauthorized ? "UNAUTHORIZED" : "FAILED";
+    return NextResponse.json({ ok: false, error: code }, { status });
   }
 }
-

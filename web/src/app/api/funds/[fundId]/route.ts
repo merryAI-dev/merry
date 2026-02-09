@@ -28,7 +28,12 @@ export async function GET(_req: Request, ctx: { params: Promise<{ fundId: string
         : err instanceof z.ZodError
           ? 400
           : 500;
-    const code = err instanceof z.ZodError ? "BAD_REQUEST" : "FAILED";
+    const code =
+      err instanceof Error && err.message === "UNAUTHORIZED"
+        ? "UNAUTHORIZED"
+        : err instanceof z.ZodError
+          ? "BAD_REQUEST"
+          : "FAILED";
     return NextResponse.json({ ok: false, error: code }, { status });
   }
 }
