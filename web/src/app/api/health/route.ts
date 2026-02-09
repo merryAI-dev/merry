@@ -83,6 +83,7 @@ export async function GET() {
         ? {
             fundsTable: airtable.fundsTable,
             fundsView: airtable.fundsView ?? null,
+            companiesTable: airtable.companiesTable ?? null,
             snapshotsTable: airtable.snapshotsTable ?? null,
             snapshotsView: airtable.snapshotsView ?? null,
           }
@@ -92,4 +93,3 @@ export async function GET() {
     { headers: { "cache-control": "no-store" } },
   );
 }
-

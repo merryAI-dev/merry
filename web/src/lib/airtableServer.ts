@@ -1,4 +1,5 @@
 import type { FundDetail, FundSnapshot, FundSummary } from "@/lib/funds";
+import type { CompanyDetail, CompanySummary } from "@/lib/companies";
 
 type AirtableRecord = {
   id: string;
@@ -16,6 +17,7 @@ export type AirtableConfig = {
   baseId: string;
   fundsTable: string;
   fundsView?: string;
+  companiesTable?: string;
   snapshotsTable?: string;
   snapshotsView?: string;
   snapshotFundLinkField: string;
@@ -43,6 +45,14 @@ export function getAirtableConfig(): AirtableConfig | null {
     "Funds";
   const fundsView = getEnv("AIRTABLE_FUNDS_VIEW");
 
+  const companiesTable =
+    getEnv("AIRTABLE_COMPANIES_TABLE_ID") ??
+    getEnv("AIRTABLE_COMPANY_TABLE_ID") ??
+    getEnv("AIRTABLE_COMPANIES_TABLE_NAME") ??
+    getEnv("AIRTABLE_COMPANY_TABLE_NAME") ??
+    getEnv("AIRTABLE_TABLE_NAME") ??
+    getEnv("AIRTABLE_TABLE_ID");
+
   const snapshotsTable = getEnv("AIRTABLE_SNAPSHOTS_TABLE") ?? "Fund Snapshots";
   const snapshotsView = getEnv("AIRTABLE_SNAPSHOTS_VIEW");
   const snapshotFundLinkField = getEnv("AIRTABLE_SNAPSHOT_FUND_LINK_FIELD") ?? "Fund";
@@ -56,6 +66,7 @@ export function getAirtableConfig(): AirtableConfig | null {
     baseId,
     fundsTable,
     fundsView,
+    companiesTable,
     snapshotsTable: disableSnapshots ? undefined : snapshotsTable,
     snapshotsView,
     snapshotFundLinkField,
@@ -101,10 +112,53 @@ function toString(v: unknown): string | undefined {
   return undefined;
 }
 
+function toStringArray(v: unknown): string[] {
+  if (Array.isArray(v)) {
+    return v.map((x) => (typeof x === "string" ? x.trim() : "")).filter(Boolean);
+  }
+  if (typeof v === "string") {
+    const s = v.trim();
+    return s ? [s] : [];
+  }
+  return [];
+}
+
+const normalizedFieldKeyCache = new WeakMap<object, Map<string, string>>();
+
+function normalizeFieldKey(key: string): string {
+  // Airtable field names often include spaces/newlines/parentheses.
+  // Normalize both candidates and actual keys so mapping is resilient.
+  return key.toLowerCase().replace(/[^0-9a-zA-Z가-힣]+/g, "");
+}
+
+function getNormalizedFieldIndex(fields: Record<string, unknown>): Map<string, string> {
+  const cached = normalizedFieldKeyCache.get(fields);
+  if (cached) return cached;
+
+  const idx = new Map<string, string>();
+  for (const k of Object.keys(fields)) {
+    const norm = normalizeFieldKey(k);
+    if (!norm || idx.has(norm)) continue;
+    idx.set(norm, k);
+  }
+
+  normalizedFieldKeyCache.set(fields, idx);
+  return idx;
+}
+
 function pickField(fields: Record<string, unknown>, candidates: string[]): unknown {
   for (const k of candidates) {
     if (k in fields) return fields[k];
   }
+
+  const idx = getNormalizedFieldIndex(fields);
+  for (const c of candidates) {
+    const norm = normalizeFieldKey(c);
+    if (!norm) continue;
+    const actual = idx.get(norm);
+    if (actual && actual in fields) return fields[actual];
+  }
+
   return undefined;
 }
 
@@ -114,6 +168,10 @@ function pickString(fields: Record<string, unknown>, candidates: string[]): stri
 
 function pickNumber(fields: Record<string, unknown>, candidates: string[]): number | undefined {
   return toNumber(pickField(fields, candidates));
+}
+
+function pickStringArray(fields: Record<string, unknown>, candidates: string[]): string[] {
+  return toStringArray(pickField(fields, candidates));
 }
 
 function toIsoDate(v: unknown): string | undefined {
@@ -198,7 +256,67 @@ function fundDetailFromRecord(rec: AirtableRecord): FundDetail {
   const manager = pickString(f, ["Manager", "GP", "운용사", "매니저", "manager", "대표펀드매니저", "대표 펀드매니저"]);
   const strategy = pickString(f, ["Strategy", "전략", "strategy", "구분"]);
   const notes = pickString(f, ["Notes", "Memo", "메모", "비고", "notes"]);
-  return { ...base, manager, strategy, notes };
+  const dealCount = pickNumber(f, ["Deal Count", "투자건수", "투자 건수"]);
+  const availableCapital = pickNumber(f, ["Available Capital", "투자가용금액", "투자가용 금액"]);
+  const myscCommitment = pickNumber(f, ["MYSC 출자약정금액", "MYSC Commitment"]);
+  const myscRatio = pickNumber(f, ["MYSC 출자비율", "MYSC Ratio"]);
+  const lifeTerm = pickString(f, ["존속기간", "Life", "Life Term"]);
+  const investmentTerm = pickString(f, ["투자기간", "Investment Period", "Investment Term"]);
+  return { ...base, manager, strategy, notes, dealCount, availableCapital, myscCommitment, myscRatio, lifeTerm, investmentTerm };
+}
+
+function companyFromRecord(rec: AirtableRecord): CompanySummary {
+  const f = rec.fields ?? {};
+
+  const name = pickString(f, ["Company", "Name", "기업명", "회사명"]) ?? `Company ${rec.id.slice(-6)}`;
+  const investedAt = toIsoDate(pickField(f, ["투자일", "Investment Date", "investedAt", "Date"]));
+  const stage = pickString(f, ["투자단계", "Stage"]);
+  const investmentType = pickString(f, ["투자유형", "Type"]);
+  const category = pickString(f, ["카테고리1", "Category", "Sector"]);
+  const categories = pickStringArray(f, ["카테고리2", "Categories"]);
+
+  const investedAmount = pickNumber(f, ["투자금액", "Investment Amount", "투자 금액"]);
+  const returnedPrincipal = pickNumber(f, ["회수원금", "회수 원금", "Returned Capital"]);
+  const returnedProfit = pickNumber(f, ["회수수익", "회수 수익", "Returned Profit"]);
+  const nav = pickNumber(f, ["평가금액(미회수투자자산)", "평가금액", "NAV", "Net Asset Value"]);
+  const multiple = pickNumber(f, [
+    "Multiple(x)\n(투자수익배수)",
+    "Multiple(x) (투자수익배수)",
+    "multiple(x) (투자수익배수)",
+    "TVPI",
+    "multiple(x)",
+  ]);
+
+  return {
+    companyId: rec.id,
+    name,
+    investedAt,
+    stage,
+    investmentType,
+    category,
+    categories: categories.length ? categories : undefined,
+    investedAmount,
+    returnedPrincipal,
+    returnedProfit,
+    nav,
+    multiple,
+  };
+}
+
+function companyDetailFromRecord(rec: AirtableRecord): CompanyDetail {
+  const base = companyFromRecord(rec);
+  const f = rec.fields ?? {};
+
+  const products = pickString(f, ["제품/서비스", "Product", "Service", "제품", "서비스"]);
+  const location = pickString(f, ["본점 소재지", "Location"]);
+  const foundedAt = toIsoDate(pickField(f, ["회사설립일", "설립일", "Founded"]));
+  const ceo = pickString(f, ["대표자명", "CEO", "대표자"]);
+  const contact = pickString(f, ["연락처", "Contact", "담당자 연락처", "담당자 연락처2"]);
+  const investmentPoint = pickString(f, ["투자포인트", "Investment Point"]);
+  const exitPlan = pickString(f, ["Exit방안", "Exit Plan"]);
+  const exitExpectation = pickString(f, ["Exit예상시기/금액", "Exit 예상시기/금액"]);
+
+  return { ...base, products, location, foundedAt, ceo, contact, investmentPoint, exitPlan, exitExpectation };
 }
 
 function snapshotFromRecord(rec: AirtableRecord, dateField: string): FundSnapshot | null {
@@ -272,12 +390,41 @@ async function listAllRecords(cfg: AirtableConfig, table: string, opts: { view?:
   return records.slice(0, max);
 }
 
+function orderedUniqueIds(ids: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of ids) {
+    const id = raw.trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    out.push(id);
+  }
+  return out;
+}
+
+async function listRecordsByIds(cfg: AirtableConfig, table: string, recordIds: string[]): Promise<AirtableRecord[]> {
+  const ids = orderedUniqueIds(recordIds);
+  if (!ids.length) return [];
+
+  const all: AirtableRecord[] = [];
+  for (let i = 0; i < ids.length; i += 25) {
+    const batch = ids.slice(i, i + 25);
+    const parts = batch.map((id) => `RECORD_ID()='${id}'`);
+    const formula = parts.length === 1 ? parts[0] : `OR(${parts.join(",")})`;
+    const recs = await listAllRecords(cfg, table, { max: batch.length + 10, filterByFormula: formula });
+    all.push(...recs);
+  }
+
+  const byId = new Map(all.map((r) => [r.id, r]));
+  return ids.map((id) => byId.get(id)).filter(Boolean) as AirtableRecord[];
+}
+
 export async function listFunds(cfg: AirtableConfig): Promise<FundSummary[]> {
   const recs = await listAllRecords(cfg, cfg.fundsTable, { view: cfg.fundsView, max: 300 });
   return recs.map(fundFromRecord);
 }
 
-export async function getFundDetail(cfg: AirtableConfig, fundId: string): Promise<{ fund: FundDetail; snapshots: FundSnapshot[]; warnings: string[] }> {
+export async function getFundDetail(cfg: AirtableConfig, fundId: string): Promise<{ fund: FundDetail; snapshots: FundSnapshot[]; companies: CompanySummary[]; warnings: string[] }> {
   const warnings: string[] = [];
 
   const fundRec = await airtableGetJson<AirtableRecord>(
@@ -285,6 +432,21 @@ export async function getFundDetail(cfg: AirtableConfig, fundId: string): Promis
     `${encodeURIComponent(cfg.fundsTable)}/${encodeURIComponent(fundId)}`,
   );
   const fund = fundDetailFromRecord(fundRec);
+
+  let companies: CompanySummary[] = [];
+  const companyIds = pickStringArray(fundRec.fields ?? {}, ["투자기업", "투자 기업", "portfolio", "Portfolio", "Companies"]);
+  if (companyIds.length && cfg.companiesTable) {
+    try {
+      const recs = await listRecordsByIds(cfg, cfg.companiesTable, companyIds);
+      companies = recs.map(companyFromRecord);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "companies_failed";
+      warnings.push(`companies_unavailable:${msg}`);
+      companies = [];
+    }
+  } else if (companyIds.length && !cfg.companiesTable) {
+    warnings.push("companies_not_configured");
+  }
 
   let snapshots: FundSnapshot[] = [];
   if (cfg.snapshotsTable) {
@@ -309,5 +471,16 @@ export async function getFundDetail(cfg: AirtableConfig, fundId: string): Promis
     warnings.push("snapshots_disabled");
   }
 
-  return { fund, snapshots, warnings };
+  return { fund, snapshots, companies, warnings };
+}
+
+export async function getCompanyDetail(cfg: AirtableConfig, companyId: string): Promise<CompanyDetail> {
+  if (!cfg.companiesTable) {
+    throw new Error("AIRTABLE_COMPANIES_NOT_CONFIGURED");
+  }
+  const rec = await airtableGetJson<AirtableRecord>(
+    cfg,
+    `${encodeURIComponent(cfg.companiesTable)}/${encodeURIComponent(companyId)}`,
+  );
+  return companyDetailFromRecord(rec);
 }

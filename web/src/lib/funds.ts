@@ -17,6 +17,12 @@ export type FundDetail = FundSummary & {
   manager?: string;
   strategy?: string;
   notes?: string;
+  dealCount?: number;
+  availableCapital?: number;
+  myscCommitment?: number;
+  myscRatio?: number;
+  lifeTerm?: string;
+  investmentTerm?: string;
 };
 
 export type FundSnapshot = {
@@ -28,4 +34,3 @@ export type FundSnapshot = {
   dpi?: number;
   irr?: number;
 };
-
