@@ -88,6 +88,16 @@ function toString(v: unknown): string | undefined {
     return s ? s : undefined;
   }
   if (typeof v === "number") return Number.isFinite(v) ? String(v) : undefined;
+  if (Array.isArray(v)) {
+    const parts = v
+      .map((x) => {
+        if (typeof x === "string") return x.trim();
+        if (typeof x === "number") return Number.isFinite(x) ? String(x) : "";
+        return "";
+      })
+      .filter(Boolean);
+    return parts.length ? parts.join(", ") : undefined;
+  }
   return undefined;
 }
 
@@ -120,26 +130,51 @@ function toIsoDate(v: unknown): string | undefined {
   return undefined;
 }
 
+function yearFromDateLike(v: unknown): string | undefined {
+  const iso = toIsoDate(v);
+  if (!iso) return undefined;
+  const m = iso.match(/^(\d{4})/);
+  return m ? m[1] : undefined;
+}
+
 function fundFromRecord(rec: AirtableRecord): FundSummary {
   const f = rec.fields ?? {};
 
   const name =
-    pickString(f, ["Name", "name", "Fund", "Fund Name", "펀드명", "펀드 이름", "펀드"]) ??
+    pickString(f, ["Name", "name", "Fund", "Fund Name", "펀드명", "펀드 이름", "펀드", "조합명", "투자 조합명"]) ??
     `Fund ${rec.id.slice(-6)}`;
 
-  const vintage = pickString(f, ["Vintage", "vintage", "빈티지", "연도"]);
+  const vintage =
+    pickString(f, ["Vintage", "vintage", "빈티지", "연도"]) ??
+    yearFromDateLike(pickField(f, ["등록일", "결성일", "설립일", "Date"]));
   const currency = pickString(f, ["Currency", "currency", "통화"]);
 
-  const committed = pickNumber(f, ["Committed", "Commitment", "Committed Capital", "약정액", "총약정", "AUM"]);
-  const called = pickNumber(f, ["Called", "Paid In", "Called Capital", "납입액", "납입", "투입"]);
-  const distributed = pickNumber(f, ["Distributed", "Returned", "Distributions", "회수액", "분배액", "회수", "분배"]);
-  const nav = pickNumber(f, ["NAV", "Net Asset Value", "평가액", "순자산"]);
+  const committed = pickNumber(f, ["Committed", "Commitment", "Committed Capital", "약정총액", "약정액", "총약정", "AUM"]);
+  const called = pickNumber(f, ["Called", "Paid In", "Called Capital", "총 투자금액(누적)", "총투자금액(누적)", "납입액", "납입", "투입"]);
 
-  const tvpi = pickNumber(f, ["TVPI", "tvpi"]);
-  const dpi = pickNumber(f, ["DPI", "dpi"]);
+  const returnedPrincipal = pickNumber(f, ["Return of Capital", "Returned Capital", "회수원금", "회수 원금"]);
+  const returnedProfit = pickNumber(f, ["Return", "Profit", "회수수익", "회수 수익"]);
+  const distributedRaw = pickNumber(f, ["Distributed", "Returned", "Distributions", "회수액", "분배액", "회수", "분배"]);
+  const distributed =
+    distributedRaw ??
+    (returnedPrincipal != null || returnedProfit != null
+      ? (returnedPrincipal ?? 0) + (returnedProfit ?? 0)
+      : undefined);
+
+  const nav = pickNumber(f, ["NAV", "Net Asset Value", "미회수투자자산 평가금액", "미회수투자자산", "평가액", "순자산"]);
+
+  const tvpi = pickNumber(f, ["TVPI", "tvpi", "multiple(x) (투자수익배수)", "투자수익배수", "multiple(x)", "multiple"]);
+  const dpiRaw = pickNumber(f, ["DPI", "dpi"]);
+  const dpi =
+    dpiRaw ??
+    (typeof distributed === "number" && typeof called === "number" && called > 0
+      ? distributed / called
+      : undefined);
   const irr = pickNumber(f, ["IRR", "irr"]);
 
-  const updatedAt = pickString(f, ["Updated At", "updatedAt", "updated_at", "Last Updated", "수정일"]) ?? rec.createdTime;
+  const updatedAt =
+    pickString(f, ["Updated At", "updatedAt", "updated_at", "Last Updated", "수정일", "등록일"]) ??
+    rec.createdTime;
 
   return {
     fundId: rec.id,
@@ -160,8 +195,8 @@ function fundFromRecord(rec: AirtableRecord): FundSummary {
 function fundDetailFromRecord(rec: AirtableRecord): FundDetail {
   const base = fundFromRecord(rec);
   const f = rec.fields ?? {};
-  const manager = pickString(f, ["Manager", "GP", "운용사", "매니저", "manager"]);
-  const strategy = pickString(f, ["Strategy", "전략", "strategy"]);
+  const manager = pickString(f, ["Manager", "GP", "운용사", "매니저", "manager", "대표펀드매니저", "대표 펀드매니저"]);
+  const strategy = pickString(f, ["Strategy", "전략", "strategy", "구분"]);
   const notes = pickString(f, ["Notes", "Memo", "메모", "비고", "notes"]);
   return { ...base, manager, strategy, notes };
 }
