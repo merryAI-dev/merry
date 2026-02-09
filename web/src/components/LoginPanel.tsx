@@ -3,6 +3,7 @@
 import * as React from "react";
 import { ArrowRight, Shield } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { signIn } from "next-auth/react";
 
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -65,9 +66,7 @@ export function LoginPanel({
   }
 
   function loginWithGoogle() {
-    const callbackUrl = "/hub";
-    const url = `/api/auth/signin/google?callbackUrl=${encodeURIComponent(callbackUrl)}`;
-    window.location.assign(url);
+    signIn("google", { callbackUrl: "/hub" });
   }
 
   return (
@@ -148,4 +147,3 @@ export function LoginPanel({
     </Card>
   );
 }
-
