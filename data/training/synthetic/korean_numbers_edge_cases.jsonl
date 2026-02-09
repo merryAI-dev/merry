@@ -1,0 +1,29 @@
+{"id": "edge_case_000", "input": "0", "output": 0, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137190"}
+{"id": "edge_case_001", "input": "0원", "output": 0, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137195"}
+{"id": "edge_case_002", "input": "1", "output": 1, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137197"}
+{"id": "edge_case_003", "input": "10", "output": 10, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137197"}
+{"id": "edge_case_004", "input": "100", "output": 100, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137198"}
+{"id": "edge_case_005", "input": "백", "output": 100, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137199"}
+{"id": "edge_case_006", "input": "천", "output": 1000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137200"}
+{"id": "edge_case_007", "input": "만", "output": 10000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137201"}
+{"id": "edge_case_008", "input": "십만", "output": 100000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137201"}
+{"id": "edge_case_009", "input": "백만", "output": 1000000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137202"}
+{"id": "edge_case_010", "input": "천만", "output": 10000000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137203"}
+{"id": "edge_case_011", "input": "억", "output": 100000000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137204"}
+{"id": "edge_case_012", "input": "십억", "output": 1000000000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137205"}
+{"id": "edge_case_013", "input": "백억", "output": 10000000000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137205"}
+{"id": "edge_case_014", "input": "천억", "output": 100000000000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137206"}
+{"id": "edge_case_015", "input": "조", "output": 1000000000000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137207"}
+{"id": "edge_case_016", "input": "5억2천만", "output": 520000000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137208"}
+{"id": "edge_case_017", "input": "1조3천억", "output": 1300000000000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137209"}
+{"id": "edge_case_018", "input": "32억4500만", "output": 3245000000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137209"}
+{"id": "edge_case_019", "input": "3천억", "output": 300000000000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137210"}
+{"id": "edge_case_020", "input": "5천만", "output": 50000000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137211"}
+{"id": "edge_case_021", "input": "2천500", "output": 2500, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137213"}
+{"id": "edge_case_022", "input": "5억2천만원", "output": 520000000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137214"}
+{"id": "edge_case_023", "input": "3천억원", "output": 300000000000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137215"}
+{"id": "edge_case_024", "input": "5억 2천만", "output": 520000000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137215"}
+{"id": "edge_case_025", "input": "1조 3천억", "output": 1300000000000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137216"}
+{"id": "edge_case_026", "input": "99조9999억9999만9999", "output": 99999999999999, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137217"}
+{"id": "edge_case_027", "input": "10조", "output": 10000000000000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137217"}
+{"id": "edge_case_028", "input": "50조", "output": 50000000000000, "task": "korean_number_parsing", "category": "edge_case", "generated_at": "2026-02-09T10:24:05.137218"}

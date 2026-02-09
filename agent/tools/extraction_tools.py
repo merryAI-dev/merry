@@ -19,6 +19,7 @@ from ._common import (
     _validate_numeric_param,
     logger,
 )
+from shared.training_logger import log_training_data
 
 TOOLS = [
     {
@@ -163,6 +164,7 @@ def execute_read_excel_as_text(
             wb.close()
 
 
+@log_training_data(task_type="text_parsing", model_name=None)
 def execute_analyze_excel(excel_path: str) -> Dict[str, Any]:
     """엑셀 파일 분석 실행 - openpyxl로 직접 읽기"""
     is_valid, error = _validate_file_path(
