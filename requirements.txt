@@ -35,6 +35,9 @@ yfinance>=0.2.30  # Yahoo Finance API
 PyMuPDF>=1.23.0  # PDF 텍스트 추출
 python-docx>=1.1.0  # DOCX 텍스트 추출
 
+# AWS S3 Storage (Phase 4-B)
+boto3>=1.34.0  # AWS SDK for Python
+
 # Claude Vision PDF Parsing (PDF → 이미지 변환용)
 # PyMuPDF는 이미 위에 포함됨
 

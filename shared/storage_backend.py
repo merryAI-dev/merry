@@ -7,6 +7,7 @@ Designed for secure data collection with encryption and access control.
 
 import json
 import os
+import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
@@ -277,10 +278,42 @@ class S3StorageBackend(StorageBackend):
         sample: Dict[str, Any],
         metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Write training sample to S3."""
-        raise NotImplementedError(
-            "S3 storage not yet implemented. Use LocalStorageBackend for now."
-        )
+        """Write training sample to S3.
+
+        Key structure: {task_type}/{YYYY}/{MM}/{DD}/{uuid}.jsonl
+        Example: pdf_extraction/2026/02/09/a1b2c3d4-e5f6-7890-abcd-ef1234567890.jsonl
+        """
+        s3 = self._get_s3_client()
+
+        # Build S3 key with date hierarchy
+        now = datetime.now()
+        sample_id = str(uuid.uuid4())
+        s3_key = f"{self.prefix}{task_type}/{now.year}/{now.month:02d}/{now.day:02d}/{sample_id}.jsonl"
+
+        # Add timestamp to sample
+        sample_with_meta = {
+            "timestamp": now.isoformat(),
+            "sample_id": sample_id,
+            **sample,
+        }
+        if metadata:
+            sample_with_meta["metadata"] = metadata
+
+        # Write to S3 with server-side encryption
+        try:
+            jsonl_content = json.dumps(sample_with_meta, ensure_ascii=False) + "\n"
+            s3.put_object(
+                Bucket=self.bucket_name,
+                Key=s3_key,
+                Body=jsonl_content.encode("utf-8"),
+                ServerSideEncryption="AES256",  # SSE-S3 encryption
+                ContentType="application/x-ndjson",
+            )
+            logger.info(f"Wrote training sample to S3: s3://{self.bucket_name}/{s3_key}")
+            return f"s3://{self.bucket_name}/{s3_key}"
+        except Exception as e:
+            logger.error(f"Failed to write to S3: {e}", exc_info=True)
+            raise
 
     def list_samples(
         self,
@@ -288,22 +321,155 @@ class S3StorageBackend(StorageBackend):
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
     ) -> List[str]:
-        """List training samples in S3."""
-        raise NotImplementedError(
-            "S3 storage not yet implemented. Use LocalStorageBackend for now."
-        )
+        """List training samples in S3.
+
+        Returns:
+            List of S3 URIs (s3://bucket/key)
+        """
+        s3 = self._get_s3_client()
+
+        # List objects with task_type prefix
+        prefix = f"{self.prefix}{task_type}/"
+        s3_uris = []
+
+        try:
+            paginator = s3.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=self.bucket_name, Prefix=prefix):
+                if "Contents" not in page:
+                    continue
+
+                for obj in page["Contents"]:
+                    key = obj["Key"]
+                    # Filter by date range if specified
+                    if start_date or end_date:
+                        # Extract date from key: task_type/YYYY/MM/DD/uuid.jsonl
+                        parts = key.split("/")
+                        if len(parts) >= 5:
+                            try:
+                                year, month, day = int(parts[-4]), int(parts[-3]), int(parts[-2])
+                                file_date = datetime(year, month, day)
+                                if start_date and file_date < start_date:
+                                    continue
+                                if end_date and file_date > end_date:
+                                    continue
+                            except (ValueError, IndexError):
+                                # Invalid date structure, include anyway
+                                pass
+
+                    s3_uris.append(f"s3://{self.bucket_name}/{key}")
+
+            return sorted(s3_uris)
+        except Exception as e:
+            logger.error(f"Failed to list S3 samples: {e}", exc_info=True)
+            raise
 
     def read_sample(self, path: str) -> Dict[str, Any]:
-        """Read training sample from S3."""
-        raise NotImplementedError(
-            "S3 storage not yet implemented. Use LocalStorageBackend for now."
-        )
+        """Read training sample from S3.
+
+        Args:
+            path: S3 URI (s3://bucket/key) or just the key
+
+        Returns:
+            Dictionary with path, samples list, and count
+        """
+        s3 = self._get_s3_client()
+
+        # Parse S3 URI
+        if path.startswith("s3://"):
+            # Extract bucket and key from s3://bucket/key
+            parts = path[5:].split("/", 1)
+            bucket = parts[0]
+            key = parts[1] if len(parts) > 1 else ""
+        else:
+            # Assume it's just a key
+            bucket = self.bucket_name
+            key = path
+
+        try:
+            response = s3.get_object(Bucket=bucket, Key=key)
+            content = response["Body"].read().decode("utf-8")
+
+            # Parse JSONL
+            samples = []
+            for line in content.strip().split("\n"):
+                if line.strip():
+                    samples.append(json.loads(line))
+
+            return {"path": f"s3://{bucket}/{key}", "samples": samples, "count": len(samples)}
+        except Exception as e:
+            logger.error(f"Failed to read S3 sample: {e}", exc_info=True)
+            raise
 
     def get_dataset_stats(self, task_type: str) -> Dict[str, Any]:
-        """Get dataset statistics from S3."""
-        raise NotImplementedError(
-            "S3 storage not yet implemented. Use LocalStorageBackend for now."
-        )
+        """Get dataset statistics from S3.
+
+        Returns:
+            Dictionary with task_type, sample_count, file_count, total_size_mb, date_range
+        """
+        s3 = self._get_s3_client()
+
+        prefix = f"{self.prefix}{task_type}/"
+        file_count = 0
+        total_size = 0
+        total_samples = 0
+        dates = []
+
+        try:
+            paginator = s3.get_paginator("list_objects_v2")
+            for page in paginator.paginate(Bucket=self.bucket_name, Prefix=prefix):
+                if "Contents" not in page:
+                    break
+
+                for obj in page["Contents"]:
+                    key = obj["Key"]
+                    file_count += 1
+                    total_size += obj["Size"]
+
+                    # Count samples by reading file (expensive for large datasets)
+                    # For production, consider storing sample count in object metadata
+                    try:
+                        response = s3.get_object(Bucket=self.bucket_name, Key=key)
+                        content = response["Body"].read().decode("utf-8")
+                        total_samples += sum(1 for line in content.strip().split("\n") if line.strip())
+                    except Exception as e:
+                        logger.warning(f"Error reading {key} for stats: {e}")
+
+                    # Extract date from key
+                    parts = key.split("/")
+                    if len(parts) >= 5:
+                        try:
+                            year, month, day = int(parts[-4]), int(parts[-3]), int(parts[-2])
+                            dates.append(datetime(year, month, day))
+                        except (ValueError, IndexError):
+                            pass
+
+            date_range = None
+            if dates:
+                dates.sort()
+                date_range = {
+                    "start": dates[0].strftime("%Y-%m-%d"),
+                    "end": dates[-1].strftime("%Y-%m-%d"),
+                }
+
+            return {
+                "task_type": task_type,
+                "sample_count": total_samples,
+                "file_count": file_count,
+                "total_size_bytes": total_size,
+                "total_size_mb": total_size / (1024 * 1024),
+                "date_range": date_range,
+            }
+        except Exception as e:
+            logger.error(f"Failed to get S3 stats: {e}", exc_info=True)
+            # Return empty stats instead of failing
+            return {
+                "task_type": task_type,
+                "sample_count": 0,
+                "file_count": 0,
+                "total_size_bytes": 0,
+                "total_size_mb": 0.0,
+                "date_range": None,
+            }
 
 
 def get_storage_backend(backend_type: str = "local", **kwargs) -> StorageBackend:
@@ -312,6 +478,8 @@ def get_storage_backend(backend_type: str = "local", **kwargs) -> StorageBackend
     Args:
         backend_type: 'local' or 's3'
         **kwargs: Backend-specific arguments
+            For s3: bucket_name, prefix (read from env if not provided)
+            For local: base_dir (read from env if not provided)
 
     Returns:
         StorageBackend instance
@@ -319,6 +487,11 @@ def get_storage_backend(backend_type: str = "local", **kwargs) -> StorageBackend
     if backend_type == "local":
         return LocalStorageBackend(**kwargs)
     elif backend_type == "s3":
+        # Read S3 config from environment variables if not provided
+        if "bucket_name" not in kwargs:
+            kwargs["bucket_name"] = os.getenv("AWS_S3_BUCKET", "merry-training-data")
+        if "prefix" not in kwargs:
+            kwargs["prefix"] = os.getenv("AWS_S3_PREFIX", "training/")
         return S3StorageBackend(**kwargs)
     else:
         raise ValueError(f"Unknown backend type: {backend_type}")
