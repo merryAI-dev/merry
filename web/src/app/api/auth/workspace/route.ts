@@ -6,6 +6,7 @@ import {
   getExpectedPasscode,
   signWorkspaceSession,
 } from "@/lib/workspace";
+import { googleAuthEnabled } from "@/auth";
 
 export const runtime = "nodejs";
 
@@ -17,6 +18,11 @@ const BodySchema = z.object({
 
 export async function POST(req: Request) {
   try {
+    // When Google auth is configured, disable the passcode login path to avoid bypass.
+    if (googleAuthEnabled()) {
+      return NextResponse.json({ ok: false, error: "DISABLED" }, { status: 410 });
+    }
+
     const body = BodySchema.parse(await req.json());
     const expected = getExpectedPasscode(body.teamId);
     if (!expected || body.passcode !== expected) {

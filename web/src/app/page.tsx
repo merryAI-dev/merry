@@ -1,51 +1,22 @@
-"use client";
+import { redirect } from "next/navigation";
+import { Shield } from "lucide-react";
 
-import * as React from "react";
-import { useRouter } from "next/navigation";
-import { ArrowRight, Shield } from "lucide-react";
+import { LoginPanel } from "@/components/LoginPanel";
+import { getWorkspaceFromCookies } from "@/lib/workspaceServer";
 
-import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
-import { Input } from "@/components/ui/Input";
+export default async function Home({
+  searchParams,
+}: {
+  searchParams?:
+    | Record<string, string | string[] | undefined>
+    | Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const ws = await getWorkspaceFromCookies();
+  if (ws) redirect("/hub");
 
-const TEAM_OPTIONS = [
-  { label: "Team 1", value: "team_1" },
-  { label: "Team 2", value: "team_2" },
-  { label: "Team 3", value: "team_3" },
-  { label: "Team 4", value: "team_4" },
-];
-
-export default function Home() {
-  const router = useRouter();
-  const [teamId, setTeamId] = React.useState("team_1");
-  const [memberName, setMemberName] = React.useState("");
-  const [passcode, setPasscode] = React.useState("");
-  const [error, setError] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
-
-  async function login(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/auth/workspace", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ teamId, memberName, passcode }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || !json?.ok) {
-        setError("팀 코드가 올바르지 않거나 입력값이 부족합니다.");
-        return;
-      }
-      router.replace("/hub");
-    } catch {
-      setError("로그인 요청에 실패했습니다. 네트워크/서버 설정을 확인하세요.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
+  const sp = await Promise.resolve(searchParams ?? {});
+  const errorCode = typeof sp.error === "string" ? sp.error : "";
+  const googleEnabled = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
   return (
     <div className="min-h-screen px-4 py-10">
       <div className="mx-auto grid max-w-5xl items-center gap-10 md:grid-cols-2 md:gap-12">
@@ -79,83 +50,7 @@ export default function Home() {
           </div>
         </div>
 
-        <Card variant="strong" className="p-6 md:p-7">
-          <div className="text-sm font-medium text-[color:var(--ink)]">
-            팀 워크스페이스 로그인
-          </div>
-          <div className="mt-1 text-sm text-[color:var(--muted)]">
-            Vercel 환경변수로 팀 코드를 설정하고, AWS(DynamoDB/S3)에 히스토리를 저장합니다.
-          </div>
-
-          <form className="mt-6 space-y-3" onSubmit={login}>
-            <label className="block">
-              <div className="mb-1 text-xs font-medium text-[color:var(--muted)]">
-                팀
-              </div>
-              <select
-                className="h-11 w-full rounded-xl border border-[color:var(--line)] bg-white/80 px-3 text-sm text-[color:var(--ink)] outline-none focus:border-[color:var(--accent)]"
-                value={teamId}
-                onChange={(e) => setTeamId(e.target.value)}
-              >
-                {TEAM_OPTIONS.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block">
-              <div className="mb-1 text-xs font-medium text-[color:var(--muted)]">
-                닉네임
-              </div>
-              <Input
-                value={memberName}
-                onChange={(e) => setMemberName(e.target.value)}
-                placeholder="이름 또는 닉네임"
-                autoComplete="name"
-              />
-            </label>
-
-            <label className="block">
-              <div className="mb-1 text-xs font-medium text-[color:var(--muted)]">
-                팀 코드
-              </div>
-              <Input
-                value={passcode}
-                onChange={(e) => setPasscode(e.target.value)}
-                placeholder="워크스페이스 코드"
-                type="password"
-                autoComplete="current-password"
-              />
-            </label>
-
-            {error ? (
-              <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-900">
-                {error}
-              </div>
-            ) : null}
-
-            <Button
-              variant="primary"
-              className="w-full"
-              disabled={busy || !memberName || !passcode}
-              type="submit"
-            >
-              워크스페이스 들어가기 <ArrowRight className="h-4 w-4" />
-            </Button>
-
-            <div className="text-xs leading-5 text-[color:var(--muted)]">
-              환경변수 필요:{" "}
-              <span className="font-mono">AWS_REGION</span>,{" "}
-              <span className="font-mono">MERRY_DDB_TABLE</span>,{" "}
-              <span className="font-mono">MERRY_S3_BUCKET</span>,{" "}
-              <span className="font-mono">MERRY_SQS_QUEUE_URL</span>,{" "}
-              <span className="font-mono">WORKSPACE_JWT_SECRET</span>,{" "}
-              <span className="font-mono">WORKSPACE_CODE</span>
-            </div>
-          </form>
-        </Card>
+        <LoginPanel googleEnabled={googleEnabled} errorCode={errorCode} />
       </div>
     </div>
   );
