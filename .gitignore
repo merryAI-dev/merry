@@ -67,3 +67,4 @@ scripts/launch_review.py
 # g2b 스킬은 예외 (공유용)
 !.claude/skills/g2b-bid-downloader/
 !.claude/skills/g2b-bid-downloader/**
+.vercel

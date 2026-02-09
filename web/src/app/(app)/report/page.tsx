@@ -223,7 +223,7 @@ export default function ReportPage() {
       </div>
 
       {error ? (
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-900">
+        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 backdrop-blur-sm px-4 py-3 text-sm text-rose-300 shadow-[0_0_20px_rgba(244,63,94,0.15)]">
           {error}
         </div>
       ) : null}
@@ -237,7 +237,7 @@ export default function ReportPage() {
           </div>
         </div>
           <select
-            className="h-11 max-w-[34rem] rounded-xl border border-[color:var(--line)] bg-white/80 px-3 text-sm text-[color:var(--ink)] outline-none focus:border-[color:var(--accent)]"
+            className="h-11 max-w-[34rem] rounded-xl border border-[color:var(--line)] bg-[color:var(--card)]/60 backdrop-blur-md px-3 text-sm text-[color:var(--ink)] outline-none transition-all duration-300 focus:border-[color:var(--accent-purple)]/60 focus:bg-[color:var(--card)]/80 focus:shadow-[0_0_20px_rgba(168,85,247,0.15)] hover:border-[color:var(--accent-purple)]/40"
             value={activeSessionId}
             onChange={(e) => setActiveSessionId(e.target.value)}
             disabled={busy}
@@ -270,8 +270,8 @@ export default function ReportPage() {
                   <div
                     className={
                       m.role === "user"
-                        ? "max-w-[84%] rounded-2xl bg-[color:color-mix(in_oklab,var(--accent),white_82%)] px-4 py-3 text-sm text-[color:var(--ink)]"
-                        : "max-w-[84%] rounded-2xl border border-[color:var(--line)] bg-white/75 px-4 py-3 text-sm text-[color:var(--ink)]"
+                        ? "max-w-[84%] rounded-2xl bg-gradient-to-br from-[color:var(--accent-purple)]/20 to-[color:var(--accent-cyan)]/20 border border-[color:var(--accent-purple)]/30 backdrop-blur-sm px-4 py-3 text-sm text-[color:var(--ink)] shadow-[0_0_15px_rgba(168,85,247,0.1)]"
+                        : "max-w-[84%] rounded-2xl border border-[color:var(--line)] bg-[color:var(--card)]/80 backdrop-blur-md px-4 py-3 text-sm text-[color:var(--ink)] shadow-sm"
                     }
                   >
                     <div className="whitespace-pre-wrap">{m.content}</div>

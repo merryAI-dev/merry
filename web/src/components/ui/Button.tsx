@@ -11,19 +11,33 @@ export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
 };
 
 const base =
-  "inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-colors " +
-  "disabled:opacity-50 disabled:pointer-events-none " +
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--bg)]";
+  "inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-all duration-300 " +
+  "disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed " +
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-purple)] " +
+  "focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--bg-dark)]";
 
 const variants: Record<ButtonVariant, string> = {
   primary:
-    "bg-[color:var(--ink)] text-white hover:bg-[color:color-mix(in_oklab,var(--ink),black_12%)]",
+    "bg-gradient-to-r from-[color:var(--accent-purple)] to-[color:var(--accent-cyan)] " +
+    "text-white font-semibold shadow-lg " +
+    "hover:shadow-[0_0_30px_rgba(168,85,247,0.4)] hover:scale-[1.02] " +
+    "active:scale-[0.98] relative overflow-hidden " +
+    "before:absolute before:inset-0 before:bg-gradient-to-r before:from-white/0 before:via-white/20 before:to-white/0 " +
+    "before:translate-x-[-200%] hover:before:translate-x-[200%] before:transition-transform before:duration-700",
   secondary:
-    "bg-white/70 text-[color:var(--ink)] border border-[color:var(--line)] hover:bg-white/90",
+    "bg-[color:var(--card)] backdrop-blur-lg text-[color:var(--ink)] " +
+    "border border-[color:var(--line)] hover:border-[color:var(--accent-purple)]/40 " +
+    "hover:bg-[color:var(--card-strong)] hover:shadow-[0_0_20px_rgba(168,85,247,0.15)] " +
+    "hover:scale-[1.01] active:scale-[0.99]",
   ghost:
-    "text-[color:var(--ink)] hover:bg-black/5 border border-transparent hover:border-[color:var(--line)]",
+    "text-[color:var(--ink)] hover:bg-[color:var(--card)]/50 backdrop-blur-sm " +
+    "border border-transparent hover:border-[color:var(--accent-purple)]/20 " +
+    "hover:shadow-[0_0_15px_rgba(168,85,247,0.1)]",
   danger:
-    "bg-[color:var(--accent-2)] text-white hover:bg-[color:color-mix(in_oklab,var(--accent-2),black_12%)]",
+    "bg-gradient-to-r from-[color:var(--accent-pink)] to-red-600 " +
+    "text-white font-semibold shadow-lg " +
+    "hover:shadow-[0_0_30px_rgba(236,72,153,0.4)] hover:scale-[1.02] " +
+    "active:scale-[0.98]",
 };
 
 const sizes: Record<ButtonSize, string> = {

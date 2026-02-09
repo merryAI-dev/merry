@@ -522,11 +522,11 @@ export default function HubPage() {
                 {docs.map((d) => (
                   <label
                     key={d.id}
-                    className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[color:var(--line)] bg-white/70 p-3 hover:bg-white/90"
+                    className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[color:var(--line)] bg-[color:var(--card)]/60 backdrop-blur-sm p-3 transition-all duration-200 hover:bg-[color:var(--card)]/90 hover:border-[color:var(--accent-purple)]/30 hover:shadow-[0_0_15px_rgba(168,85,247,0.1)]"
                   >
                     <input
                       type="checkbox"
-                      className="mt-1 h-4 w-4 accent-[color:var(--accent)]"
+                      className="mt-1 h-4 w-4 rounded accent-[color:var(--accent-purple)] cursor-pointer"
                       checked={Boolean(d.uploaded)}
                       onChange={(e) => toggleDocUploaded(d.id, e.target.checked)}
                     />
@@ -568,8 +568,11 @@ export default function HubPage() {
               </div>
               <div className="max-h-56 space-y-2 overflow-auto pr-1">
                 {events.map((e) => (
-                  <div key={e.id} className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-                    <div className="text-xs font-medium text-[color:var(--muted)]">{e.date}</div>
+                  <div
+                    key={e.id}
+                    className="rounded-2xl border border-[color:var(--line)] bg-[color:var(--card)]/60 backdrop-blur-sm p-3 transition-all duration-200 hover:border-[color:var(--accent-cyan)]/30 hover:shadow-[0_0_15px_rgba(6,182,212,0.1)]"
+                  >
+                    <div className="text-xs font-medium text-[color:var(--accent-cyan)]">{e.date}</div>
                     <div className="mt-1 text-sm font-medium text-[color:var(--ink)]">{e.title}</div>
                   </div>
                 ))}

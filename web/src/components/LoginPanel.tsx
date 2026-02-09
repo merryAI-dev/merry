@@ -70,79 +70,84 @@ export function LoginPanel({
   }
 
   return (
-    <Card variant="strong" className="p-6 md:p-7">
-      <div className="text-sm font-medium text-[color:var(--ink)]">워크스페이스 로그인</div>
-      <div className="mt-1 text-sm text-[color:var(--muted)]">
-        {googleEnabled
-          ? "회사 Google 계정으로 로그인합니다. (@mysc.co.kr만 허용)"
-          : "현재는 팀 코드 로그인(레거시)만 활성화되어 있습니다."}
-      </div>
+    <Card variant="strong" className="p-6 md:p-7 relative overflow-hidden">
+      {/* Card gradient accent */}
+      <div className="absolute -top-20 -right-20 w-40 h-40 bg-[color:var(--accent-purple)] rounded-full opacity-10 blur-[80px]"></div>
 
-      <div className="mt-6 space-y-3">
-        {googleEnabled ? (
-          <>
-            <div className="inline-flex items-center gap-2 rounded-2xl bg-white/70 px-3 py-2 text-xs font-medium text-[color:var(--ink)] ring-1 ring-[color:var(--line)]">
-              <Shield className="h-4 w-4 text-[color:var(--accent)]" />
-              도메인 제한: <span className="font-mono">@mysc.co.kr</span>
-            </div>
-            <Button variant="primary" className="w-full" onClick={loginWithGoogle}>
-              Google로 로그인 <ArrowRight className="h-4 w-4" />
-            </Button>
-          </>
-        ) : (
-          <form className="space-y-3" onSubmit={loginWithPasscode}>
-            <label className="block">
-              <div className="mb-1 text-xs font-medium text-[color:var(--muted)]">팀</div>
-              <select
-                className="h-11 w-full rounded-xl border border-[color:var(--line)] bg-white/80 px-3 text-sm text-[color:var(--ink)] outline-none focus:border-[color:var(--accent)]"
-                value={teamId}
-                onChange={(e) => setTeamId(e.target.value)}
+      <div className="relative z-10">
+        <div className="text-sm font-semibold text-[color:var(--ink)]">워크스페이스 로그인</div>
+        <div className="mt-1.5 text-sm text-[color:var(--muted)] leading-relaxed">
+          {googleEnabled
+            ? "회사 Google 계정으로 로그인합니다. (@mysc.co.kr만 허용)"
+            : "현재는 팀 코드 로그인(레거시)만 활성화되어 있습니다."}
+        </div>
+
+        <div className="mt-6 space-y-3">
+          {googleEnabled ? (
+            <>
+              <div className="inline-flex items-center gap-2 rounded-2xl bg-[color:var(--card)]/80 backdrop-blur-md px-3 py-2 text-xs font-medium text-[color:var(--ink)] border border-[color:var(--accent-purple)]/30">
+                <Shield className="h-4 w-4 text-[color:var(--accent-purple)]" />
+                도메인 제한: <span className="font-mono text-[color:var(--accent-cyan)]">@mysc.co.kr</span>
+              </div>
+              <Button variant="primary" className="w-full" onClick={loginWithGoogle}>
+                Google로 로그인 <ArrowRight className="h-4 w-4" />
+              </Button>
+            </>
+          ) : (
+            <form className="space-y-3" onSubmit={loginWithPasscode}>
+              <label className="block">
+                <div className="mb-1.5 text-xs font-medium text-[color:var(--muted)]">팀</div>
+                <select
+                  className="h-11 w-full rounded-xl border border-[color:var(--line)] bg-[color:var(--card)]/60 backdrop-blur-md px-3 text-sm text-[color:var(--ink)] outline-none transition-all duration-300 focus:border-[color:var(--accent-purple)]/60 focus:bg-[color:var(--card)]/80 focus:shadow-[0_0_20px_rgba(168,85,247,0.15)] hover:border-[color:var(--accent-purple)]/40"
+                  value={teamId}
+                  onChange={(e) => setTeamId(e.target.value)}
+                >
+                  {TEAM_OPTIONS.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block">
+                <div className="mb-1.5 text-xs font-medium text-[color:var(--muted)]">닉네임</div>
+                <Input
+                  value={memberName}
+                  onChange={(e) => setMemberName(e.target.value)}
+                  placeholder="이름 또는 닉네임"
+                  autoComplete="name"
+                />
+              </label>
+
+              <label className="block">
+                <div className="mb-1.5 text-xs font-medium text-[color:var(--muted)]">팀 코드</div>
+                <Input
+                  value={passcode}
+                  onChange={(e) => setPasscode(e.target.value)}
+                  placeholder="워크스페이스 코드"
+                  type="password"
+                  autoComplete="current-password"
+                />
+              </label>
+
+              <Button
+                variant="primary"
+                className="w-full mt-4"
+                disabled={busy || !memberName || !passcode}
+                type="submit"
               >
-                {TEAM_OPTIONS.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+                워크스페이스 들어가기 <ArrowRight className="h-4 w-4" />
+              </Button>
+            </form>
+          )}
 
-            <label className="block">
-              <div className="mb-1 text-xs font-medium text-[color:var(--muted)]">닉네임</div>
-              <Input
-                value={memberName}
-                onChange={(e) => setMemberName(e.target.value)}
-                placeholder="이름 또는 닉네임"
-                autoComplete="name"
-              />
-            </label>
-
-            <label className="block">
-              <div className="mb-1 text-xs font-medium text-[color:var(--muted)]">팀 코드</div>
-              <Input
-                value={passcode}
-                onChange={(e) => setPasscode(e.target.value)}
-                placeholder="워크스페이스 코드"
-                type="password"
-                autoComplete="current-password"
-              />
-            </label>
-
-            <Button
-              variant="primary"
-              className="w-full"
-              disabled={busy || !memberName || !passcode}
-              type="submit"
-            >
-              워크스페이스 들어가기 <ArrowRight className="h-4 w-4" />
-            </Button>
-          </form>
-        )}
-
-        {error ? (
-          <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-900">
-            {error}
-          </div>
-        ) : null}
+          {error ? (
+            <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 backdrop-blur-sm px-3 py-2.5 text-sm text-rose-300">
+              {error}
+            </div>
+          ) : null}
+        </div>
       </div>
     </Card>
   );

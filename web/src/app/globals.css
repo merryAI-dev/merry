@@ -2,49 +2,300 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  --bg: #f4f1ea;
-  --ink: #101827;
-  --muted: #5b6476;
-  --card: rgba(255, 255, 255, 0.72);
-  --card-strong: rgba(255, 255, 255, 0.88);
-  --line: rgba(16, 24, 39, 0.14);
-  --shadow: 0 18px 55px rgba(16, 24, 39, 0.12);
-  --accent: #0e7c86;
-  --accent-2: #e4572e;
+  /* AI Agent Color Palette - Dark Base + Neon Accents */
+  --bg-dark: #0a0e1a;
+  --bg-darker: #060912;
+  --ink: #e2e8f0;
+  --ink-bright: #f1f5f9;
+  --muted: #94a3b8;
+
+  /* Glass Cards with Blur */
+  --card: rgba(15, 23, 42, 0.75);
+  --card-strong: rgba(15, 23, 42, 0.9);
+  --card-border: rgba(148, 163, 184, 0.12);
+  --line: rgba(148, 163, 184, 0.1);
+
+  /* AI Gradient Accents */
+  --accent-purple: #a855f7;
+  --accent-cyan: #06b6d4;
+  --accent-pink: #ec4899;
+  --accent-blue: #3b82f6;
+
+  /* Neon Glow Effects */
+  --glow-purple: rgba(168, 85, 247, 0.5);
+  --glow-cyan: rgba(6, 182, 212, 0.5);
+  --glow-pink: rgba(236, 72, 153, 0.5);
+
+  /* Shadows with Glow */
+  --shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 30px var(--glow-purple), 0 20px 60px rgba(0, 0, 0, 0.5);
+
+  /* Fonts */
   --font-display: var(--font-merry-display);
 }
 
 @theme inline {
-  --color-background: var(--bg);
+  --color-background: var(--bg-dark);
   --color-foreground: var(--ink);
   --font-sans: var(--font-merry-sans);
   --font-mono: var(--font-merry-mono);
+
+  /* Custom Colors for Tailwind */
+  --color-agent-purple: var(--accent-purple);
+  --color-agent-cyan: var(--accent-cyan);
+  --color-agent-pink: var(--accent-pink);
+  --color-agent-blue: var(--accent-blue);
 }
 
+/* Animated Gradient Background */
 body {
   color: var(--ink);
   font-family: var(--font-merry-sans), ui-sans-serif, system-ui;
+  background: var(--bg-dark);
+  position: relative;
+  min-height: 100vh;
+}
+
+/* AI Gradient Overlay with Animation */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
   background:
-    radial-gradient(1100px 700px at 10% -10%, rgba(14, 124, 134, 0.18), transparent 60%),
-    radial-gradient(900px 600px at 95% 10%, rgba(228, 87, 46, 0.12), transparent 55%),
-    radial-gradient(900px 600px at 55% 105%, rgba(16, 24, 39, 0.08), transparent 50%),
-    linear-gradient(180deg, #fbfaf7 0%, var(--bg) 55%, #efe9df 100%);
+    radial-gradient(ellipse 1200px 800px at 20% 10%, rgba(168, 85, 247, 0.15), transparent 50%),
+    radial-gradient(ellipse 1000px 700px at 80% 20%, rgba(6, 182, 212, 0.12), transparent 50%),
+    radial-gradient(ellipse 1000px 700px at 50% 90%, rgba(59, 130, 246, 0.1), transparent 50%),
+    radial-gradient(ellipse 800px 600px at 90% 80%, rgba(236, 72, 153, 0.08), transparent 50%),
+    linear-gradient(180deg, var(--bg-darker) 0%, var(--bg-dark) 50%, #0f1729 100%);
+  animation: gradientShift 20s ease infinite;
 }
 
+@keyframes gradientShift {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+/* Animated Grid Pattern */
+body::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.03) 1px, transparent 1px);
+  background-size: 50px 50px;
+  mask-image: radial-gradient(ellipse 100% 100% at 50% 50%, black 0%, transparent 80%);
+}
+
+/* Selection */
 ::selection {
-  background: rgba(14, 124, 134, 0.22);
+  background: rgba(168, 85, 247, 0.3);
+  color: var(--ink-bright);
 }
 
+/* Glass Card Styles */
 .m-card {
   background: var(--card);
-  border: 1px solid var(--line);
+  border: 1px solid var(--card-border);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(20px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.m-card:hover {
+  background: rgba(15, 23, 42, 0.85);
+  border-color: rgba(168, 85, 247, 0.3);
+  box-shadow: 0 0 30px rgba(168, 85, 247, 0.2), 0 20px 60px rgba(0, 0, 0, 0.5);
+  transform: translateY(-2px);
 }
 
 .m-card-strong {
   background: var(--card-strong);
-  border: 1px solid var(--line);
+  border: 1px solid var(--card-border);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(24px);
+}
+
+/* AI Agent Glow Button */
+.btn-agent {
+  position: relative;
+  background: linear-gradient(135deg, var(--accent-purple), var(--accent-cyan));
+  color: white;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  cursor: pointer;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.btn-agent::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  transition: left 0.5s;
+}
+
+.btn-agent:hover::before {
+  left: 100%;
+}
+
+.btn-agent:hover {
+  box-shadow: 0 0 30px var(--glow-purple), 0 0 60px var(--glow-cyan);
+  transform: translateY(-2px);
+}
+
+/* Neon Border Effect */
+.neon-border {
+  border: 2px solid transparent;
+  background:
+    linear-gradient(var(--bg-dark), var(--bg-dark)) padding-box,
+    linear-gradient(135deg, var(--accent-purple), var(--accent-cyan)) border-box;
+  border-radius: 0.5rem;
+}
+
+.neon-border:hover {
+  box-shadow:
+    0 0 20px var(--glow-purple),
+    inset 0 0 20px rgba(168, 85, 247, 0.1);
+}
+
+/* Gradient Text */
+.gradient-text {
+  background: linear-gradient(135deg, var(--accent-purple), var(--accent-cyan), var(--accent-pink));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  background-size: 200% 200%;
+  animation: gradientMove 3s ease infinite;
+}
+
+@keyframes gradientMove {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+/* Pulse Animation for AI Indicators */
+.pulse-glow {
+  animation: pulseGlow 2s ease-in-out infinite;
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 20px var(--glow-cyan);
+    opacity: 1;
+  }
+  50% {
+    box-shadow: 0 0 40px var(--glow-purple);
+    opacity: 0.8;
+  }
+}
+
+/* Typing Indicator */
+.typing-indicator {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.typing-indicator span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  animation: typingBounce 1.4s infinite;
+}
+
+.typing-indicator span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-indicator span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes typingBounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.7;
+  }
+  30% {
+    transform: translateY(-10px);
+    opacity: 1;
+  }
+}
+
+/* Scrollbar Styling */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-darker);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, var(--accent-purple), var(--accent-cyan));
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, var(--accent-cyan), var(--accent-purple));
+  box-shadow: 0 0 10px var(--glow-cyan);
+}
+
+/* Shimmer Loading Effect */
+.shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(148, 163, 184, 0.05) 0%,
+    rgba(168, 85, 247, 0.1) 50%,
+    rgba(148, 163, 184, 0.05) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* Smooth Transitions */
+* {
+  transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+/* Focus Rings with Glow */
+*:focus-visible {
+  outline: 2px solid var(--accent-cyan);
+  outline-offset: 2px;
+  box-shadow: 0 0 20px var(--glow-cyan);
 }
