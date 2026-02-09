@@ -27,8 +27,8 @@ const nextAuth = isGoogleConfigured()
           clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
         }),
       ],
-      // Pin sign-in to our homepage.
-      pages: { signIn: "/" },
+      // Pin sign-in and error pages to our homepage.
+      pages: { signIn: "/", error: "/" },
       session: { strategy: "jwt" },
       trustHost: true,
       secret:
@@ -86,4 +86,3 @@ export function authAllowedDomain(): string {
 export function authTeamId(): string {
   return getTeamId();
 }
-

@@ -25,7 +25,7 @@ export default async function Home({
 
       <div className="mx-auto grid max-w-5xl items-center gap-10 md:grid-cols-2 md:gap-12 relative z-10">
         <div>
-          <div className="inline-flex items-center gap-2 rounded-full bg-[color:var(--card)]/80 backdrop-blur-md px-3 py-1.5 text-xs font-medium text-[color:var(--ink)] border border-[color:var(--accent-purple)]/30 shadow-[0_0_20px_rgba(168,85,247,0.15)]">
+          <div className="inline-flex items-center gap-2 rounded-full bg-[color:var(--card)]/80 backdrop-blur-md px-3 py-1.5 text-xs font-medium text-[color:var(--ink)] border border-[color:var(--accent-purple)]/30 shadow-[0_0_20px_rgba(30,64,175,0.15)]">
             <Shield className="h-4 w-4 text-[color:var(--accent-purple)]" />
             서버 측 저장 + 협업 히스토리
           </div>

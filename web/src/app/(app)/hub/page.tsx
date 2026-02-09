@@ -522,7 +522,7 @@ export default function HubPage() {
                 {docs.map((d) => (
                   <label
                     key={d.id}
-                    className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[color:var(--line)] bg-[color:var(--card)]/60 backdrop-blur-sm p-3 transition-all duration-200 hover:bg-[color:var(--card)]/90 hover:border-[color:var(--accent-purple)]/30 hover:shadow-[0_0_15px_rgba(168,85,247,0.1)]"
+                    className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[color:var(--line)] bg-[color:var(--card)]/60 backdrop-blur-sm p-3 transition-all duration-200 hover:bg-[color:var(--card)]/90 hover:border-[color:var(--accent-purple)]/30 hover:shadow-[0_0_15px_rgba(30,64,175,0.1)]"
                   >
                     <input
                       type="checkbox"

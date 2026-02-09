@@ -22,6 +22,7 @@ function prettyError(code: string): string | null {
   if (code === "OAuthSignin") return "Google 로그인 설정을 확인하세요.";
   if (code === "OAuthCallback") return "로그인 콜백 처리에 실패했습니다. 잠시 후 다시 시도하세요.";
   if (code === "Configuration") return "로그인 설정이 누락되었습니다. 환경변수를 확인하세요.";
+  if (code === "UseGoogleButton") return "홈 화면에서 'Google로 로그인' 버튼을 눌러 로그인하세요.";
   return "로그인에 실패했습니다.";
 }
 
@@ -98,7 +99,7 @@ export function LoginPanel({
               <label className="block">
                 <div className="mb-1.5 text-xs font-medium text-[color:var(--muted)]">팀</div>
                 <select
-                  className="h-11 w-full rounded-xl border border-[color:var(--line)] bg-[color:var(--card)]/60 backdrop-blur-md px-3 text-sm text-[color:var(--ink)] outline-none transition-all duration-300 focus:border-[color:var(--accent-purple)]/60 focus:bg-[color:var(--card)]/80 focus:shadow-[0_0_20px_rgba(168,85,247,0.15)] hover:border-[color:var(--accent-purple)]/40"
+                  className="h-11 w-full rounded-xl border border-[color:var(--line)] bg-[color:var(--card)]/60 backdrop-blur-md px-3 text-sm text-[color:var(--ink)] outline-none transition-all duration-300 focus:border-[color:var(--accent-purple)]/60 focus:bg-[color:var(--card)]/80 focus:shadow-[0_0_20px_rgba(30,64,175,0.15)] hover:border-[color:var(--accent-purple)]/40"
                   value={teamId}
                   onChange={(e) => setTeamId(e.target.value)}
                 >

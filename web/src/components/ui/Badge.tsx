@@ -22,7 +22,7 @@ const tones: Record<NonNullable<BadgeProps["tone"]>, string> = {
   accent:
     "bg-gradient-to-r from-[color:var(--accent-purple)]/20 to-[color:var(--accent-cyan)]/20 " +
     "text-[color:var(--accent-cyan)] border border-[color:var(--accent-purple)]/30 " +
-    "shadow-[0_0_10px_rgba(168,85,247,0.15)]",
+    "shadow-[0_0_10px_rgba(14,165,233,0.15)]",
 };
 
 export function Badge({ className, tone = "neutral", ...props }: BadgeProps) {

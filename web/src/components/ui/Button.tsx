@@ -20,19 +20,19 @@ const variants: Record<ButtonVariant, string> = {
   primary:
     "bg-gradient-to-r from-[color:var(--accent-purple)] to-[color:var(--accent-cyan)] " +
     "text-white font-semibold shadow-lg " +
-    "hover:shadow-[0_0_30px_rgba(168,85,247,0.4)] hover:scale-[1.02] " +
+    "hover:shadow-[0_0_30px_rgba(14,165,233,0.4)] hover:scale-[1.02] " +
     "active:scale-[0.98] relative overflow-hidden " +
     "before:absolute before:inset-0 before:bg-gradient-to-r before:from-white/0 before:via-white/20 before:to-white/0 " +
     "before:translate-x-[-200%] hover:before:translate-x-[200%] before:transition-transform before:duration-700",
   secondary:
     "bg-[color:var(--card)] backdrop-blur-lg text-[color:var(--ink)] " +
     "border border-[color:var(--line)] hover:border-[color:var(--accent-purple)]/40 " +
-    "hover:bg-[color:var(--card-strong)] hover:shadow-[0_0_20px_rgba(168,85,247,0.15)] " +
+    "hover:bg-[color:var(--card-strong)] hover:shadow-[0_0_20px_rgba(30,64,175,0.15)] " +
     "hover:scale-[1.01] active:scale-[0.99]",
   ghost:
     "text-[color:var(--ink)] hover:bg-[color:var(--card)]/50 backdrop-blur-sm " +
     "border border-transparent hover:border-[color:var(--accent-purple)]/20 " +
-    "hover:shadow-[0_0_15px_rgba(168,85,247,0.1)]",
+    "hover:shadow-[0_0_15px_rgba(30,64,175,0.1)]",
   danger:
     "bg-gradient-to-r from-[color:var(--accent-pink)] to-red-600 " +
     "text-white font-semibold shadow-lg " +

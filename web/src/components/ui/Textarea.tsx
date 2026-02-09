@@ -16,7 +16,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
             "placeholder:text-[color:var(--muted)] " +
             "focus:border-[color:var(--accent-purple)]/60 " +
             "focus:bg-[color:var(--card)]/80 " +
-            "focus:shadow-[0_0_20px_rgba(168,85,247,0.15)] " +
+            "focus:shadow-[0_0_20px_rgba(30,64,175,0.15)] " +
             "hover:border-[color:var(--accent-purple)]/40",
           className,
         )}
