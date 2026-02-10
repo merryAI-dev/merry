@@ -4,6 +4,8 @@ import Link from "next/link";
 import * as React from "react";
 import { useParams } from "next/navigation";
 import { ArrowRight, FileText, RefreshCw, Sparkles } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { PresenceBar } from "@/components/report/PresenceBar";
 import { Badge } from "@/components/ui/Badge";
@@ -478,7 +480,13 @@ export default function ReportSessionPage() {
                         : "max-w-[84%] rounded-2xl border border-[color:var(--line)] bg-[color:var(--card)]/80 backdrop-blur-md px-4 py-3 text-sm text-[color:var(--ink)] shadow-sm"
                     }
                   >
-                    <div className="whitespace-pre-wrap">{m.content}</div>
+                    {m.role === "assistant" ? (
+                      <article className="prose prose-zinc max-w-none prose-headings:font-[family-name:var(--font-display)] prose-p:text-[color:var(--ink)] prose-li:text-[color:var(--ink)] prose-strong:text-[color:var(--ink)] prose-a:text-[color:var(--accent-cyan)] prose-a:underline prose-a:underline-offset-4 hover:prose-a:no-underline">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                      </article>
+                    ) : (
+                      <div className="whitespace-pre-wrap">{m.content}</div>
+                    )}
                     {m.role === "assistant" && m.content.trim() ? (
                       <div className="mt-3 flex flex-wrap items-center gap-2">
                         <Button
