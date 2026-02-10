@@ -6,6 +6,7 @@ export type ReportStashItem = {
   content: string;
   createdAt: string;
   createdBy?: string;
+  source?: Record<string, unknown>;
 };
 
 const ROLE_ITEM = "report_stash_item";
@@ -13,6 +14,12 @@ const ROLE_UPDATE = "report_stash_update";
 
 function asString(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  if (Array.isArray(value)) return undefined;
+  return value as Record<string, unknown>;
 }
 
 export function inferStashTitleFromContent(content: string): string {
@@ -110,6 +117,7 @@ export async function listReportStashItems(teamId: string, sessionId: string): P
     const createdAt = asString(meta["created_at"]) || asString(m.created_at) || new Date().toISOString();
     const title = asString(meta["title"]) || inferStashTitleFromContent(m.content);
     const createdBy = asString(meta["created_by"]) || undefined;
+    const source = asRecord(meta["source"]);
 
     items[itemId] = {
       itemId,
@@ -117,9 +125,9 @@ export async function listReportStashItems(teamId: string, sessionId: string): P
       content: m.content || "",
       createdAt,
       createdBy,
+      source,
     };
   }
 
   return Object.values(items).sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
 }
-

@@ -32,6 +32,11 @@ type ReportMessage = {
   content: string;
   createdAt?: string;
   member?: string;
+  section?: {
+    key: string;
+    title: string;
+    index?: number;
+  };
 };
 
 type DraftSummary = {
@@ -46,7 +51,24 @@ type ReportStashItem = {
   content: string;
   createdAt: string;
   createdBy?: string;
+  source?: Record<string, unknown>;
 };
+
+type TocSection = {
+  key: string;
+  index: number;
+  title: string;
+  hint?: string;
+};
+
+const TOC_SECTIONS: TocSection[] = [
+  { key: "executive_summary", index: 1, title: "Executive Summary (요약)" },
+  { key: "company_overview", index: 2, title: "회사 개요" },
+  { key: "market_competition", index: 3, title: "시장/경쟁" },
+  { key: "gtm_b2g", index: 4, title: "B2G/조달 전략" },
+  { key: "investment_points", index: 5, title: "투자 포인트" },
+  { key: "risks", index: 6, title: "리스크 (법무/재무/사업/시장)" },
+];
 
 type JobType = "exit_projection" | "diagnosis_analysis" | "pdf_evidence" | "pdf_parse" | "contract_review";
 type JobStatus = "queued" | "running" | "succeeded" | "failed";
@@ -89,6 +111,51 @@ function scrollTo(id: string) {
   } catch {
     // ignore
   }
+}
+
+function sectionLabel(section?: { title: string; index?: number }): string | null {
+  if (!section || !section.title) return null;
+  const idx = typeof section.index === "number" ? `${section.index}. ` : "";
+  return `${idx}${section.title}`.trim();
+}
+
+function stashSectionIndex(it: ReportStashItem): number | null {
+  const src = it.source;
+  if (!src || typeof src !== "object") return null;
+  const idx = (src as Record<string, unknown>)["sectionIndex"];
+  return typeof idx === "number" && Number.isFinite(idx) ? idx : null;
+}
+
+function stashSectionKey(it: ReportStashItem): string | null {
+  const src = it.source;
+  if (!src || typeof src !== "object") return null;
+  const key = (src as Record<string, unknown>)["sectionKey"];
+  return typeof key === "string" && key.trim() ? key.trim() : null;
+}
+
+function buildSectionPrompt(section: TocSection, meta: ReportSessionMeta | null): string {
+  const company = meta?.companyName ? `- 회사명: ${meta.companyName}\n` : "";
+  const author = meta?.author ? `- 작성자: ${meta.author}\n` : "";
+  const reportDate = meta?.reportDate ? `- 작성일: ${meta.reportDate}\n` : "";
+  const fileTitle = meta?.fileTitle ? `- 파일 제목: ${meta.fileTitle}\n` : "";
+  const fund = meta?.fundName ? `- 펀드: ${meta.fundName}\n` : meta?.fundId ? `- 펀드: ${meta.fundId}\n` : "";
+  const context = `${company}${author}${reportDate}${fileTitle}${fund}`.trim();
+
+  const extra =
+    section.key === "gtm_b2g"
+      ? "\n특히 아래 항목을 구체적으로 포함:\n- B2G 시장 진입 전략\n- 조달청 계약 전략(조달 프로세스 관점)\n- 실증(PoC) 모델 설계(교육기관/지자체 대상으로 확장)\n- 글로벌 정신건강 플랫폼과 파트너십 탐색 포인트\n"
+      : "";
+
+  return (
+    `다음 목차만 작성해줘: ${section.index}. ${section.title}\n` +
+    (context ? `\n컨텍스트(있으면 반영):\n${context}\n` : "\n") +
+    "\n규칙:\n" +
+    `- 제목은 반드시 \"## ${section.index}. ${section.title}\"로 시작\n` +
+    "- 다른 목차/섹션은 작성하지 말 것\n" +
+    "- 근거 없는 숫자/사실은 [확인 필요]로 두고, 마지막에 질문 3-5개만 추가\n" +
+    "- 길게 늘어놓지 말고, 1-2페이지 분량으로 압축\n" +
+    extra
+  );
 }
 
 export default function ReportSessionPage() {
@@ -191,22 +258,28 @@ export default function ReportSessionPage() {
     }
   }, [autoImportEvidence]);
 
-  async function sendMessage(message: string) {
+  async function sendMessage(message: string, section?: TocSection) {
     const text = message.trim();
     if (!text || sending) return;
 
     setSending(true);
     setError(null);
 
+    const sectionMeta = section
+      ? { key: section.key, title: section.title, index: section.index }
+      : undefined;
+
     const optimisticUser: ReportMessage = {
       role: "user",
       content: text,
       createdAt: new Date().toISOString(),
+      section: sectionMeta,
     };
     const optimisticAssistant: ReportMessage = {
       role: "assistant",
       content: "",
       createdAt: new Date().toISOString(),
+      section: sectionMeta,
     };
     setMessages((prev) => [...prev, optimisticUser, optimisticAssistant]);
     setPrompt("");
@@ -215,7 +288,7 @@ export default function ReportSessionPage() {
       const res = await fetch("/api/report/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sessionId, message: text }),
+        body: JSON.stringify({ sessionId, message: text, section: sectionMeta }),
       });
 
       if (!res.ok) {
@@ -252,7 +325,7 @@ export default function ReportSessionPage() {
 
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && m.content.trim());
 
-  async function addToStash(content: string, source?: Record<string, unknown>) {
+  async function addToStash(content: string, opts?: { title?: string; source?: Record<string, unknown> }) {
     const text = (content ?? "").trim();
     if (!text) return;
     if (stashBusy) return;
@@ -262,7 +335,7 @@ export default function ReportSessionPage() {
       const res = await fetchJson<{ itemId: string; alreadyExists?: boolean }>(`/api/report/${sessionId}/stash`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ content: text, source }),
+        body: JSON.stringify({ content: text, title: opts?.title, source: opts?.source }),
       });
       setStashMsg(res.alreadyExists ? "이미 바구니에 담긴 초안입니다." : "초안을 바구니에 담았습니다.");
       await loadStash();
@@ -301,6 +374,15 @@ export default function ReportSessionPage() {
     setBusy(true);
     setStashMsg(null);
     try {
+      const ordered = [...stash].sort((a, b) => {
+        const ai = stashSectionIndex(a);
+        const bi = stashSectionIndex(b);
+        if (ai != null && bi != null) return ai - bi;
+        if (ai != null) return -1;
+        if (bi != null) return 1;
+        return (a.createdAt || "").localeCompare(b.createdAt || "");
+      });
+
       const now = new Date();
       const stamp = now.toISOString().slice(0, 16).replace("T", " ");
       const baseTitle = meta?.companyName ? `투자심사 보고서 - ${meta.companyName}` : meta?.title || "투자심사 보고서";
@@ -311,7 +393,7 @@ export default function ReportSessionPage() {
       const res = await fetchJson<{ draftId: string }>(`/api/report/${sessionId}/stash/commit`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ draftId: activeDraftId.trim() || undefined, title }),
+        body: JSON.stringify({ draftId: activeDraftId.trim() || undefined, title, itemIds: ordered.map((it) => it.itemId) }),
       });
       await loadDrafts();
       await loadStash();
@@ -374,6 +456,28 @@ export default function ReportSessionPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoImportEvidence, activeDraftId, evidenceJobs]);
 
+  const stashSectionKeys = React.useMemo(() => {
+    const keys = new Set<string>();
+    for (const it of stash) {
+      const key = stashSectionKey(it);
+      if (key) keys.add(key);
+    }
+    return keys;
+  }, [stash]);
+
+  const orderedStash = React.useMemo(() => {
+    return [...stash].sort((a, b) => {
+      const ai = stashSectionIndex(a);
+      const bi = stashSectionIndex(b);
+      if (ai != null && bi != null) return ai - bi;
+      if (ai != null) return -1;
+      if (bi != null) return 1;
+      return (a.createdAt || "").localeCompare(b.createdAt || "");
+    });
+  }, [stash]);
+
+  const streamingAssistantIndex = sending ? messages.findLastIndex((m) => m.role === "assistant") : -1;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -403,8 +507,25 @@ export default function ReportSessionPage() {
           </Button>
           <Button
             variant="primary"
-            onClick={() => (lastAssistant ? addToStash(lastAssistant.content, { kind: "last_assistant" }) : null)}
-            disabled={busy || stashBusy || !lastAssistant}
+            onClick={() =>
+              lastAssistant
+                ? addToStash(lastAssistant.content, {
+                    title: sectionLabel(lastAssistant.section) || "마지막 답변",
+                    source: {
+                      kind: "last_assistant",
+                      ...(lastAssistant.section
+                        ? {
+                            sectionKey: lastAssistant.section.key,
+                            sectionTitle: lastAssistant.section.title,
+                            ...(typeof lastAssistant.section.index === "number" ? { sectionIndex: lastAssistant.section.index } : {}),
+                          }
+                        : {}),
+                      ...(lastAssistant.createdAt ? { assistantCreatedAt: lastAssistant.createdAt } : {}),
+                    },
+                  })
+                : null
+            }
+            disabled={busy || stashBusy || sending || !lastAssistant}
           >
             <FileText className="h-4 w-4" />
             마지막 답변 초안 확정
@@ -469,6 +590,30 @@ export default function ReportSessionPage() {
             <div className="mt-1 text-sm text-[color:var(--muted)]">답변은 Markdown 초안 형태로 생성됩니다.</div>
           </div>
 
+          <div className="border-b border-[color:var(--line)] px-5 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs font-semibold text-[color:var(--ink)]">목차별 생성</div>
+              <div className="text-xs text-[color:var(--muted)]">섹션을 하나씩 생성하고, 마음에 들면 &quot;초안 확정&quot;으로 담으세요.</div>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {TOC_SECTIONS.map((sec) => {
+                const confirmed = stashSectionKeys.has(sec.key);
+                return (
+                  <Button
+                    key={sec.key}
+                    variant={confirmed ? "ghost" : "secondary"}
+                    size="sm"
+                    onClick={() => sendMessage(buildSectionPrompt(sec, meta), sec)}
+                    disabled={sending}
+                  >
+                    {sec.index}. {sec.title}
+                    {confirmed ? <Badge tone="success">확정됨</Badge> : null}
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="max-h-[720px] space-y-3 overflow-auto px-5 py-5">
             {messages.length ? (
               messages.map((m, idx) => (
@@ -481,23 +626,58 @@ export default function ReportSessionPage() {
                     }
                   >
                     {m.role === "assistant" ? (
-                      <article className="prose prose-zinc max-w-none prose-headings:font-[family-name:var(--font-display)] prose-p:text-[color:var(--ink)] prose-li:text-[color:var(--ink)] prose-strong:text-[color:var(--ink)] prose-a:text-[color:var(--accent-cyan)] prose-a:underline prose-a:underline-offset-4 hover:prose-a:no-underline">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
-                      </article>
+                      <>
+                        {m.section ? (
+                          <div className="mb-2 text-xs font-semibold text-black/50">
+                            {sectionLabel(m.section) || ""}
+                          </div>
+                        ) : null}
+                        {sending && idx === streamingAssistantIndex ? (
+                          <div className="whitespace-pre-wrap">{m.content}</div>
+                        ) : (
+                          <article className="prose prose-zinc max-w-none prose-headings:font-[family-name:var(--font-display)] prose-p:text-[color:var(--ink)] prose-li:text-[color:var(--ink)] prose-strong:text-[color:var(--ink)] prose-a:text-[color:var(--accent-cyan)] prose-a:underline prose-a:underline-offset-4 hover:prose-a:no-underline">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                          </article>
+                        )}
+                      </>
                     ) : (
-                      <div className="whitespace-pre-wrap">{m.content}</div>
+                      <>
+                        {m.section ? (
+                          <div className="mb-2 text-xs font-semibold text-black/50">
+                            {sectionLabel(m.section) || ""}
+                          </div>
+                        ) : null}
+                        <div className="whitespace-pre-wrap">{m.content}</div>
+                      </>
                     )}
                     {m.role === "assistant" && m.content.trim() ? (
                       <div className="mt-3 flex flex-wrap items-center gap-2">
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => addToStash(m.content, { kind: "assistant_message", createdAt: m.createdAt || "" })}
+                          onClick={() =>
+                            addToStash(m.content, {
+                              title: sectionLabel(m.section) || "초안",
+                              source: {
+                                kind: "assistant_message",
+                                ...(m.section
+                                  ? {
+                                      sectionKey: m.section.key,
+                                      sectionTitle: m.section.title,
+                                      ...(typeof m.section.index === "number" ? { sectionIndex: m.section.index } : {}),
+                                    }
+                                  : {}),
+                                ...(m.createdAt ? { assistantCreatedAt: m.createdAt } : {}),
+                              },
+                            })
+                          }
                           disabled={stashBusy || busy || sending}
                         >
                           초안 확정
                         </Button>
-                        {stash.some((it) => it.content.trim() === m.content.trim()) ? (
+                        {m.section && stashSectionKeys.has(m.section.key) ? (
+                          <Badge tone="success">확정됨</Badge>
+                        ) : stash.some((it) => it.content.trim() === m.content.trim()) ? (
                           <Badge tone="neutral">바구니 담김</Badge>
                         ) : null}
                       </div>
@@ -602,7 +782,7 @@ export default function ReportSessionPage() {
                     아직 바구니에 담긴 초안이 없습니다. 대화 메시지에서 &quot;초안 확정&quot;을 눌러 담아보세요.
                   </div>
                 ) : (
-                  stash.map((it) => (
+                  orderedStash.map((it) => (
                     <div key={it.itemId} className="rounded-2xl border border-[color:var(--line)] bg-white/80 p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">

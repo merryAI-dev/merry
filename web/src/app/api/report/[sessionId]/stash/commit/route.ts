@@ -35,8 +35,20 @@ export async function POST(req: Request, ctx: { params: Promise<{ sessionId: str
 
     const body = CommitSchema.parse(await req.json().catch(() => ({})));
     const stash = await listReportStashItems(ws.teamId, sessionId);
-    const wanted = new Set((body.itemIds ?? []).map((s) => s.trim()).filter(Boolean));
-    const items = wanted.size ? stash.filter((it) => wanted.has(it.itemId)) : stash;
+    let items: ReportStashItem[] = stash;
+    const requested = (body.itemIds ?? []).map((s) => s.trim()).filter(Boolean);
+    if (requested.length) {
+      const byId = new Map(stash.map((it) => [it.itemId, it]));
+      const ordered: ReportStashItem[] = [];
+      const seen = new Set<string>();
+      for (const id of requested) {
+        if (seen.has(id)) continue;
+        seen.add(id);
+        const it = byId.get(id);
+        if (it) ordered.push(it);
+      }
+      items = ordered;
+    }
     if (!items.length) {
       return NextResponse.json({ ok: false, error: "EMPTY" }, { status: 400 });
     }
@@ -93,4 +105,3 @@ export async function POST(req: Request, ctx: { params: Promise<{ sessionId: str
     return NextResponse.json({ ok: false, error: "BAD_REQUEST" }, { status });
   }
 }
-

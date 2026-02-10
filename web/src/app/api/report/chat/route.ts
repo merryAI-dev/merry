@@ -14,6 +14,13 @@ export const runtime = "nodejs";
 const BodySchema = z.object({
   sessionId: z.string().min(1),
   message: z.string().min(1),
+  section: z
+    .object({
+      key: z.string().min(1),
+      title: z.string().min(1),
+      index: z.number().int().positive().optional(),
+    })
+    .optional(),
 });
 
 function safeLlmErrorText(err: unknown): string {
@@ -50,16 +57,22 @@ function safeLlmErrorText(err: unknown): string {
   return `${head}${tail}`;
 }
 
-function buildSystemPrompt() {
-  return (
+function buildSystemPrompt(section?: { key: string; title: string; index?: number }) {
+  const base =
     buildMerryPersona("report") +
-    "- 출력 섹션:\n" +
-    "  (1) 시장규모 근거 요약\n" +
-    "  (2) 요약(투자 가부는 보류 가능)\n" +
-    "  (3) 투자포인트(3-5개)\n" +
-    "  (4) 리스크(법무/재무/사업/시장)\n" +
-    "  (5) 추가 질문(최대 8개)\n" +
-    "  (6) 초안 문단(인수인의견 톤)\n"
+    "- 문서 톤: 인수인의견 스타일(근거 중심, 단정적 과장 금지)\n" +
+    "- 출력: Markdown(코드펜스 금지)\n" +
+    "- 섹션 작성: 사용자가 특정 섹션만 요청하면 그 섹션만 작성(다른 섹션 금지)\n";
+
+  if (!section) return base;
+
+  const idx = typeof section.index === "number" ? `${section.index}. ` : "";
+  const title = section.title.trim();
+  return (
+    base +
+    `- 이번 응답은 다음 섹션만 작성: ${idx}${title}\n` +
+    `- 반드시 제목을 "## ${idx}${title}"로 시작\n` +
+    "- 해당 섹션에 필요한 정보가 부족하면 [확인 필요] placeholder를 남기고, 마지막에 질문을 최대 5개만 추가\n"
   );
 }
 
@@ -105,15 +118,16 @@ export async function POST(req: Request) {
       role: "user",
       content: body.message,
       memberName: ws.memberName,
+      metadata: body.section ? { section: body.section } : undefined,
     });
 
     const history = await getReportMessages(ws.teamId, body.sessionId);
     const messages = history
-      .slice(-20)
+      .slice(body.section ? -8 : -20)
       .map((m) => ({ role: m.role, content: m.content })) as Array<{ role: "user" | "assistant"; content: string }>;
 
     const maxTokens = Number(process.env.ANTHROPIC_REPORT_MAX_TOKENS ?? "2000");
-    const system = buildSystemPrompt();
+    const system = buildSystemPrompt(body.section);
 
     const encoder = new TextEncoder();
     let assistantText = "";
@@ -156,6 +170,7 @@ export async function POST(req: Request) {
                 content: assistantText.trim(),
                 memberName: ws.memberName,
                 metadata: {
+                  ...(body.section ? { section: body.section } : {}),
                   llm: {
                     provider: "anthropic",
                     model,
@@ -290,6 +305,7 @@ export async function POST(req: Request) {
               content: assistantText.trim(),
               memberName: ws.memberName,
               metadata: {
+                ...(body.section ? { section: body.section } : {}),
                 llm: {
                   provider: "bedrock",
                   model: modelId,
@@ -324,6 +340,7 @@ export async function POST(req: Request) {
                 content: assistantText.trim(),
                 memberName: ws.memberName,
                 metadata: {
+                  ...(body.section ? { section: body.section } : {}),
                   llm: { provider: p, model, error: true },
                 },
               });

@@ -38,6 +38,19 @@ export async function POST(req: Request, ctx: { params: Promise<{ sessionId: str
 
     const normalized = body.content.trim().replaceAll("\r\n", "\n");
     const existing = await listReportStashItems(ws.teamId, sessionId);
+
+    const sectionKeyRaw = body.source?.["sectionKey"];
+    const sectionKey = typeof sectionKeyRaw === "string" ? sectionKeyRaw.trim() : "";
+    if (sectionKey) {
+      const dupBySection = existing.find((it) => {
+        const key = it.source?.["sectionKey"];
+        return typeof key === "string" && key.trim() === sectionKey;
+      });
+      if (dupBySection) {
+        return NextResponse.json({ ok: true, itemId: dupBySection.itemId, alreadyExists: true });
+      }
+    }
+
     const dup = existing.find((it) => it.content.trim().replaceAll("\r\n", "\n") === normalized);
     if (dup) {
       return NextResponse.json({ ok: true, itemId: dup.itemId, alreadyExists: true });

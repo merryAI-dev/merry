@@ -19,6 +19,11 @@ export type ReportMessage = {
   content: string;
   createdAt?: string;
   member?: string;
+  section?: {
+    key: string;
+    title: string;
+    index?: number;
+  };
 };
 
 function reportSessionId(sessionSlug: string) {
@@ -100,11 +105,22 @@ export async function getReportMessages(teamId: string, sessionId: string): Prom
       (typeof meta["member"] === "string" ? meta["member"] : undefined) ||
       (typeof meta["created_by"] === "string" ? meta["created_by"] : undefined) ||
       undefined;
+    const sectionRaw = meta["section"];
+    const sectionObj = sectionRaw && typeof sectionRaw === "object" ? (sectionRaw as Record<string, unknown>) : null;
+    const section =
+      sectionObj && typeof sectionObj["key"] === "string" && typeof sectionObj["title"] === "string"
+        ? {
+            key: (sectionObj["key"] as string).trim(),
+            title: (sectionObj["title"] as string).trim(),
+            index: typeof sectionObj["index"] === "number" && Number.isFinite(sectionObj["index"]) ? (sectionObj["index"] as number) : undefined,
+          }
+        : undefined;
     out.push({
       role: m.role as "user" | "assistant",
       content: m.content,
       createdAt: m.created_at,
       member,
+      section: section && section.key && section.title ? section : undefined,
     });
   }
   return out;
