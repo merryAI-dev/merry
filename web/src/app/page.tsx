@@ -21,7 +21,7 @@ export default async function Home({
     <>
       <SpaceBackground />
 
-      <div className="flex min-h-screen items-center justify-center px-4 py-12 relative">
+      <div className="dark-landing flex min-h-screen items-center justify-center px-4 py-12 relative">
         <div className="mx-auto max-w-2xl w-full relative z-10 space-y-12">
           {/* Hero Content */}
           <div className="text-center space-y-8">

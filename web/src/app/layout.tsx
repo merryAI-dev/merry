@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Fraunces, IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
+import { SpaceBackground } from "@/components/SpaceBackground";
 
 const fontSans = Space_Grotesk({
   variable: "--font-merry-sans",

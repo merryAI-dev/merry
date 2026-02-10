@@ -2,35 +2,35 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  /* Dark Space Theme */
-  --bg: #000000;
-  --bg-subtle: #0a0e1a;
-  --ink: #ffffff;
-  --ink-light: #e2e8f0;
-  --muted: #94a3b8;
+  /* Light Mode - Default for internal pages */
+  --bg: #ffffff;
+  --bg-subtle: #f8f9fa;
+  --ink: #001e46;
+  --ink-light: #003d7a;
+  --muted: #64748b;
 
   /* Cards and Surfaces */
-  --card: rgba(15, 23, 42, 0.4);
-  --card-strong: rgba(15, 23, 42, 0.8);
-  --card-border: rgba(148, 163, 184, 0.15);
-  --line: rgba(148, 163, 184, 0.2);
+  --card: rgba(248, 249, 250, 0.95);
+  --card-strong: rgba(255, 255, 255, 0.98);
+  --card-border: rgba(0, 30, 70, 0.08);
+  --line: rgba(0, 30, 70, 0.1);
 
   /* Navy Blue Gradient Accents */
-  --accent-purple: #1e40af;
-  --accent-cyan: #0ea5e9;
+  --accent-purple: #001e46;
+  --accent-cyan: #0066cc;
   --accent-pink: #3b82f6;
   --accent-blue: #60a5fa;
 
   /* Interactive Glow Effects */
-  --glow-purple: rgba(30, 64, 175, 0.5);
-  --glow-cyan: rgba(14, 165, 233, 0.5);
-  --glow-pink: rgba(59, 130, 246, 0.5);
+  --glow-purple: rgba(0, 30, 70, 0.3);
+  --glow-cyan: rgba(0, 102, 204, 0.3);
+  --glow-pink: rgba(59, 130, 246, 0.3);
 
   /* Shadows */
-  --shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  --shadow-md: 0 20px 60px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.5);
-  --shadow-glow: 0 0 30px var(--glow-cyan), 0 20px 60px rgba(0, 0, 0, 0.5);
+  --shadow: 0 2px 8px rgba(0, 30, 70, 0.08);
+  --shadow-md: 0 4px 16px rgba(0, 30, 70, 0.12);
+  --shadow-lg: 0 8px 32px rgba(0, 30, 70, 0.16);
+  --shadow-glow: 0 0 30px var(--glow-cyan), 0 8px 32px rgba(0, 30, 70, 0.16);
 
   /* Fonts */
   --font-display: var(--font-merry-display);
@@ -49,16 +49,43 @@
   --color-agent-blue: var(--accent-blue);
 }
 
-/* Body Background - DARK SPACE */
+/* Body Background - White for internal pages */
 body {
-  color: #ffffff;
+  color: #001e46;
   font-family: var(--font-merry-sans), ui-sans-serif, system-ui;
-  background: #000000;
+  background: #ffffff;
   position: relative;
   min-height: 100vh;
 }
 
-/* Space Grid Pattern */
+/* Subtle Gradient Overlay for Light Mode */
+body::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
+  background:
+    radial-gradient(ellipse 1200px 800px at 20% 10%, rgba(0, 30, 70, 0.04), transparent 50%),
+    radial-gradient(ellipse 1000px 700px at 80% 20%, rgba(0, 102, 204, 0.03), transparent 50%),
+    radial-gradient(ellipse 1000px 700px at 50% 90%, rgba(59, 130, 246, 0.02), transparent 50%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-subtle) 100%);
+  animation: gradientShift 20s ease infinite;
+  opacity: 1;
+}
+
+@keyframes gradientShift {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.95;
+  }
+}
+
+/* Grid Pattern */
 body::after {
   content: '';
   position: fixed;
@@ -68,16 +95,16 @@ body::after {
   bottom: 0;
   z-index: -1;
   background-image:
-    linear-gradient(rgba(148, 163, 184, 0.03) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.03) 1px, transparent 1px);
+    linear-gradient(rgba(0, 30, 70, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 30, 70, 0.02) 1px, transparent 1px);
   background-size: 50px 50px;
   mask-image: radial-gradient(ellipse 100% 100% at 50% 50%, black 0%, transparent 80%);
 }
 
 /* Selection */
 ::selection {
-  background: rgba(30, 64, 175, 0.5);
-  color: #ffffff;
+  background: rgba(0, 102, 204, 0.2);
+  color: var(--ink);
 }
 
 /* Card Styles */
@@ -92,7 +119,7 @@ body::after {
 .m-card:hover {
   background: var(--card-strong);
   border-color: var(--accent-purple);
-  box-shadow: 0 0 30px rgba(30, 64, 175, 0.2), 0 20px 60px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 0 20px rgba(0, 30, 70, 0.12), var(--shadow-md);
   transform: translateY(-2px);
 }
 
@@ -138,6 +165,21 @@ body::after {
   transform: translateY(-2px);
 }
 
+/* Navy Blue Border Effect */
+.neon-border {
+  border: 2px solid transparent;
+  background:
+    linear-gradient(var(--bg), var(--bg)) padding-box,
+    linear-gradient(135deg, var(--accent-purple), var(--accent-cyan)) border-box;
+  border-radius: 0.75rem;
+}
+
+.neon-border:hover {
+  box-shadow:
+    0 0 20px var(--glow-cyan),
+    inset 0 0 20px rgba(0, 102, 204, 0.05);
+}
+
 /* Gradient Text */
 .gradient-text {
   background: linear-gradient(135deg, var(--accent-purple), var(--accent-cyan), var(--accent-pink));
@@ -173,6 +215,39 @@ body::after {
   }
 }
 
+/* Typing Indicator */
+.typing-indicator {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.typing-indicator span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  animation: typingBounce 1.4s infinite;
+}
+
+.typing-indicator span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+
+.typing-indicator span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
+@keyframes typingBounce {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.7;
+  }
+  30% {
+    transform: translateY(-10px);
+    opacity: 1;
+  }
+}
+
 /* Scrollbar Styling */
 ::-webkit-scrollbar {
   width: 10px;
@@ -197,9 +272,9 @@ body::after {
 .shimmer {
   background: linear-gradient(
     90deg,
-    rgba(148, 163, 184, 0.05) 0%,
-    rgba(30, 64, 175, 0.1) 50%,
-    rgba(148, 163, 184, 0.05) 100%
+    rgba(0, 30, 70, 0.02) 0%,
+    rgba(0, 102, 204, 0.08) 50%,
+    rgba(0, 30, 70, 0.02) 100%
   );
   background-size: 200% 100%;
   animation: shimmer 2s infinite;
@@ -226,4 +301,15 @@ body::after {
   outline: 2px solid var(--accent-cyan);
   outline-offset: 2px;
   box-shadow: 0 0 15px var(--glow-cyan);
+}
+
+/* Dark theme override for landing page only */
+.dark-landing {
+  background: #000000;
+  color: #ffffff;
+}
+
+.dark-landing::before,
+.dark-landing::after {
+  display: none;
 }
