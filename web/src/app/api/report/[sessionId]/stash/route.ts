@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
+import { ZodError, z } from "zod";
 
 import { addReportStashItem, inferStashTitleFromContent, listReportStashItems } from "@/lib/reportStash";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
@@ -22,8 +22,8 @@ export async function GET(_req: Request, ctx: { params: Promise<{ sessionId: str
     const items = await listReportStashItems(ws.teamId, sessionId);
     return NextResponse.json({ ok: true, items });
   } catch (err) {
-    const status = err instanceof Error && err.message === "UNAUTHORIZED" ? 401 : 500;
-    return NextResponse.json({ ok: false, error: "FAILED" }, { status });
+    const unauthorized = err instanceof Error && err.message === "UNAUTHORIZED";
+    return NextResponse.json({ ok: false, error: unauthorized ? "UNAUTHORIZED" : "FAILED" }, { status: unauthorized ? 401 : 500 });
   }
 }
 
@@ -54,8 +54,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ sessionId: str
     });
     return NextResponse.json({ ok: true, itemId: created.itemId });
   } catch (err) {
-    const status = err instanceof Error && err.message === "UNAUTHORIZED" ? 401 : 400;
-    return NextResponse.json({ ok: false, error: "BAD_REQUEST" }, { status });
+    const unauthorized = err instanceof Error && err.message === "UNAUTHORIZED";
+    if (unauthorized) {
+      return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+    }
+    if (err instanceof ZodError) {
+      return NextResponse.json({ ok: false, error: "BAD_REQUEST" }, { status: 400 });
+    }
+
+    // Unexpected server-side failure (DDB, etc). Log without leaking request content.
+    console.error("report stash POST failed", {
+      err: err instanceof Error ? (err.message || err.name) : String(err),
+    });
+    return NextResponse.json({ ok: false, error: "FAILED" }, { status: 500 });
   }
 }
-

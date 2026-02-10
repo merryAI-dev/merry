@@ -264,8 +264,13 @@ export default function ReportSessionPage() {
       });
       setStashMsg(res.alreadyExists ? "이미 바구니에 담긴 초안입니다." : "초안을 바구니에 담았습니다.");
       await loadStash();
-    } catch {
-      setStashMsg("초안을 바구니에 담지 못했습니다.");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "FAILED";
+      if (msg === "UNAUTHORIZED") {
+        setStashMsg("로그인이 필요합니다. 다시 로그인 후 시도하세요.");
+      } else {
+        setStashMsg(`초안을 바구니에 담지 못했습니다. (${msg})`);
+      }
     } finally {
       setStashBusy(false);
     }
@@ -720,4 +725,3 @@ export default function ReportSessionPage() {
     </div>
   );
 }
-
