@@ -38,11 +38,10 @@ export function getAirtableConfig(): AirtableConfig | null {
 
   // Support both the new canonical env name and legacy variants.
   // Prefer table ID over name for stability when Airtable table names change.
-  const fundsTable =
-    getEnv("AIRTABLE_FUND_TABLE_ID") ??
-    getEnv("AIRTABLE_FUND_TABLE_NAME") ??
-    getEnv("AIRTABLE_FUNDS_TABLE") ??
-    "Funds";
+  const fundsTableId = getEnv("AIRTABLE_FUND_TABLE_ID");
+  const fundsTableName = getEnv("AIRTABLE_FUND_TABLE_NAME");
+  const fundsTableLegacy = getEnv("AIRTABLE_FUNDS_TABLE");
+  let fundsTable = fundsTableId ?? fundsTableName ?? fundsTableLegacy ?? "Funds";
   const fundsView = getEnv("AIRTABLE_FUNDS_VIEW");
 
   const companiesTable =
@@ -52,6 +51,21 @@ export function getAirtableConfig(): AirtableConfig | null {
     getEnv("AIRTABLE_COMPANY_TABLE_NAME") ??
     getEnv("AIRTABLE_TABLE_NAME") ??
     getEnv("AIRTABLE_TABLE_ID");
+
+  // Common misconfiguration: set fund table ID to the company table ID.
+  // If we can detect this, fall back to the fund table *name* (if provided).
+  const companiesTableIdEnv =
+    getEnv("AIRTABLE_COMPANIES_TABLE_ID") ??
+    getEnv("AIRTABLE_COMPANY_TABLE_ID") ??
+    getEnv("AIRTABLE_TABLE_ID");
+  const fundsTableFallback = fundsTableName ?? fundsTableLegacy;
+  const looksMisconfigured =
+    Boolean(fundsTableFallback) &&
+    ((fundsTableId && companiesTableIdEnv && fundsTableId === companiesTableIdEnv) ||
+      (companiesTable && fundsTable === companiesTable));
+  if (looksMisconfigured && fundsTableFallback && fundsTableFallback !== fundsTable) {
+    fundsTable = fundsTableFallback;
+  }
 
   const snapshotsTable = getEnv("AIRTABLE_SNAPSHOTS_TABLE") ?? "Fund Snapshots";
   const snapshotsView = getEnv("AIRTABLE_SNAPSHOTS_VIEW");
@@ -195,11 +209,59 @@ function yearFromDateLike(v: unknown): string | undefined {
   return m ? m[1] : undefined;
 }
 
+function guessDisplayNameFromFields(fields: Record<string, unknown>): string | undefined {
+  // Airtable field names vary wildly (newlines, parentheses, Korean/English mixes).
+  // If canonical candidates don't match, pick the best-looking string field by key hints.
+  let best: { score: number; value: string } | null = null;
+  for (const [rawKey, rawValue] of Object.entries(fields)) {
+    const value = toString(rawValue);
+    if (!value) continue;
+
+    const key = normalizeFieldKey(rawKey);
+    if (!key) continue;
+
+    let score = 0;
+    if (key.includes("name")) score += 10;
+    if (key.includes("fund")) score += 12;
+    if (key.includes("펀드")) score += 14;
+    if (key.includes("조합")) score += 14;
+    if (key.includes("펀드명")) score += 20;
+    if (key.includes("조합명")) score += 20;
+    if (key.includes("투자조합")) score += 18;
+    if (key.includes("code") || key.includes("코드") || key.includes("id")) score -= 10;
+    if (key.includes("url")) score -= 8;
+
+    const len = value.length;
+    if (len >= 2 && len <= 40) score += 4;
+    if (len > 90) score -= 4;
+
+    if (score <= 0) continue;
+    if (!best || score > best.score) best = { score, value };
+  }
+  return best?.value;
+}
+
 function fundFromRecord(rec: AirtableRecord): FundSummary {
   const f = rec.fields ?? {};
 
   const name =
-    pickString(f, ["Name", "name", "Fund", "Fund Name", "펀드명", "펀드 이름", "펀드", "조합명", "투자 조합명"]) ??
+    pickString(f, [
+      "Name",
+      "name",
+      "Fund",
+      "Fund Name",
+      "펀드명",
+      "펀드 이름",
+      "펀드",
+      "조합명",
+      "투자 조합명",
+      "투자조합명",
+      "투자조합",
+      "조합",
+      "조합(펀드)",
+      "펀드명(한글)",
+    ]) ??
+    guessDisplayNameFromFields(f) ??
     `Fund ${rec.id.slice(-6)}`;
 
   const vintage =
