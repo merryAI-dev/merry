@@ -157,6 +157,10 @@ def ddb_update_job(
         values[":usage"] = _ddb_sanitize(usage)
         exprs.append("#usage = :usage")
 
+    # Final guard: ensure *all* ExpressionAttributeValues contain no Python floats.
+    # This protects against any future fields added without explicit sanitization.
+    values = _ddb_sanitize(values)
+
     ctx.ddb.update_item(
         Key={"pk": pk, "sk": sk},
         UpdateExpression="SET " + ", ".join(exprs),
@@ -168,11 +172,12 @@ def ddb_update_job(
 def ddb_mark_file_deleted(ctx: AwsCtx, team_id: str, file_id: str) -> None:
     pk = _pk_team(team_id)
     sk = _sk_file(file_id)
+    values = _ddb_sanitize({":deleted": "deleted", ":deleted_at": _now_iso()})
     ctx.ddb.update_item(
         Key={"pk": pk, "sk": sk},
         UpdateExpression="SET #status = :deleted, deleted_at = :deleted_at",
         ExpressionAttributeNames={"#status": "status"},
-        ExpressionAttributeValues={":deleted": "deleted", ":deleted_at": _now_iso()},
+        ExpressionAttributeValues=values,
     )
 
 
