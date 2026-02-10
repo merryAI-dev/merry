@@ -10,7 +10,7 @@ import { NextResponse } from "next/server";
  *
  * Enable by setting `CANONICAL_HOST=mysc-merry-inv.vercel.app` (production env).
  */
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const canonicalHost = process.env.CANONICAL_HOST?.trim();
   if (!canonicalHost) return NextResponse.next();
 
