@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import * as React from "react";
 import { ArrowRight, FileText, RefreshCw, Sparkles } from "lucide-react";
 
@@ -21,11 +22,45 @@ type ReportMessage = {
   member?: string;
 };
 
+type DraftSummary = {
+  draftId: string;
+  title: string;
+  createdAt?: string;
+};
+
+type JobType = "exit_projection" | "diagnosis_analysis" | "pdf_evidence" | "pdf_parse" | "contract_review";
+type JobStatus = "queued" | "running" | "succeeded" | "failed";
+
+type JobArtifact = {
+  artifactId: string;
+  label: string;
+  contentType: string;
+  s3Bucket: string;
+  s3Key: string;
+  sizeBytes?: number;
+};
+
+type JobRecord = {
+  jobId: string;
+  type: JobType;
+  status: JobStatus;
+  title: string;
+  createdAt: string;
+  artifacts?: JobArtifact[];
+};
+
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, { cache: "no-store", ...init });
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json?.error || "FAILED");
   return json as T;
+}
+
+function badgeForJobStatus(status: JobStatus) {
+  if (status === "succeeded") return <Badge tone="success">완료</Badge>;
+  if (status === "failed") return <Badge tone="danger">실패</Badge>;
+  if (status === "running") return <Badge tone="accent">진행 중</Badge>;
+  return <Badge tone="neutral">대기</Badge>;
 }
 
 export default function ReportPage() {
@@ -36,6 +71,14 @@ export default function ReportPage() {
   const [busy, setBusy] = React.useState(false);
   const [sending, setSending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  const [drafts, setDrafts] = React.useState<DraftSummary[]>([]);
+  const [activeDraftId, setActiveDraftId] = React.useState<string>("");
+  const [jobs, setJobs] = React.useState<JobRecord[]>([]);
+  const [recBusy, setRecBusy] = React.useState(false);
+  const [recMsg, setRecMsg] = React.useState<string | null>(null);
+  const [autoImportEvidence, setAutoImportEvidence] = React.useState(false);
+  const autoImportedJobsRef = React.useRef(new Set<string>());
 
   const activeSessionIdRef = React.useRef("");
 
@@ -89,6 +132,49 @@ export default function ReportPage() {
   React.useEffect(() => {
     if (activeSessionId) loadMessages(activeSessionId);
   }, [activeSessionId, loadMessages]);
+
+  const loadDrafts = React.useCallback(async () => {
+    try {
+      const res = await fetchJson<{ drafts: DraftSummary[] }>("/api/drafts");
+      const list = res.drafts || [];
+      setDrafts(list);
+      if (!activeDraftId && list[0]?.draftId) setActiveDraftId(list[0].draftId);
+    } catch {
+      // Non-fatal; draft features are optional until configured.
+      setDrafts([]);
+    }
+  }, [activeDraftId]);
+
+  const loadJobs = React.useCallback(async () => {
+    try {
+      const res = await fetchJson<{ jobs: JobRecord[] }>("/api/jobs");
+      setJobs(res.jobs || []);
+    } catch {
+      setJobs([]);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadDrafts();
+    loadJobs();
+  }, [loadDrafts, loadJobs]);
+
+  React.useEffect(() => {
+    try {
+      const raw = localStorage.getItem("merry:autoImportEvidence");
+      if (raw === "1") setAutoImportEvidence(true);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem("merry:autoImportEvidence", autoImportEvidence ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [autoImportEvidence]);
 
   async function newSession() {
     setBusy(true);
@@ -190,6 +276,57 @@ export default function ReportPage() {
       setBusy(false);
     }
   }
+
+  async function importEvidenceToDraft(job: JobRecord) {
+    const draftId = activeDraftId.trim();
+    if (!draftId) {
+      setRecMsg("대상 드래프트를 먼저 선택하세요.");
+      return;
+    }
+    setRecBusy(true);
+    setRecMsg(null);
+    try {
+      const artifactId =
+        (job.artifacts || []).find((a) => a.artifactId === "pdf_evidence_json")?.artifactId ??
+        (job.artifacts || [])[0]?.artifactId ??
+        undefined;
+      const res = await fetchJson<{ versionId: string; alreadyImported?: boolean }>(`/api/drafts/${draftId}/import-evidence`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jobId: job.jobId, artifactId }),
+      });
+      setRecMsg(res.alreadyImported ? "이미 이 근거는 드래프트에 반영되었습니다." : "근거를 드래프트 버전으로 저장했습니다.");
+    } catch {
+      setRecMsg("근거 반영에 실패했습니다. 잡 상태/아티팩트를 확인하세요.");
+    } finally {
+      setRecBusy(false);
+    }
+  }
+
+  const evidenceJobs = React.useMemo(() => {
+    const list = (jobs || [])
+      .filter((j) => j.type === "pdf_evidence")
+      .slice()
+      .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+    return list.slice(0, 6);
+  }, [jobs]);
+
+  React.useEffect(() => {
+    if (!autoImportEvidence) return;
+    if (!activeDraftId.trim()) return;
+    if (recBusy) return;
+
+    const newest = evidenceJobs.find(
+      (j) =>
+        j.status === "succeeded" &&
+        (j.artifacts || []).some((a) => a.artifactId === "pdf_evidence_json"),
+    );
+    if (!newest) return;
+    if (autoImportedJobsRef.current.has(newest.jobId)) return;
+    autoImportedJobsRef.current.add(newest.jobId);
+    importEvidenceToDraft(newest);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoImportEvidence, activeDraftId, evidenceJobs]);
 
   return (
     <div className="space-y-6">
@@ -362,8 +499,110 @@ export default function ReportPage() {
             대신 대화 초안 생성과 드래프트 리뷰 흐름부터 고정합니다.
           </div>
 
-          <div className="mt-4 space-y-2 text-sm text-[color:var(--muted)]">
+          <div className="mt-4 space-y-3">
             <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4">
+              <div className="text-xs font-semibold text-[color:var(--ink)]">대상 드래프트</div>
+              <div className="mt-2 grid gap-2">
+                <select
+                  className="h-11 w-full rounded-xl border border-[color:var(--line)] bg-white/80 px-3 text-sm text-[color:var(--ink)] outline-none focus:border-[color:var(--accent)]"
+                  value={activeDraftId}
+                  onChange={(e) => setActiveDraftId(e.target.value)}
+                >
+                  <option value="">드래프트 선택…</option>
+                  {drafts.map((d) => (
+                    <option key={d.draftId} value={d.draftId}>
+                      {d.title} · {d.createdAt?.slice(0, 16).replace("T", " ") || d.draftId}
+                    </option>
+                  ))}
+                </select>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[color:var(--muted)]">
+                  <span>결과는 새 버전으로 저장됩니다.</span>
+                  {activeDraftId ? (
+                    <Link
+                      href={`/drafts/${activeDraftId}`}
+                      className="text-[color:var(--ink)] underline underline-offset-4 hover:no-underline"
+                    >
+                      드래프트 열기
+                    </Link>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-semibold text-[color:var(--ink)]">PDF 근거 → 드래프트 버전</div>
+                <Button variant="ghost" onClick={loadJobs} disabled={recBusy}>
+                  새로고침
+                </Button>
+              </div>
+
+              <div className="mt-2 flex items-center gap-2 text-xs text-[color:var(--muted)]">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 rounded border-[color:var(--line)]"
+                    checked={autoImportEvidence}
+                    onChange={(e) => setAutoImportEvidence(e.target.checked)}
+                    disabled={!activeDraftId}
+                  />
+                  완료 시 자동 저장
+                </label>
+                <span className="text-[color:var(--muted)]">·</span>
+                <Link
+                  href="/analysis"
+                  className="text-[color:var(--ink)] underline underline-offset-4 hover:no-underline"
+                >
+                  근거 추출 잡 실행
+                </Link>
+              </div>
+
+              {recMsg ? (
+                <div className="mt-3 rounded-xl border border-[color:var(--line)] bg-white/80 px-3 py-2 text-xs text-[color:var(--muted)]">
+                  {recMsg}
+                </div>
+              ) : null}
+
+              <div className="mt-3 space-y-2">
+                {!evidenceJobs.length ? (
+                  <div className="text-sm text-[color:var(--muted)]">
+                    최근 PDF 근거 추출 잡이 없습니다. 먼저 잡을 생성하세요.
+                  </div>
+                ) : (
+                  evidenceJobs.map((j) => {
+                    const ready =
+                      j.status === "succeeded" &&
+                      (j.artifacts || []).some((a) => a.artifactId === "pdf_evidence_json");
+                    return (
+                      <div
+                        key={j.jobId}
+                        className="rounded-2xl border border-[color:var(--line)] bg-white/80 p-3"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-sm font-medium text-[color:var(--ink)]">{j.title}</div>
+                            <div className="mt-1 flex items-center justify-between gap-2 text-xs text-[color:var(--muted)]">
+                              <span className="font-mono">{j.jobId}</span>
+                              {badgeForJobStatus(j.status)}
+                            </div>
+                          </div>
+                          <Button
+                            variant="secondary"
+                            disabled={!ready || recBusy || !activeDraftId}
+                            onClick={() => importEvidenceToDraft(j)}
+                          >
+                            드래프트 저장
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4 text-sm text-[color:var(--muted)]">
               <div className="text-xs font-semibold text-[color:var(--ink)]">다음 연결</div>
               <div className="mt-2">
                 - PDF/엑셀 업로드 → 근거 추출<br />

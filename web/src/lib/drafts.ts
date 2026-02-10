@@ -15,6 +15,12 @@ export type DraftVersion = {
   createdAt: string;
 };
 
+export type DraftVersionSource = {
+  kind: string;
+  jobId?: string;
+  artifactId?: string;
+};
+
 export type DraftCommentKind = "수정" | "좋음" | "대안";
 export type DraftCommentStatus = "open" | "accepted" | "rejected";
 
@@ -101,25 +107,65 @@ export async function addDraftVersion(args: {
   createdBy: string;
   title: string;
   content: string;
+  source?: DraftVersionSource;
 }) {
   const now = new Date().toISOString();
   const sessionId = draftSessionId(args.draftId);
   const versionId = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
   await ensureSession(args.teamId, sessionId, { type: "draft", draftId: args.draftId, title: args.title.trim() });
+
+  const source = args.source ?? null;
+  const metadata: Record<string, unknown> = {
+    draft_id: args.draftId,
+    version_id: versionId,
+    title: args.title.trim(),
+    created_by: args.createdBy,
+    created_at: now,
+  };
+  if (source?.kind) metadata["source_kind"] = source.kind;
+  if (source?.jobId) metadata["source_job_id"] = source.jobId;
+  if (source?.artifactId) metadata["source_artifact_id"] = source.artifactId;
+
   await addMessage({
     teamId: args.teamId,
     sessionId,
     role: "draft_version",
     content: args.content,
-    metadata: {
-      draft_id: args.draftId,
-      version_id: versionId,
-      title: args.title.trim(),
-      created_by: args.createdBy,
-      created_at: now,
-    },
+    metadata,
   });
   return { versionId };
+}
+
+export async function findDraftVersionBySource(args: {
+  teamId: string;
+  draftId: string;
+  source: DraftVersionSource;
+}): Promise<{ versionId: string } | null> {
+  const sessionId = draftSessionId(args.draftId);
+  const messages = await getMessages(args.teamId, sessionId);
+
+  const wantKind = (args.source.kind ?? "").trim();
+  const wantJobId = (args.source.jobId ?? "").trim();
+  const wantArtifactId = (args.source.artifactId ?? "").trim();
+  if (!wantKind) return null;
+
+  for (const msg of messages) {
+    if (msg.role !== "draft_version") continue;
+    const meta = (msg.metadata ?? {}) as Record<string, unknown>;
+
+    const kind = typeof meta["source_kind"] === "string" ? meta["source_kind"] : "";
+    const jobId = typeof meta["source_job_id"] === "string" ? meta["source_job_id"] : "";
+    const artifactId = typeof meta["source_artifact_id"] === "string" ? meta["source_artifact_id"] : "";
+    if (!kind || kind !== wantKind) continue;
+    if (wantJobId && jobId !== wantJobId) continue;
+    if (wantArtifactId && artifactId !== wantArtifactId) continue;
+
+    const versionId = typeof meta["version_id"] === "string" ? meta["version_id"] : "";
+    if (!versionId) continue;
+    return { versionId };
+  }
+
+  return null;
 }
 
 export async function addDraftComment(args: {
