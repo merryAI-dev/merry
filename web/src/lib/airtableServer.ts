@@ -325,6 +325,40 @@ function guessDisplayNameFromFields(fields: Record<string, unknown>): string | u
   return best?.value;
 }
 
+function guessFallbackLabelFromFields(fields: Record<string, unknown>): string | undefined {
+  // Last-resort fallback when we can't identify a name-like field.
+  // Prefer a short, human-readable string and avoid obvious IDs/URLs.
+  let best: { score: number; value: string } | null = null;
+  for (const [rawKey, rawValue] of Object.entries(fields)) {
+    const value = toString(rawValue);
+    if (!value) continue;
+
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    if (/^https?:\/\//i.test(trimmed)) continue;
+    if (/^rec[a-zA-Z0-9]{10,20}$/.test(trimmed)) continue;
+
+    const key = normalizeFieldKey(rawKey);
+    let score = 0;
+
+    const len = trimmed.length;
+    if (len >= 2 && len <= 50) score += 6;
+    if (len > 80) score -= 4;
+
+    if (/[가-힣]/.test(trimmed)) score += 3;
+    if (/[a-zA-Z]/.test(trimmed)) score += 1;
+    if (/^\d+$/.test(trimmed)) score -= 3;
+    if (/%/.test(trimmed)) score -= 2;
+
+    if (key.includes("id") || key.includes("code") || key.includes("코드")) score -= 4;
+    if (key.includes("url") || key.includes("link")) score -= 3;
+
+    if (score <= 0) continue;
+    if (!best || score > best.score) best = { score, value: trimmed };
+  }
+  return best?.value;
+}
+
 function fundFromRecord(rec: AirtableRecord, hints: { primaryNameField?: string | null } = {}): FundSummary {
   const f = rec.fields ?? {};
 
@@ -345,7 +379,12 @@ function fundFromRecord(rec: AirtableRecord, hints: { primaryNameField?: string 
     "펀드명(한글)",
   ]);
   const primaryName = hints.primaryNameField ? pickString(f, [hints.primaryNameField]) : undefined;
-  const name = canonicalName ?? primaryName ?? guessDisplayNameFromFields(f) ?? `Fund ${rec.id.slice(-6)}`;
+  const name =
+    canonicalName ??
+    primaryName ??
+    guessDisplayNameFromFields(f) ??
+    guessFallbackLabelFromFields(f) ??
+    `Fund ${rec.id.slice(-6)}`;
 
   const vintage =
     pickString(f, ["Vintage", "vintage", "빈티지", "연도", "결성연도", "결성년도"]) ??
@@ -415,7 +454,7 @@ function companyFromRecord(rec: AirtableRecord, hints: { primaryNameField?: stri
 
   const canonicalName = pickString(f, ["Company", "Name", "기업명", "회사명"]);
   const primaryName = hints.primaryNameField ? pickString(f, [hints.primaryNameField]) : undefined;
-  const name = canonicalName ?? primaryName ?? `Company ${rec.id.slice(-6)}`;
+  const name = canonicalName ?? primaryName ?? guessFallbackLabelFromFields(f) ?? `Company ${rec.id.slice(-6)}`;
   const investedAt = toIsoDate(pickField(f, ["투자일", "Investment Date", "investedAt", "Date"]));
   const stage = pickString(f, ["투자단계", "Stage"]);
   const investmentType = pickString(f, ["투자유형", "Type"]);
