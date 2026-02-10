@@ -17,8 +17,16 @@ export async function GET() {
     return NextResponse.json({ ok: true, funds });
   } catch (err) {
     const unauthorized = err instanceof Error && err.message === "UNAUTHORIZED";
-    const status = unauthorized ? 401 : 500;
-    const code = unauthorized ? "UNAUTHORIZED" : "FAILED";
-    return NextResponse.json({ ok: false, error: code }, { status });
+    if (unauthorized) {
+      return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
+    }
+
+    // Pass through Airtable codes for quicker debugging (no secrets included).
+    const msg = err instanceof Error ? err.message : "";
+    if (msg.startsWith("AIRTABLE_")) {
+      return NextResponse.json({ ok: false, error: msg }, { status: 502 });
+    }
+
+    return NextResponse.json({ ok: false, error: "FAILED" }, { status: 500 });
   }
 }

@@ -527,23 +527,48 @@ async function airtableGetJson<T>(cfg: AirtableConfig, path: string, params?: UR
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), 12_000);
   try {
-    const res = await fetch(url, {
-      method: "GET",
-      headers: {
-        authorization: `Bearer ${cfg.token}`,
-        "content-type": "application/json",
-      },
-      cache: "no-store",
-      signal: controller.signal,
-    });
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        method: "GET",
+        headers: {
+          authorization: `Bearer ${cfg.token}`,
+          "content-type": "application/json",
+        },
+        cache: "no-store",
+        signal: controller.signal,
+      });
+    } catch (err) {
+      const name = err && typeof err === "object" && "name" in err ? String((err as any).name) : "";
+      if (name === "AbortError") throw new Error("AIRTABLE_TIMEOUT");
+      throw err;
+    }
+
     const json = (await res.json().catch(() => ({}))) as unknown;
     if (!res.ok) {
-      const msg =
+      const errorRaw =
         json && typeof json === "object" && "error" in (json as Record<string, unknown>)
-          ? JSON.stringify((json as Record<string, unknown>)["error"])
-          : `HTTP_${res.status}`;
-      throw new Error(`AIRTABLE_${msg}`);
+          ? (json as Record<string, unknown>)["error"]
+          : undefined;
+
+      // Airtable error format is typically { error: { type, message } }.
+      let code = "";
+      if (typeof errorRaw === "string") code = errorRaw;
+      else if (errorRaw && typeof errorRaw === "object") {
+        const type = (errorRaw as Record<string, unknown>)["type"];
+        if (typeof type === "string" && type.trim()) code = type.trim();
+      }
+
+      if (!code) {
+        if (res.status === 401 || res.status === 403) code = "UNAUTHORIZED";
+        else if (res.status === 404) code = "NOT_FOUND";
+        else if (res.status === 429) code = "RATE_LIMITED";
+        else code = `HTTP_${res.status}`;
+      }
+
+      throw new Error(`AIRTABLE_${code}`);
     }
+
     return json as T;
   } finally {
     clearTimeout(t);

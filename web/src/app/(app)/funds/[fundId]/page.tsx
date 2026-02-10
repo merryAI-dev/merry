@@ -53,6 +53,18 @@ function fmtRatio(n?: number) {
   return `${(n * 100).toFixed(1)}%`;
 }
 
+function friendlyAirtableError(code: string): string | null {
+  if (!code.startsWith("AIRTABLE_")) return null;
+  if (code === "AIRTABLE_TIMEOUT") return "Airtable 응답이 지연되었습니다. 잠시 후 다시 시도하세요.";
+  if (code === "AIRTABLE_RATE_LIMITED") return "Airtable 요청이 너무 많습니다(429). 10-20초 후 다시 시도하세요.";
+  if (code === "AIRTABLE_UNAUTHORIZED") return "Airtable 토큰/권한이 없습니다. Base 공유/토큰 Scope를 확인하세요.";
+  if (code === "AIRTABLE_NOT_FOUND") return "Airtable Base ID 또는 테이블 이름/ID가 올바르지 않습니다.";
+  if (code.includes("AUTHENTICATION") || code.includes("INVALID_PERMISSIONS")) {
+    return "Airtable 권한이 부족합니다. 해당 Base에 읽기 권한이 있는 PAT인지 확인하세요.";
+  }
+  return `Airtable 오류: ${code.replace("AIRTABLE_", "")}`;
+}
+
 function tickShortDate(s: string) {
   if (!s) return "";
   // s is expected to be YYYY-MM-DD
@@ -126,6 +138,8 @@ export default function FundDetailPage() {
         setError("로그인이 필요합니다. 다시 로그인 후 시도하세요.");
       } else if (msg === "AIRTABLE_NOT_CONFIGURED") {
         setError("Airtable 환경변수(AIRTABLE_API_TOKEN 또는 AIRTABLE_API_KEY / AIRTABLE_BASE_ID)를 설정해야 합니다.");
+      } else if (msg.startsWith("AIRTABLE_")) {
+        setError(friendlyAirtableError(msg) ?? "펀드 상세를 불러오지 못했습니다. Airtable 연결/권한을 확인하세요.");
       } else {
         setError("펀드 상세를 불러오지 못했습니다. Airtable 연결/권한을 확인하세요.");
       }

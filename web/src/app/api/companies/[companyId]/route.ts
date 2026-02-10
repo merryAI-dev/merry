@@ -34,7 +34,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ companyId: str
         : err instanceof z.ZodError
           ? "BAD_REQUEST"
           : "FAILED";
+
+    if (code === "FAILED" && err instanceof Error && err.message.startsWith("AIRTABLE_")) {
+      return NextResponse.json({ ok: false, error: err.message }, { status: 502 });
+    }
+
     return NextResponse.json({ ok: false, error: code }, { status });
   }
 }
-
