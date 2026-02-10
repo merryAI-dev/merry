@@ -12,6 +12,23 @@ type AirtableListResponse = {
   offset?: string;
 };
 
+type AirtableMetaField = {
+  id: string;
+  name: string;
+  type?: string;
+};
+
+type AirtableMetaTable = {
+  id: string;
+  name: string;
+  primaryFieldId?: string;
+  fields?: AirtableMetaField[];
+};
+
+type AirtableMetaTablesResponse = {
+  tables?: AirtableMetaTable[];
+};
+
 export type AirtableConfig = {
   token: string;
   baseId: string;
@@ -188,6 +205,72 @@ function pickStringArray(fields: Record<string, unknown>, candidates: string[]):
   return toStringArray(pickField(fields, candidates));
 }
 
+const airtableMetaTablesCache = new Map<string, { ts: number; tables: AirtableMetaTable[] }>();
+
+async function getAirtableMetaTables(cfg: AirtableConfig): Promise<AirtableMetaTable[]> {
+  const cached = airtableMetaTablesCache.get(cfg.baseId);
+  const ttlMs = 10 * 60 * 1000;
+  if (cached && Date.now() - cached.ts < ttlMs) return cached.tables;
+
+  const url = `https://api.airtable.com/v0/meta/bases/${encodeURIComponent(cfg.baseId)}/tables`;
+  try {
+    const res = await fetch(url, {
+      method: "GET",
+      headers: {
+        authorization: `Bearer ${cfg.token}`,
+        "content-type": "application/json",
+      },
+      cache: "no-store",
+    });
+    const json = (await res.json().catch(() => ({}))) as AirtableMetaTablesResponse;
+    if (!res.ok) return [];
+    const tables = Array.isArray(json.tables) ? json.tables : [];
+    airtableMetaTablesCache.set(cfg.baseId, { ts: Date.now(), tables });
+    return tables;
+  } catch {
+    return [];
+  }
+}
+
+async function getAirtableMetaTable(cfg: AirtableConfig, table: string): Promise<AirtableMetaTable | null> {
+  const tables = await getAirtableMetaTables(cfg);
+  if (!tables.length) return null;
+  return tables.find((t) => t.id === table || t.name === table) ?? null;
+}
+
+async function getAirtablePrimaryFieldName(cfg: AirtableConfig, table: string): Promise<string | null> {
+  const meta = await getAirtableMetaTable(cfg, table);
+  if (!meta || !meta.primaryFieldId || !Array.isArray(meta.fields)) return null;
+  const pf = meta.fields.find((f) => f.id === meta.primaryFieldId);
+  return pf?.name ?? null;
+}
+
+function pickLikelyFundLinkField(meta: AirtableMetaTable): string | null {
+  const fields = Array.isArray(meta.fields) ? meta.fields : [];
+  if (!fields.length) return null;
+
+  let best: { score: number; name: string } | null = null;
+  for (const f of fields) {
+    const key = normalizeFieldKey(f.name || "");
+    if (!key) continue;
+
+    let score = 0;
+    const t = (f.type || "").toLowerCase();
+    if (t.includes("recordlink")) score += 10;
+    if (key.includes("fund")) score += 18;
+    if (key.includes("portfolio")) score += 14;
+    if (key.includes("펀드")) score += 22;
+    if (key.includes("조합")) score += 20;
+    if (key.includes("투자조합")) score += 22;
+    if (key.includes("id") || key.includes("code") || key.includes("코드")) score -= 12;
+    if (key.includes("url")) score -= 8;
+
+    if (score <= 0) continue;
+    if (!best || score > best.score) best = { score, name: f.name };
+  }
+  return best?.name ?? null;
+}
+
 function toIsoDate(v: unknown): string | undefined {
   if (!v) return undefined;
   if (typeof v === "string") {
@@ -230,6 +313,7 @@ function guessDisplayNameFromFields(fields: Record<string, unknown>): string | u
     if (key.includes("투자조합")) score += 18;
     if (key.includes("code") || key.includes("코드") || key.includes("id")) score -= 10;
     if (key.includes("url")) score -= 8;
+    if (key.includes("관리보수") || key.includes("성과보수")) score -= 14;
 
     const len = value.length;
     if (len >= 2 && len <= 40) score += 4;
@@ -241,31 +325,30 @@ function guessDisplayNameFromFields(fields: Record<string, unknown>): string | u
   return best?.value;
 }
 
-function fundFromRecord(rec: AirtableRecord): FundSummary {
+function fundFromRecord(rec: AirtableRecord, hints: { primaryNameField?: string | null } = {}): FundSummary {
   const f = rec.fields ?? {};
 
-  const name =
-    pickString(f, [
-      "Name",
-      "name",
-      "Fund",
-      "Fund Name",
-      "펀드명",
-      "펀드 이름",
-      "펀드",
-      "조합명",
-      "투자 조합명",
-      "투자조합명",
-      "투자조합",
-      "조합",
-      "조합(펀드)",
-      "펀드명(한글)",
-    ]) ??
-    guessDisplayNameFromFields(f) ??
-    `Fund ${rec.id.slice(-6)}`;
+  const canonicalName = pickString(f, [
+    "Name",
+    "name",
+    "Fund",
+    "Fund Name",
+    "펀드명",
+    "펀드 이름",
+    "펀드",
+    "조합명",
+    "투자 조합명",
+    "투자조합명",
+    "투자조합",
+    "조합",
+    "조합(펀드)",
+    "펀드명(한글)",
+  ]);
+  const primaryName = hints.primaryNameField ? pickString(f, [hints.primaryNameField]) : undefined;
+  const name = canonicalName ?? primaryName ?? guessDisplayNameFromFields(f) ?? `Fund ${rec.id.slice(-6)}`;
 
   const vintage =
-    pickString(f, ["Vintage", "vintage", "빈티지", "연도"]) ??
+    pickString(f, ["Vintage", "vintage", "빈티지", "연도", "결성연도", "결성년도"]) ??
     yearFromDateLike(pickField(f, ["등록일", "결성일", "설립일", "Date"]));
   const currency = pickString(f, ["Currency", "currency", "통화"]);
 
@@ -312,8 +395,8 @@ function fundFromRecord(rec: AirtableRecord): FundSummary {
   };
 }
 
-function fundDetailFromRecord(rec: AirtableRecord): FundDetail {
-  const base = fundFromRecord(rec);
+function fundDetailFromRecord(rec: AirtableRecord, hints: { primaryNameField?: string | null } = {}): FundDetail {
+  const base = fundFromRecord(rec, hints);
   const f = rec.fields ?? {};
   const manager = pickString(f, ["Manager", "GP", "운용사", "매니저", "manager", "대표펀드매니저", "대표 펀드매니저"]);
   const strategy = pickString(f, ["Strategy", "전략", "strategy", "구분"]);
@@ -327,10 +410,12 @@ function fundDetailFromRecord(rec: AirtableRecord): FundDetail {
   return { ...base, manager, strategy, notes, dealCount, availableCapital, myscCommitment, myscRatio, lifeTerm, investmentTerm };
 }
 
-function companyFromRecord(rec: AirtableRecord): CompanySummary {
+function companyFromRecord(rec: AirtableRecord, hints: { primaryNameField?: string | null } = {}): CompanySummary {
   const f = rec.fields ?? {};
 
-  const name = pickString(f, ["Company", "Name", "기업명", "회사명"]) ?? `Company ${rec.id.slice(-6)}`;
+  const canonicalName = pickString(f, ["Company", "Name", "기업명", "회사명"]);
+  const primaryName = hints.primaryNameField ? pickString(f, [hints.primaryNameField]) : undefined;
+  const name = canonicalName ?? primaryName ?? `Company ${rec.id.slice(-6)}`;
   const investedAt = toIsoDate(pickField(f, ["투자일", "Investment Date", "investedAt", "Date"]));
   const stage = pickString(f, ["투자단계", "Stage"]);
   const investmentType = pickString(f, ["투자유형", "Type"]);
@@ -365,8 +450,8 @@ function companyFromRecord(rec: AirtableRecord): CompanySummary {
   };
 }
 
-function companyDetailFromRecord(rec: AirtableRecord): CompanyDetail {
-  const base = companyFromRecord(rec);
+function companyDetailFromRecord(rec: AirtableRecord, hints: { primaryNameField?: string | null } = {}): CompanyDetail {
+  const base = companyFromRecord(rec, hints);
   const f = rec.fields ?? {};
 
   const products = pickString(f, ["제품/서비스", "Product", "Service", "제품", "서비스"]);
@@ -482,18 +567,22 @@ async function listRecordsByIds(cfg: AirtableConfig, table: string, recordIds: s
 }
 
 export async function listFunds(cfg: AirtableConfig): Promise<FundSummary[]> {
+  const primaryNameField = await getAirtablePrimaryFieldName(cfg, cfg.fundsTable);
   const recs = await listAllRecords(cfg, cfg.fundsTable, { view: cfg.fundsView, max: 300 });
-  return recs.map(fundFromRecord);
+  return recs.map((r) => fundFromRecord(r, { primaryNameField }));
 }
 
 export async function getFundDetail(cfg: AirtableConfig, fundId: string): Promise<{ fund: FundDetail; snapshots: FundSnapshot[]; companies: CompanySummary[]; warnings: string[] }> {
   const warnings: string[] = [];
 
+  const fundPrimaryNameField = await getAirtablePrimaryFieldName(cfg, cfg.fundsTable);
+  const companyPrimaryNameField = cfg.companiesTable ? await getAirtablePrimaryFieldName(cfg, cfg.companiesTable) : null;
+
   const fundRec = await airtableGetJson<AirtableRecord>(
     cfg,
     `${encodeURIComponent(cfg.fundsTable)}/${encodeURIComponent(fundId)}`,
   );
-  const fund = fundDetailFromRecord(fundRec);
+  const fund = fundDetailFromRecord(fundRec, { primaryNameField: fundPrimaryNameField });
 
   let companies: CompanySummary[] = [];
   const companyIds = pickStringArray(fundRec.fields ?? {}, [
@@ -511,10 +600,28 @@ export async function getFundDetail(cfg: AirtableConfig, fundId: string): Promis
   if (companyIds.length && cfg.companiesTable) {
     try {
       const recs = await listRecordsByIds(cfg, cfg.companiesTable, companyIds);
-      companies = recs.map(companyFromRecord);
+      companies = recs.map((r) => companyFromRecord(r, { primaryNameField: companyPrimaryNameField }));
     } catch (err) {
       const msg = err instanceof Error ? err.message : "companies_failed";
       warnings.push(`companies_unavailable:${msg}`);
+      companies = [];
+    }
+  } else if (!companyIds.length && cfg.companiesTable) {
+    // Reverse lookup (common Airtable schema): companies table holds the fund link, not vice versa.
+    try {
+      const meta = await getAirtableMetaTable(cfg, cfg.companiesTable);
+      const linkField = meta ? pickLikelyFundLinkField(meta) : null;
+      if (linkField) {
+        const formula = `FIND("${fundId}", ARRAYJOIN({${linkField}}))`;
+        const recs = await listAllRecords(cfg, cfg.companiesTable, { max: 600, filterByFormula: formula });
+        companies = recs.map((r) => companyFromRecord(r, { primaryNameField: companyPrimaryNameField }));
+        warnings.push("companies_reverse_lookup");
+      } else {
+        warnings.push("companies_link_field_not_found");
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "companies_reverse_failed";
+      warnings.push(`companies_reverse_failed:${msg}`);
       companies = [];
     }
   } else if (companyIds.length && !cfg.companiesTable) {
@@ -551,9 +658,10 @@ export async function getCompanyDetail(cfg: AirtableConfig, companyId: string): 
   if (!cfg.companiesTable) {
     throw new Error("AIRTABLE_COMPANIES_NOT_CONFIGURED");
   }
+  const primaryNameField = await getAirtablePrimaryFieldName(cfg, cfg.companiesTable);
   const rec = await airtableGetJson<AirtableRecord>(
     cfg,
     `${encodeURIComponent(cfg.companiesTable)}/${encodeURIComponent(companyId)}`,
   );
-  return companyDetailFromRecord(rec);
+  return companyDetailFromRecord(rec, { primaryNameField });
 }

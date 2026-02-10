@@ -35,9 +35,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko">
+    <html lang="ko" className="light" style={{ colorScheme: "light" }}>
       <body
         className={`${fontSans.variable} ${fontDisplay.variable} ${fontMono.variable} antialiased`}
+        style={{ background: "#ffffff", color: "#001e46" }}
       >
         {children}
       </body>

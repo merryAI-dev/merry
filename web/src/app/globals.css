@@ -49,56 +49,25 @@
   --color-agent-blue: var(--accent-blue);
 }
 
+/* Force light mode - disable system dark mode detection */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: light;
+  }
+
+  body {
+    background: #ffffff !important;
+    color: #001e46 !important;
+  }
+}
+
 /* Body Background - White for internal pages */
 body {
   color: #001e46;
   font-family: var(--font-merry-sans), ui-sans-serif, system-ui;
-  background: #ffffff;
+  background: #ffffff !important;
   position: relative;
   min-height: 100vh;
-}
-
-/* Subtle Gradient Overlay for Light Mode */
-body::before {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: -1;
-  background:
-    radial-gradient(ellipse 1200px 800px at 20% 10%, rgba(0, 30, 70, 0.04), transparent 50%),
-    radial-gradient(ellipse 1000px 700px at 80% 20%, rgba(0, 102, 204, 0.03), transparent 50%),
-    radial-gradient(ellipse 1000px 700px at 50% 90%, rgba(59, 130, 246, 0.02), transparent 50%),
-    linear-gradient(180deg, var(--bg) 0%, var(--bg-subtle) 100%);
-  animation: gradientShift 20s ease infinite;
-  opacity: 1;
-}
-
-@keyframes gradientShift {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.95;
-  }
-}
-
-/* Grid Pattern */
-body::after {
-  content: '';
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: -1;
-  background-image:
-    linear-gradient(rgba(0, 30, 70, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 30, 70, 0.02) 1px, transparent 1px);
-  background-size: 50px 50px;
-  mask-image: radial-gradient(ellipse 100% 100% at 50% 50%, black 0%, transparent 80%);
 }
 
 /* Selection */
@@ -305,11 +274,6 @@ body::after {
 
 /* Dark theme override for landing page only */
 .dark-landing {
-  background: #000000;
-  color: #ffffff;
-}
-
-.dark-landing::before,
-.dark-landing::after {
-  display: none;
+  background: #000000 !important;
+  color: #ffffff !important;
 }
