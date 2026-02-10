@@ -28,6 +28,14 @@ type DraftSummary = {
   createdAt?: string;
 };
 
+type ReportStashItem = {
+  itemId: string;
+  title: string;
+  content: string;
+  createdAt: string;
+  createdBy?: string;
+};
+
 type JobType = "exit_projection" | "diagnosis_analysis" | "pdf_evidence" | "pdf_parse" | "contract_review";
 type JobStatus = "queued" | "running" | "succeeded" | "failed";
 
@@ -71,6 +79,10 @@ export default function ReportPage() {
   const [busy, setBusy] = React.useState(false);
   const [sending, setSending] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+
+  const [stash, setStash] = React.useState<ReportStashItem[]>([]);
+  const [stashBusy, setStashBusy] = React.useState(false);
+  const [stashMsg, setStashMsg] = React.useState<string | null>(null);
 
   const [drafts, setDrafts] = React.useState<DraftSummary[]>([]);
   const [activeDraftId, setActiveDraftId] = React.useState<string>("");
@@ -125,13 +137,26 @@ export default function ReportPage() {
     }
   }, []);
 
+  const loadStash = React.useCallback(async (sessionId: string) => {
+    if (!sessionId) return;
+    try {
+      const res = await fetchJson<{ items: ReportStashItem[] }>(`/api/report/${sessionId}/stash`);
+      setStash(res.items || []);
+    } catch {
+      setStash([]);
+    }
+  }, []);
+
   React.useEffect(() => {
     loadSessions();
   }, [loadSessions]);
 
   React.useEffect(() => {
-    if (activeSessionId) loadMessages(activeSessionId);
-  }, [activeSessionId, loadMessages]);
+    if (activeSessionId) {
+      loadMessages(activeSessionId);
+      loadStash(activeSessionId);
+    }
+  }, [activeSessionId, loadMessages, loadStash]);
 
   const loadDrafts = React.useCallback(async () => {
     try {
@@ -258,20 +283,65 @@ export default function ReportPage() {
 
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && m.content.trim());
 
-  async function saveLastAsDraft() {
-    if (!lastAssistant?.content?.trim()) return;
-    setBusy(true);
-    setError(null);
+  async function addToStash(content: string, source?: Record<string, unknown>) {
+    const text = (content ?? "").trim();
+    if (!text || !activeSessionId) return;
+    if (stashBusy) return;
+    setStashBusy(true);
+    setStashMsg(null);
     try {
-      const title = `투자심사 보고서 초안 · ${new Date().toISOString().slice(0, 10)}`;
-      const res = await fetchJson<{ draftId: string }>("/api/drafts", {
+      const res = await fetchJson<{ itemId: string; alreadyExists?: boolean }>(`/api/report/${activeSessionId}/stash`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title, content: lastAssistant.content }),
+        body: JSON.stringify({ content: text, source }),
       });
+      setStashMsg(res.alreadyExists ? "이미 바구니에 담긴 초안입니다." : "초안을 바구니에 담았습니다.");
+      await loadStash(activeSessionId);
+    } catch {
+      setStashMsg("초안을 바구니에 담지 못했습니다.");
+    } finally {
+      setStashBusy(false);
+    }
+  }
+
+  async function removeFromStash(itemId: string) {
+    const id = (itemId ?? "").trim();
+    if (!id || !activeSessionId) return;
+    if (stashBusy) return;
+    setStashBusy(true);
+    setStashMsg(null);
+    try {
+      await fetchJson(`/api/report/${activeSessionId}/stash/${id}`, { method: "DELETE" });
+      await loadStash(activeSessionId);
+      setStashMsg("바구니에서 제거했습니다.");
+    } catch {
+      setStashMsg("제거에 실패했습니다.");
+    } finally {
+      setStashBusy(false);
+    }
+  }
+
+  async function commitStashToDraft() {
+    if (!activeSessionId || !stash.length) return;
+    if (stashBusy || busy) return;
+    setBusy(true);
+    setStashMsg(null);
+    try {
+      const now = new Date();
+      const stamp = now.toISOString().slice(0, 16).replace("T", " ");
+      const title = activeDraftId.trim()
+        ? `초안 확정(${stash.length}파트) · ${stamp}`
+        : `${sessions.find((s) => s.sessionId === activeSessionId)?.title || "투자심사 보고서"} · 초안 확정(${stash.length}파트)`;
+      const res = await fetchJson<{ draftId: string }>(`/api/report/${activeSessionId}/stash/commit`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ draftId: activeDraftId.trim() || undefined, title }),
+      });
+      await loadDrafts();
+      await loadStash(activeSessionId);
       window.location.href = `/drafts/${res.draftId}`;
     } catch {
-      setError("드래프트 저장에 실패했습니다.");
+      setStashMsg("드래프트 반영(커밋)에 실패했습니다.");
     } finally {
       setBusy(false);
     }
@@ -340,7 +410,7 @@ export default function ReportPage() {
             <Badge tone="accent">스트리밍</Badge>
           </div>
           <div className="mt-2 text-sm text-[color:var(--muted)]">
-            대화로 초안을 만들고, 마지막 답변을 드래프트로 저장해 커서식 리뷰로 이어갑니다.
+            대화로 초안을 만들고, 필요한 답변을 &quot;초안 확정&quot;으로 담아 한 번에 드래프트로 옮깁니다.
           </div>
         </div>
 
@@ -352,9 +422,13 @@ export default function ReportPage() {
           <Button variant="secondary" onClick={newSession} disabled={busy}>
             새 세션
           </Button>
-          <Button variant="primary" onClick={saveLastAsDraft} disabled={busy || !lastAssistant}>
+          <Button
+            variant="primary"
+            onClick={() => (lastAssistant ? addToStash(lastAssistant.content, { kind: "last_assistant" }) : null)}
+            disabled={busy || stashBusy || !lastAssistant}
+          >
             <FileText className="h-4 w-4" />
-            마지막 답변 드래프트로
+            마지막 답변 초안 확정
           </Button>
         </div>
       </div>
@@ -412,6 +486,21 @@ export default function ReportPage() {
                     }
                   >
                     <div className="whitespace-pre-wrap">{m.content}</div>
+                    {m.role === "assistant" && m.content.trim() ? (
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => addToStash(m.content, { kind: "assistant_message", createdAt: m.createdAt || "" })}
+                          disabled={stashBusy || busy || sending}
+                        >
+                          초안 확정
+                        </Button>
+                        {stash.some((it) => it.content.trim() === m.content.trim()) ? (
+                          <Badge tone="neutral">바구니 담김</Badge>
+                        ) : null}
+                      </div>
+                    ) : null}
                     <div className="mt-2 text-[10px] text-black/40">
                       {m.role === "user" ? "you" : "merry"} ·{" "}
                       {m.createdAt?.slice(0, 16).replace("T", " ") || ""}
@@ -493,13 +582,73 @@ export default function ReportPage() {
         </Card>
 
         <Card variant="strong" className="p-5">
-          <div className="text-sm font-semibold text-[color:var(--ink)]">추천 체크</div>
+          <div className="text-sm font-semibold text-[color:var(--ink)]">초안 바구니</div>
           <div className="mt-1 text-sm text-[color:var(--muted)]">
-            이 화면은 아직 Python 도구(시장 근거 추출, DART 수집 등) 연결 전입니다.
-            대신 대화 초안 생성과 드래프트 리뷰 흐름부터 고정합니다.
+            대화 중 생성된 답변을 확정(바구니 담기)하고, 2-3파트가 모이면 한 번에 드래프트로 옮겨 리뷰를 시작합니다.
           </div>
 
           <div className="mt-4 space-y-3">
+            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-semibold text-[color:var(--ink)]">확정된 초안</div>
+                <Button variant="ghost" onClick={() => loadStash(activeSessionId)} disabled={stashBusy || !activeSessionId}>
+                  새로고침
+                </Button>
+              </div>
+
+              {stashMsg ? (
+                <div className="mt-3 rounded-xl border border-[color:var(--line)] bg-white/80 px-3 py-2 text-xs text-[color:var(--muted)]">
+                  {stashMsg}
+                </div>
+              ) : null}
+
+              <div className="mt-3 space-y-2">
+                {!stash.length ? (
+                  <div className="text-sm text-[color:var(--muted)]">
+                    아직 바구니에 담긴 초안이 없습니다. 대화 메시지에서 &quot;초안 확정&quot;을 눌러 담아보세요.
+                  </div>
+                ) : (
+                  stash.map((it) => (
+                    <div key={it.itemId} className="rounded-2xl border border-[color:var(--line)] bg-white/80 p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-sm font-medium text-[color:var(--ink)]">{it.title}</div>
+                          <div className="mt-1 flex items-center justify-between gap-2 text-xs text-[color:var(--muted)]">
+                            <span className="font-mono">{it.itemId}</span>
+                            <span>{(it.createdAt || "").slice(0, 16).replace("T", " ")}</span>
+                          </div>
+                          <div className="mt-2 line-clamp-3 text-xs text-[color:var(--muted)]">
+                            {(it.content || "").trim().slice(0, 180)}
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={stashBusy}
+                          onClick={() => removeFromStash(it.itemId)}
+                        >
+                          제거
+                        </Button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs text-[color:var(--muted)]">
+                  {stash.length ? `${stash.length}개 파트 확정됨` : "0개"}
+                </div>
+                <Button
+                  variant="primary"
+                  disabled={!stash.length || busy || stashBusy}
+                  onClick={commitStashToDraft}
+                >
+                  드래프트로 옮기기
+                </Button>
+              </div>
+            </div>
+
             <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4">
               <div className="text-xs font-semibold text-[color:var(--ink)]">대상 드래프트</div>
               <div className="mt-2 grid gap-2">
