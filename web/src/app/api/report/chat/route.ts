@@ -29,8 +29,14 @@ function safeLlmErrorText(err: unknown): string {
   if (name === "UnrecognizedClientException" || lower.includes("security token") || lower.includes("invalidsignature")) {
     return "AWS 자격 증명/리전이 올바르지 않습니다. AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY/AWS_REGION을 확인하세요.";
   }
+  if (lower.includes("use case details") || lower.includes("anthropic use case")) {
+    return "Bedrock에서 Anthropic 모델 사용 케이스(Use case details) 제출이 필요합니다. AWS 콘솔 Bedrock > Model access에서 Anthropic 항목을 열고 폼 제출 후 10-15분 뒤 재시도하세요.";
+  }
   if (name === "ResourceNotFoundException" || lower.includes("not found")) {
     return "Bedrock 모델을 찾지 못했습니다. BEDROCK_MODEL_ID와 AWS_REGION을 확인하세요.";
+  }
+  if (name === "ValidationException" && lower.includes("on-demand throughput")) {
+    return "해당 Anthropic 모델은 on-demand 호출이 불가합니다. BEDROCK_MODEL_ID를 inference profile ID/ARN으로 설정해야 합니다. 예: apac.anthropic.claude-3-5-sonnet-20241022-v2:0";
   }
   if (name === "ValidationException" && lower.includes("model")) {
     return `Bedrock 요청이 거부되었습니다(모델/요청 형식). BEDROCK_MODEL_ID를 확인하세요. (${name}: ${msg})`;
