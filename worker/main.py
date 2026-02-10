@@ -14,9 +14,11 @@ Responsibilities:
 from __future__ import annotations
 
 import json
+import math
 import os
 import time
 import traceback
+from decimal import Decimal
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -56,6 +58,33 @@ def _safe_filename(name: str) -> str:
     cleaned = "".join(c if c.isalnum() or c in ("-", "_", ".", " ") else "_" for c in (name or "file"))
     cleaned = cleaned.strip().strip(".")
     return cleaned[:160] or "file"
+
+
+def _ddb_sanitize(value: Any) -> Any:
+    """
+    DynamoDB (boto3) does not accept Python float types.
+    Recursively convert floats to Decimal and ensure maps/lists are serializable.
+    """
+
+    if value is None:
+        return None
+    if isinstance(value, (str, bool, int, Decimal)):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            return None
+        # Use string to avoid binary float issues (e.g., 0.1).
+        return Decimal(str(value))
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    if isinstance(value, dict):
+        out: Dict[str, Any] = {}
+        for k, v in value.items():
+            out[str(k)] = _ddb_sanitize(v)
+        return out
+    if isinstance(value, (list, tuple)):
+        return [_ddb_sanitize(v) for v in value]
+    return str(value)
 
 
 class AwsCtx:
@@ -117,15 +146,15 @@ def ddb_update_job(
         exprs.append("#error = :error")
     if artifacts is not None:
         names["#artifacts"] = "artifacts"
-        values[":artifacts"] = artifacts
+        values[":artifacts"] = _ddb_sanitize(artifacts)
         exprs.append("#artifacts = :artifacts")
     if metrics is not None:
         names["#metrics"] = "metrics"
-        values[":metrics"] = metrics
+        values[":metrics"] = _ddb_sanitize(metrics)
         exprs.append("#metrics = :metrics")
     if usage is not None:
         names["#usage"] = "usage"
-        values[":usage"] = usage
+        values[":usage"] = _ddb_sanitize(usage)
         exprs.append("#usage = :usage")
 
     ctx.ddb.update_item(
