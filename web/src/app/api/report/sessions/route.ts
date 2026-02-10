@@ -8,6 +8,13 @@ export const runtime = "nodejs";
 
 const CreateSchema = z.object({
   title: z.string().optional(),
+  fundId: z.string().optional(),
+  fundName: z.string().optional(),
+  companyId: z.string().optional(),
+  companyName: z.string().optional(),
+  reportDate: z.string().optional(),
+  fileTitle: z.string().optional(),
+  author: z.string().optional(),
 });
 
 export async function GET() {
@@ -29,6 +36,13 @@ export async function POST(req: Request) {
       teamId: ws.teamId,
       memberName: ws.memberName,
       title: body.title,
+      fundId: body.fundId,
+      fundName: body.fundName,
+      companyId: body.companyId,
+      companyName: body.companyName,
+      reportDate: body.reportDate,
+      fileTitle: body.fileTitle,
+      author: body.author,
     });
     return NextResponse.json({ ok: true, ...created });
   } catch (err) {
@@ -36,4 +50,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "BAD_REQUEST" }, { status });
   }
 }
-

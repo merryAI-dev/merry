@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 
 export type ChatSessionRow = {
   session_id: string;
@@ -166,6 +166,17 @@ export async function ensureSession(teamId: string, sessionId: string, userInfo:
     const idx2 = { ...idx, pk: pkTeamSessionsByPrefix(teamId, prefix) };
     await ddb.send(new PutCommand({ TableName, Item: idx2 }));
   }
+}
+
+export async function getSession(teamId: string, sessionId: string): Promise<ChatSessionRow | null> {
+  const ddb = getDdbDocClient();
+  const TableName = getDdbTableName();
+  const pk = pkTeam(teamId);
+  const sk = skSessionMeta(sessionId);
+
+  const res = await ddb.send(new GetCommand({ TableName, Key: { pk, sk } }));
+  if (!res.Item) return null;
+  return coerceChatSessionRow(res.Item);
 }
 
 export async function addMessage(args: {

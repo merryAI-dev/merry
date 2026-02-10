@@ -6,6 +6,7 @@ import { z } from "zod";
 import { addReportMessage, getReportMessages } from "@/lib/reportChat";
 import { getLlmProvider } from "@/lib/llm";
 import { getBedrockRuntimeClient } from "@/lib/aws/bedrock";
+import { buildMerryPersona } from "@/lib/merryPersona";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export const runtime = "nodejs";
@@ -51,13 +52,7 @@ function safeLlmErrorText(err: unknown): string {
 
 function buildSystemPrompt() {
   return (
-    "당신은 투자심사 보고서 초안을 작성하는 VC 애널리스트입니다. 한국어로 답변하세요.\n" +
-    "규칙:\n" +
-    "- 추측/과장 금지. 근거 불충분하면 반드시 '확인 필요'로 명시\n" +
-    "- 사용자 정보가 거의 없어도 '뼈대 초안'을 먼저 작성하고, 부족한 부분은 [대괄호] placeholder 또는 '확인 필요'로 처리\n" +
-    "- 숫자/지표/계약조건/시장규모 수치는 사용자가 준 근거/자료에서만 사용 (없으면 비워두고 '확인 필요')\n" +
-    "- 질문은 우선순위 순으로 최대 8개만 제시 (각 질문 1줄)\n" +
-    "- 출력은 Markdown. 코드펜스 금지.\n" +
+    buildMerryPersona("report") +
     "- 출력 섹션:\n" +
     "  (1) 시장규모 근거 요약\n" +
     "  (2) 요약(투자 가부는 보류 가능)\n" +
