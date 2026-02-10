@@ -2,12 +2,12 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  /* Light Mode - Default */
-  --bg: #ffffff;
-  --bg-subtle: #f8f9fa;
-  --ink: #001e46;
-  --ink-light: #003d7a;
-  --muted: #64748b;
+  /* Light Mode - Default - FORCED */
+  --bg: #ffffff !important;
+  --bg-subtle: #f8f9fa !important;
+  --ink: #001e46 !important;
+  --ink-light: #003d7a !important;
+  --muted: #64748b !important;
 
   /* Cards and Surfaces */
   --card: rgba(248, 249, 250, 0.95);
@@ -79,11 +79,11 @@
   --color-agent-blue: var(--accent-blue);
 }
 
-/* Body Background */
+/* Body Background - FORCE WHITE */
 body {
-  color: var(--ink);
+  color: #001e46 !important;
   font-family: var(--font-merry-sans), ui-sans-serif, system-ui;
-  background: var(--bg);
+  background: #ffffff !important;
   position: relative;
   min-height: 100vh;
 }
