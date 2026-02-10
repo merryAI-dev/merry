@@ -12,10 +12,9 @@ export default async function AppLayout({
   if (!ws) redirect("/");
 
   return (
-    <div className="mx-auto flex max-w-7xl gap-6 px-4 py-4">
+    <div className="flex gap-4 px-3 py-3">
       <Sidebar workspace={ws} />
-      <main className="min-w-0 flex-1 pb-10">{children}</main>
+      <main className="min-w-0 flex-1 pb-8">{children}</main>
     </div>
   );
 }
-
