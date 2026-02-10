@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ClipboardList, FileText, LayoutDashboard, LineChart, LogOut, UploadCloud } from "lucide-react";
+import { ClipboardList, FileText, LayoutDashboard, LineChart, LogOut, TrendingUp, UploadCloud } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
@@ -12,6 +12,7 @@ import type { WorkspaceSession } from "@/lib/workspace";
 const nav = [
   { href: "/hub", label: "협업 허브", icon: LayoutDashboard },
   { href: "/analysis", label: "분석", icon: UploadCloud },
+  { href: "/exit-projection", label: "Exit 프로젝션", icon: TrendingUp },
   { href: "/funds", label: "펀드", icon: LineChart },
   { href: "/drafts", label: "드래프트", icon: FileText },
   { href: "/report", label: "투자심사", icon: ClipboardList },
