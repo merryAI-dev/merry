@@ -496,7 +496,18 @@ export async function getFundDetail(cfg: AirtableConfig, fundId: string): Promis
   const fund = fundDetailFromRecord(fundRec);
 
   let companies: CompanySummary[] = [];
-  const companyIds = pickStringArray(fundRec.fields ?? {}, ["투자기업", "투자 기업", "portfolio", "Portfolio", "Companies"]);
+  const companyIds = pickStringArray(fundRec.fields ?? {}, [
+    "투자기업",
+    "투자 기업",
+    "투자기업목록",
+    "투자기업 목록",
+    "투자기업리스트",
+    "투자기업 리스트",
+    "포트폴리오",
+    "portfolio",
+    "Portfolio",
+    "Companies",
+  ]);
   if (companyIds.length && cfg.companiesTable) {
     try {
       const recs = await listRecordsByIds(cfg, cfg.companiesTable, companyIds);
