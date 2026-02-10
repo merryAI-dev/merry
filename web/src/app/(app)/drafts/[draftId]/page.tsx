@@ -210,8 +210,14 @@ export default function DraftDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draftId]);
 
-  const activeVersion = versions.find((v) => v.versionId === activeVersionId) || versions.at(-1) || null;
-  const versionComments = comments.filter((c) => c.versionId === (activeVersion?.versionId ?? ""));
+  const activeVersion = React.useMemo(
+    () => versions.find((v) => v.versionId === activeVersionId) || versions.at(-1) || null,
+    [versions, activeVersionId],
+  );
+  const versionComments = React.useMemo(() => {
+    const vid = activeVersion?.versionId ?? "";
+    return (comments || []).filter((c) => c.versionId === vid);
+  }, [comments, activeVersion?.versionId]);
   const threads = React.useMemo(() => groupThreads(versionComments), [versionComments]);
 
   React.useEffect(() => {
