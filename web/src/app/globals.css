@@ -365,11 +365,28 @@ body::after {
   }
 }
 
-/* Smooth Transitions */
+/* Force Navy Text Everywhere */
 * {
   transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   transition-duration: 150ms;
+}
+
+/* Override all text colors to navy on white background */
+body * {
+  color: #001e46;
+}
+
+/* Keep buttons and special elements with their own colors */
+button,
+a,
+.gradient-text,
+[class*="badge"],
+[class*="text-white"],
+[class*="text-emerald"],
+[class*="text-rose"],
+[class*="text-amber"] {
+  color: inherit;
 }
 
 /* Focus Rings */
