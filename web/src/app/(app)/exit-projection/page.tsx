@@ -181,6 +181,8 @@ function ExitTooltip({ active, payload }: any) {
   );
 }
 
+const EMPTY_SCENARIOS: ExitScenario[] = [];
+
 export default function ExitProjectionPage() {
   const [jobs, setJobs] = React.useState<JobRecord[]>([]);
   const [activeJobId, setActiveJobId] = React.useState<string>("");
@@ -195,7 +197,7 @@ export default function ExitProjectionPage() {
 
   const activeJob = jobs.find((j) => j.jobId === activeJobId) ?? null;
   const parsed = parseExit(activeJob);
-  const scenarios = parsed?.scenarios ?? [];
+  const scenarios = parsed?.scenarios ?? EMPTY_SCENARIOS;
   const assumptions = parsed?.assumptions ?? {};
 
   const loadJobs = React.useCallback(async () => {
@@ -657,4 +659,3 @@ export default function ExitProjectionPage() {
     </div>
   );
 }
-

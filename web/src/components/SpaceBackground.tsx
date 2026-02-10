@@ -2,8 +2,18 @@
 
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Sphere, MeshDistortMaterial } from "@react-three/drei";
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import * as THREE from "three";
+
+function mulberry32(seed: number): () => number {
+  let t = seed >>> 0;
+  return () => {
+    t += 0x6D2B79F5;
+    let x = Math.imul(t ^ (t >>> 15), 1 | t);
+    x ^= x + Math.imul(x ^ (x >>> 7), 61 | x);
+    return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 function AnimatedSphere() {
   const meshRef = useRef<THREE.Mesh>(null);
@@ -37,13 +47,17 @@ function Stars() {
     }
   });
 
-  const starPositions = new Float32Array(2000 * 3);
-  for (let i = 0; i < 2000; i++) {
-    const i3 = i * 3;
-    starPositions[i3] = (Math.random() - 0.5) * 50;
-    starPositions[i3 + 1] = (Math.random() - 0.5) * 50;
-    starPositions[i3 + 2] = (Math.random() - 0.5) * 50;
-  }
+  const starPositions = useMemo(() => {
+    const rand = mulberry32(0x4d_65_72_72); // "Merr" seed
+    const arr = new Float32Array(2000 * 3);
+    for (let i = 0; i < 2000; i++) {
+      const i3 = i * 3;
+      arr[i3] = (rand() - 0.5) * 50;
+      arr[i3 + 1] = (rand() - 0.5) * 50;
+      arr[i3 + 2] = (rand() - 0.5) * 50;
+    }
+    return arr;
+  }, []);
 
   return (
     <points ref={starsRef}>

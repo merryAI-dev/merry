@@ -37,6 +37,8 @@ export async function GET() {
     MERRY_DDB_TABLE: Boolean(process.env.MERRY_DDB_TABLE),
     MERRY_S3_BUCKET: Boolean(process.env.MERRY_S3_BUCKET),
     MERRY_SQS_QUEUE_URL: Boolean(process.env.MERRY_SQS_QUEUE_URL),
+    LLM_PROVIDER: Boolean(process.env.LLM_PROVIDER),
+    BEDROCK_MODEL_ID: Boolean(process.env.BEDROCK_MODEL_ID),
     AIRTABLE_API_TOKEN: Boolean(process.env.AIRTABLE_API_TOKEN ?? process.env.AIRTABLE_API_KEY),
     AIRTABLE_BASE_ID: Boolean(process.env.AIRTABLE_BASE_ID),
     GOOGLE_CLIENT_ID: Boolean(process.env.GOOGLE_CLIENT_ID),

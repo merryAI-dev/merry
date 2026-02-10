@@ -13,6 +13,34 @@ const BodySchema = z.object({
   message: z.string().min(1),
 });
 
+function safeLlmErrorText(err: unknown): string {
+  const name = err instanceof Error ? (err.name || "") : "";
+  const msg = err instanceof Error ? (err.message || "") : String(err);
+
+  if (msg.startsWith("Missing env ")) {
+    return `환경변수 누락: ${msg.replace("Missing env ", "")}`;
+  }
+
+  // AWS SDK errors usually carry a name like AccessDeniedException / ValidationException.
+  const lower = (msg || "").toLowerCase();
+  if (name === "AccessDeniedException" || lower.includes("accessdenied")) {
+    return "Bedrock 권한이 없습니다. IAM에 bedrock:InvokeModel 권한 + Bedrock 모델 접근(Model access) 활성화가 필요합니다.";
+  }
+  if (name === "UnrecognizedClientException" || lower.includes("security token") || lower.includes("invalidsignature")) {
+    return "AWS 자격 증명/리전이 올바르지 않습니다. AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY/AWS_REGION을 확인하세요.";
+  }
+  if (name === "ResourceNotFoundException" || lower.includes("not found")) {
+    return "Bedrock 모델을 찾지 못했습니다. BEDROCK_MODEL_ID와 AWS_REGION을 확인하세요.";
+  }
+  if (name === "ValidationException" && lower.includes("model")) {
+    return `Bedrock 요청이 거부되었습니다(모델/요청 형식). BEDROCK_MODEL_ID를 확인하세요. (${name}: ${msg})`;
+  }
+
+  const head = name ? `${name}: ` : "";
+  const tail = msg ? msg : "Unknown error";
+  return `${head}${tail}`;
+}
+
 function buildSystemPrompt() {
   return (
     "당신은 투자심사 보고서 초안을 작성하는 VC 애널리스트입니다. 한국어로 답변하세요.\n" +
@@ -130,7 +158,19 @@ export async function POST(req: Request) {
           }
           controller.close();
         } catch (err) {
-          controller.error(err);
+          // Avoid throwing a stream error (which becomes an opaque client-side failure).
+          // Instead, return a visible error message as assistant output for quick debugging.
+          const text = `\n\n[LLM ERROR] ${safeLlmErrorText(err)}\n`;
+          try {
+            controller.enqueue(encoder.encode(text));
+          } catch {
+            // ignore
+          }
+          try {
+            controller.close();
+          } catch {
+            // ignore
+          }
         }
       },
     });
