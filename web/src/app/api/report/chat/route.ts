@@ -1,9 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { InvokeModelWithResponseStreamCommand } from "@aws-sdk/client-bedrock-runtime";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { addReportMessage, getReportMessages } from "@/lib/reportChat";
-import { completeText, getLlmProvider } from "@/lib/llm";
+import { getLlmProvider } from "@/lib/llm";
+import { getBedrockRuntimeClient } from "@/lib/aws/bedrock";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export const runtime = "nodejs";
@@ -66,6 +68,31 @@ function buildSystemPrompt() {
   );
 }
 
+function toNumberOrUndefined(v: unknown): number | undefined {
+  return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+}
+
+function extractAnthropicDeltaText(obj: unknown): string {
+  if (!obj || typeof obj !== "object") return "";
+  const rec = obj as Record<string, unknown>;
+
+  // Primary: Messages API streaming deltas.
+  if (rec["type"] === "content_block_delta") {
+    const delta = rec["delta"];
+    if (delta && typeof delta === "object") {
+      const d = delta as Record<string, unknown>;
+      const text = d["text"];
+      if (typeof text === "string") return text;
+    }
+  }
+
+  // Some runtimes may send completion-style chunks.
+  const completion = rec["completion"];
+  if (typeof completion === "string") return completion;
+
+  return "";
+}
+
 export async function POST(req: Request) {
   try {
     const ws = await requireWorkspaceFromCookies();
@@ -95,6 +122,7 @@ export async function POST(req: Request) {
 
     const encoder = new TextEncoder();
     let assistantText = "";
+    const abortController = new AbortController();
 
     const readable = new ReadableStream<Uint8Array>({
       async start(controller) {
@@ -145,14 +173,119 @@ export async function POST(req: Request) {
             return;
           }
 
-          const resp = await completeText({
-            system,
-            maxTokens,
-            messages,
+          // Bedrock streaming (avoids Vercel first-byte timeout).
+          // Send a small prelude first so the client receives bytes immediately; it's trimmed before persistence.
+          assistantText += "\n";
+          controller.enqueue(encoder.encode("\n"));
+
+          const modelId = (process.env.BEDROCK_MODEL_ID ?? "").trim();
+          if (!modelId) throw new Error("Missing env BEDROCK_MODEL_ID");
+
+          const client = getBedrockRuntimeClient();
+          const payload = {
+            anthropic_version: "bedrock-2023-05-31",
+            max_tokens: maxTokens,
             temperature: 0.2,
-          });
-          assistantText = resp.text || "";
-          controller.enqueue(encoder.encode(assistantText));
+            system,
+            messages: messages.map((m) => ({
+              role: m.role,
+              content: [{ type: "text", text: m.content }],
+            })),
+          };
+
+          const resp = await client.send(
+            new InvokeModelWithResponseStreamCommand({
+              modelId,
+              contentType: "application/json",
+              accept: "application/json",
+              body: encoder.encode(JSON.stringify(payload)),
+            }),
+            { abortSignal: abortController.signal },
+          );
+
+          const stream = resp.body;
+          if (!stream) throw new Error("NO_STREAM");
+
+          let inputTokens: number | undefined;
+          let outputTokens: number | undefined;
+          const decoder = new TextDecoder("utf-8");
+          let carry = "";
+
+          const handleObj = (obj: unknown) => {
+            // Usage appears on message_start / message_delta for Anthropic.
+            if (obj && typeof obj === "object") {
+              const rec = obj as Record<string, unknown>;
+              if (rec["type"] === "message_start") {
+                const msg = rec["message"];
+                const usage = msg && typeof msg === "object" ? (msg as Record<string, unknown>)["usage"] : undefined;
+                const u = usage && typeof usage === "object" ? (usage as Record<string, unknown>) : {};
+                inputTokens = inputTokens ?? toNumberOrUndefined(u["input_tokens"]);
+                outputTokens = outputTokens ?? toNumberOrUndefined(u["output_tokens"]);
+              } else if (rec["type"] === "message_delta") {
+                const usage = rec["usage"];
+                const u = usage && typeof usage === "object" ? (usage as Record<string, unknown>) : {};
+                outputTokens = toNumberOrUndefined(u["output_tokens"]) ?? outputTokens;
+              }
+            }
+
+            const text = extractAnthropicDeltaText(obj);
+            if (!text) return;
+            assistantText += text;
+            controller.enqueue(encoder.encode(text));
+          };
+
+          for await (const event of stream as any) {
+            const evt = event as any;
+            const errEvt =
+              evt?.internalServerException ??
+              evt?.modelStreamErrorException ??
+              evt?.throttlingException ??
+              evt?.validationException ??
+              evt?.serviceUnavailableException;
+            if (errEvt) {
+              const msg = typeof errEvt?.message === "string" ? errEvt.message : "Bedrock stream error";
+              throw new Error(msg);
+            }
+
+            const chunk = (event as any)?.chunk;
+            const bytes: Uint8Array | undefined = chunk?.bytes;
+            if (!bytes) continue;
+
+            carry += decoder.decode(bytes, { stream: true });
+
+            while (true) {
+              const nl = carry.indexOf("\n");
+              if (nl === -1) break;
+              const line = carry.slice(0, nl).trim();
+              carry = carry.slice(nl + 1);
+              if (!line) continue;
+              try {
+                handleObj(JSON.parse(line));
+              } catch {
+                // Keep going; worst-case we drop one malformed line.
+              }
+            }
+
+            const maybeJson = carry.trim();
+            if (maybeJson) {
+              try {
+                handleObj(JSON.parse(maybeJson));
+                carry = "";
+              } catch {
+                // Likely partial JSON; wait for more bytes.
+              }
+            }
+          }
+
+          // Flush any remaining decoder bytes and try one last parse pass.
+          carry += decoder.decode();
+          for (const line of carry.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)) {
+            try {
+              handleObj(JSON.parse(line));
+            } catch {
+              // ignore
+            }
+          }
 
           if (assistantText.trim()) {
             await addReportMessage({
@@ -163,9 +296,10 @@ export async function POST(req: Request) {
               memberName: ws.memberName,
               metadata: {
                 llm: {
-                  provider: resp.provider,
-                  model: resp.model,
-                  ...(resp.usage ?? {}),
+                  provider: "bedrock",
+                  model: modelId,
+                  inputTokens,
+                  outputTokens,
                 },
               },
             });
@@ -175,8 +309,30 @@ export async function POST(req: Request) {
           // Avoid throwing a stream error (which becomes an opaque client-side failure).
           // Instead, return a visible error message as assistant output for quick debugging.
           const text = `\n\n[LLM ERROR] ${safeLlmErrorText(err)}\n`;
+          assistantText += text;
           try {
             controller.enqueue(encoder.encode(text));
+          } catch {
+            // ignore
+          }
+          try {
+            if (assistantText.trim()) {
+              const p = getLlmProvider();
+              const model =
+                p === "anthropic"
+                  ? (process.env.ANTHROPIC_REPORT_MODEL ?? "claude-sonnet-4-5-20250929").trim()
+                  : (process.env.BEDROCK_MODEL_ID ?? "").trim();
+              await addReportMessage({
+                teamId: ws.teamId,
+                sessionId: body.sessionId,
+                role: "assistant",
+                content: assistantText.trim(),
+                memberName: ws.memberName,
+                metadata: {
+                  llm: { provider: p, model, error: true },
+                },
+              });
+            }
           } catch {
             // ignore
           }
@@ -185,6 +341,13 @@ export async function POST(req: Request) {
           } catch {
             // ignore
           }
+        }
+      },
+      cancel() {
+        try {
+          abortController.abort();
+        } catch {
+          // ignore
         }
       },
     });
