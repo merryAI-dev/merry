@@ -42,10 +42,27 @@ export type AirtableConfig = {
 };
 
 function getEnv(name: string): string | undefined {
-  const v = process.env[name];
+  const raw = process.env[name];
+  if (!raw) return undefined;
+  let v = raw.trim();
   if (!v) return undefined;
-  const trimmed = v.trim();
-  return trimmed ? trimmed : undefined;
+
+  // Common Vercel mispaste: the value field accidentally includes `NAME=...` or `NAME: ...`.
+  // This keeps production resilient without leaking secrets.
+  const eqPrefix = `${name}=`;
+  const colonPrefix = `${name}:`;
+  if (v.startsWith(eqPrefix)) v = v.slice(eqPrefix.length).trim();
+  else if (v.startsWith(colonPrefix)) v = v.slice(colonPrefix.length).trim();
+
+  // Common mispaste: wrapping quotes from `.env` files (e.g. `"pat..."`).
+  // Strip at most twice in case of nested quotes.
+  for (let i = 0; i < 2; i += 1) {
+    if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
+      v = v.slice(1, -1).trim();
+    }
+  }
+
+  return v ? v : undefined;
 }
 
 export function getAirtableConfig(): AirtableConfig | null {
