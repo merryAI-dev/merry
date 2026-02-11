@@ -139,8 +139,17 @@ export function validateAssumptionPack(pack: AssumptionPack, prevLocked?: Assump
 
   const hasInvestmentYear = typeof getAssumptionNumber(normalizedPack, "investment_year") === "number";
   const investmentDate = getAssumptionString(normalizedPack, "investment_date");
-  if (!hasInvestmentYear && !investmentDate) {
-    checks.push({ check: "RequiredFieldsCheck", status: "fail", message: "investment_year 또는 investment_date 중 하나가 필요합니다." });
+  let investYear = getAssumptionNumber(normalizedPack, "investment_year");
+  if (!investYear && investmentDate) {
+    const m = investmentDate.match(/^(\d{4})/);
+    if (m) investYear = Number(m[1]);
+  }
+  if (!hasInvestmentYear && !investYear) {
+    checks.push({
+      check: "RequiredFieldsCheck",
+      status: "fail",
+      message: "investment_year 또는 YYYY-MM-DD 형태의 investment_date 중 하나가 필요합니다.",
+    });
   }
 
   const hasNetIncome = typeof getAssumptionNumber(normalizedPack, "net_income_target_year") === "number";
@@ -150,11 +159,7 @@ export function validateAssumptionPack(pack: AssumptionPack, prevLocked?: Assump
 
   // Year math check.
   const targetYear = getAssumptionNumber(normalizedPack, "target_year");
-  let investYear = getAssumptionNumber(normalizedPack, "investment_year");
-  if (!investYear && investmentDate) {
-    const m = investmentDate.match(/^(\d{4})/);
-    if (m) investYear = Number(m[1]);
-  }
+  // investYear is computed above.
   if (typeof targetYear === "number" && typeof investYear === "number") {
     const holding = targetYear - investYear;
     if (!Number.isFinite(holding) || holding <= 0) {
@@ -216,4 +221,3 @@ export function validateAssumptionPack(pack: AssumptionPack, prevLocked?: Assump
   const status: ValidationStatus = hasFail ? "fail" : hasWarn ? "warn" : "pass";
   return { status, checks, normalizedPack };
 }
-

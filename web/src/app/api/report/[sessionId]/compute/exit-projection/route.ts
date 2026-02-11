@@ -67,6 +67,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ sessionId: str
     if (typeof netIncomeTargetYear !== "number" || !Number.isFinite(netIncomeTargetYear)) {
       return NextResponse.json({ ok: false, error: "MISSING_NET_INCOME" }, { status: 400 });
     }
+    if (typeof investmentYear !== "number" || !Number.isFinite(investmentYear)) {
+      return NextResponse.json({ ok: false, error: "MISSING_INVESTMENT_YEAR" }, { status: 400 });
+    }
     if (investmentYear && investmentYear >= targetYear) {
       return NextResponse.json({ ok: false, error: "BAD_INVESTMENT_YEAR" }, { status: 400 });
     }
