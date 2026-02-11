@@ -9,7 +9,8 @@ export const runtime = "nodejs";
 const CreateSchema = z.object({
   content: z.string().min(1),
   title: z.string().optional(),
-  source: z.record(z.unknown()).optional(),
+  // Zod v4 requires explicit key+value schemas for record parsing.
+  source: z.record(z.string(), z.unknown()).optional(),
 });
 
 export async function GET(_req: Request, ctx: { params: Promise<{ sessionId: string }> }) {
