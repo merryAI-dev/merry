@@ -1,0 +1,14 @@
+# 기본 리뷰어
+* @merryAI-dev
+
+# 웹 앱
+/web/ @merryAI-dev
+
+# 워커/파이썬
+/worker/ @merryAI-dev
+/agent/ @merryAI-dev
+/shared/ @merryAI-dev
+
+# 인프라/배포
+/vercel.json @merryAI-dev
+/.github/ @merryAI-dev
