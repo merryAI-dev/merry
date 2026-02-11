@@ -7,6 +7,9 @@ import { addReportMessage, getReportMessages } from "@/lib/reportChat";
 import { getLlmProvider } from "@/lib/llm";
 import { getBedrockRuntimeClient } from "@/lib/aws/bedrock";
 import { buildMerryPersona } from "@/lib/merryPersona";
+import { getJob } from "@/lib/jobStore";
+import { getAssumptionPackById, getLatestComputeSnapshot, getLatestLockedAssumptionPack } from "@/lib/reportAssumptionsStore";
+import type { AssumptionPack } from "@/lib/reportPacks";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export const runtime = "nodejs";
@@ -14,6 +17,7 @@ export const runtime = "nodejs";
 const BodySchema = z.object({
   sessionId: z.string().min(1),
   message: z.string().min(1),
+  packId: z.string().min(6).optional(),
   section: z
     .object({
       key: z.string().min(1),
@@ -57,19 +61,118 @@ function safeLlmErrorText(err: unknown): string {
   return `${head}${tail}`;
 }
 
-function buildSystemPrompt(section?: { key: string; title: string; index?: number }) {
+function summarizeAssumptionPack(pack: AssumptionPack): string {
+  const byKey = new Map<string, any>();
+  for (const a of pack.assumptions || []) {
+    if (!a || typeof a !== "object") continue;
+    const key = typeof a.key === "string" ? a.key.trim() : "";
+    if (!key) continue;
+    byKey.set(key, a);
+  }
+
+  const fmt = (key: string) => {
+    const a = byKey.get(key);
+    if (!a) return `- ${key}: (없음)`;
+    const vt = typeof a.valueType === "string" ? a.valueType : "";
+    const unit = typeof a.unit === "string" && a.unit.trim() ? ` ${a.unit.trim()}` : "";
+    if (vt === "string") {
+      const v = typeof a.stringValue === "string" ? a.stringValue.trim() : "";
+      return `- ${key}: ${v || "[확인 필요]"}${unit}`;
+    }
+    if (vt === "number_array") {
+      const arr = Array.isArray(a.numberArrayValue) ? a.numberArrayValue : [];
+      const nums = arr
+        .map((n: any) => (typeof n === "number" ? n : Number(n)))
+        .filter((n: number) => Number.isFinite(n));
+      return `- ${key}: ${nums.length ? `[${nums.join(", ")}]` : "[확인 필요]"}${unit}`;
+    }
+    const n = typeof a.numberValue === "number" && Number.isFinite(a.numberValue) ? a.numberValue : undefined;
+    return `- ${key}: ${typeof n === "number" ? String(n) : "[확인 필요]"}${unit}`;
+  };
+
+  const lines = [
+    `AssumptionPack(${pack.status}) · ${pack.packId}`,
+    fmt("target_year"),
+    fmt("investment_year"),
+    fmt("investment_date"),
+    fmt("investment_amount"),
+    fmt("shares"),
+    fmt("total_shares"),
+    fmt("price_per_share"),
+    fmt("net_income_target_year"),
+    fmt("per_multiples"),
+  ];
+
+  return lines.join("\n");
+}
+
+function summarizeExitProjectionMetrics(metrics: unknown): string {
+  const r = metrics && typeof metrics === "object" ? (metrics as Record<string, unknown>) : null;
+  const rows = r && Array.isArray(r["projection_summary"]) ? (r["projection_summary"] as any[]) : [];
+  if (!rows.length) return "";
+
+  const parsed = rows
+    .map((x) => (x && typeof x === "object" ? (x as Record<string, unknown>) : {}))
+    .map((x) => {
+      const per = typeof x["PER"] === "number" ? (x["PER"] as number) : Number(x["PER"]);
+      const irr = typeof x["IRR"] === "number" ? (x["IRR"] as number) : Number(x["IRR"]);
+      const mult = typeof x["Multiple"] === "number" ? (x["Multiple"] as number) : Number(x["Multiple"]);
+      return {
+        per: Number.isFinite(per) ? per : undefined,
+        irr: Number.isFinite(irr) ? irr : undefined,
+        multiple: Number.isFinite(mult) ? mult : undefined,
+      };
+    })
+    .filter((x) => typeof x.per === "number");
+
+  const best = parsed
+    .filter((x) => typeof x.irr === "number")
+    .sort((a, b) => (b.irr ?? -Infinity) - (a.irr ?? -Infinity))[0];
+
+  const sample = parsed.slice(0, 6).map((x) => {
+    const irr = typeof x.irr === "number" ? `${x.irr.toFixed(1)}%` : "—";
+    const mult = typeof x.multiple === "number" ? `${x.multiple.toFixed(2)}x` : "—";
+    return `${x.per}x: IRR ${irr}, Multiple ${mult}`;
+  });
+
+  const head = best ? `best: ${best.per}x (IRR ${best.irr?.toFixed(1)}%, Multiple ${best.multiple?.toFixed(2)}x)` : "";
+  return ["ExitProjection(projection_summary)", head, ...sample].filter(Boolean).join("\n");
+}
+
+function buildSystemPrompt(args: {
+  section?: { key: string; title: string; index?: number };
+  pack?: AssumptionPack | null;
+  computeJob?: { jobId: string; status?: string; metrics?: unknown } | null;
+}) {
   const base =
     buildMerryPersona("report") +
     "- 문서 톤: 인수인의견 스타일(근거 중심, 단정적 과장 금지)\n" +
     "- 출력: Markdown(코드펜스 금지)\n" +
-    "- 섹션 작성: 사용자가 특정 섹션만 요청하면 그 섹션만 작성(다른 섹션 금지)\n";
+    "- 숫자/지표: Locked AssumptionPack 또는 Compute Snapshot에 있는 값만 사용. 없으면 [확인 필요]로 남기고 질문\n" +
+    "- 섹션 작성: 사용자가 특정 섹션만 요청하면 그 섹션만 작성(다른 섹션 금지)\n" +
+    "- UI 액션 문구(예: '초안 확정')를 단독 줄로 출력하지 말 것 (앱에서 버튼으로 제공)\n";
 
-  if (!section) return base;
+  const packBlock =
+    args.pack && args.pack.status === "locked"
+      ? `\n[Locked AssumptionPack]\n${summarizeAssumptionPack(args.pack)}\n`
+      : "";
 
-  const idx = typeof section.index === "number" ? `${section.index}. ` : "";
-  const title = section.title.trim();
+  const computeBlock =
+    args.computeJob && args.computeJob.jobId
+      ? `\n[Compute Snapshot]\n- jobId: ${args.computeJob.jobId}\n- status: ${args.computeJob.status ?? "unknown"}\n${
+          args.computeJob.metrics ? summarizeExitProjectionMetrics(args.computeJob.metrics) : ""
+        }\n`
+      : "";
+
+  const contextBlock = packBlock || computeBlock ? `\n[컨텍스트 스냅샷]\n${packBlock}${computeBlock}` : "";
+
+  if (!args.section) return base + contextBlock;
+
+  const idx = typeof args.section.index === "number" ? `${args.section.index}. ` : "";
+  const title = args.section.title.trim();
   return (
     base +
+    contextBlock +
     `- 이번 응답은 다음 섹션만 작성: ${idx}${title}\n` +
     `- 반드시 제목을 "## ${idx}${title}"로 시작\n` +
     "- 해당 섹션에 필요한 정보가 부족하면 [확인 필요] placeholder를 남기고, 마지막에 질문을 최대 5개만 추가\n"
@@ -112,13 +215,27 @@ export async function POST(req: Request) {
 
     const provider = getLlmProvider();
 
+    const requestedPackId = (body.packId ?? "").trim();
+    const pack =
+      requestedPackId
+        ? await getAssumptionPackById(ws.teamId, body.sessionId, requestedPackId).catch(() => null)
+        : await getLatestLockedAssumptionPack(ws.teamId, body.sessionId).catch(() => null);
+
+    const snap = await getLatestComputeSnapshot(ws.teamId, body.sessionId).catch(() => null);
+    const job = snap ? await getJob(ws.teamId, snap.jobId).catch(() => null) : null;
+    const computeJob = job ? { jobId: job.jobId, status: job.status, metrics: job.metrics } : null;
+
     await addReportMessage({
       teamId: ws.teamId,
       sessionId: body.sessionId,
       role: "user",
       content: body.message,
       memberName: ws.memberName,
-      metadata: body.section ? { section: body.section } : undefined,
+      metadata: {
+        ...(body.section ? { section: body.section } : {}),
+        ...(pack?.packId ? { packId: pack.packId } : {}),
+        ...(computeJob?.jobId ? { computeJobId: computeJob.jobId } : {}),
+      },
     });
 
     const history = await getReportMessages(ws.teamId, body.sessionId);
@@ -127,7 +244,7 @@ export async function POST(req: Request) {
       .map((m) => ({ role: m.role, content: m.content })) as Array<{ role: "user" | "assistant"; content: string }>;
 
     const maxTokens = Number(process.env.ANTHROPIC_REPORT_MAX_TOKENS ?? "2000");
-    const system = buildSystemPrompt(body.section);
+    const system = buildSystemPrompt({ section: body.section, pack, computeJob });
 
     const encoder = new TextEncoder();
     let assistantText = "";
@@ -171,6 +288,8 @@ export async function POST(req: Request) {
                 memberName: ws.memberName,
                 metadata: {
                   ...(body.section ? { section: body.section } : {}),
+                  ...(pack?.packId ? { packId: pack.packId } : {}),
+                  ...(computeJob?.jobId ? { computeJobId: computeJob.jobId } : {}),
                   llm: {
                     provider: "anthropic",
                     model,
@@ -306,6 +425,8 @@ export async function POST(req: Request) {
               memberName: ws.memberName,
               metadata: {
                 ...(body.section ? { section: body.section } : {}),
+                ...(pack?.packId ? { packId: pack.packId } : {}),
+                ...(computeJob?.jobId ? { computeJobId: computeJob.jobId } : {}),
                 llm: {
                   provider: "bedrock",
                   model: modelId,
@@ -341,6 +462,8 @@ export async function POST(req: Request) {
                 memberName: ws.memberName,
                 metadata: {
                   ...(body.section ? { section: body.section } : {}),
+                  ...(pack?.packId ? { packId: pack.packId } : {}),
+                  ...(computeJob?.jobId ? { computeJobId: computeJob.jobId } : {}),
                   llm: { provider: p, model, error: true },
                 },
               });

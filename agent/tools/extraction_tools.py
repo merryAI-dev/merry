@@ -310,6 +310,12 @@ def execute_analyze_and_generate_projection(
     per_multiples: List[float],
     company_name: str = None,
     output_filename: str = None,
+    investment_year: int = None,
+    investment_amount: int = None,
+    price_per_share: int = None,
+    shares: int = None,
+    total_shares: int = None,
+    net_income: int = None,
 ) -> Dict[str, Any]:
     """엑셀 파일 분석 후 즉시 Exit 프로젝션 생성"""
     is_valid, error = _validate_file_path(excel_path, allowed_extensions=[".xlsx", ".xls"])
@@ -346,33 +352,47 @@ def execute_analyze_and_generate_projection(
     cap_table = data.get("cap_table", {})
 
     # 2단계: 필수 데이터 검증
-    if target_year not in net_income_data:
+    net_income_override = net_income
+    net_income = net_income_override if net_income_override is not None else net_income_data.get(target_year)
+    if net_income is None:
         return {
             "success": False,
             "error": f"{target_year}년 순이익 데이터를 찾을 수 없습니다. 사용 가능한 연도: {list(net_income_data.keys())}",
         }
 
-    net_income = net_income_data[target_year]
-    investment_amount = investment_terms.get("investment_amount")
-    price_per_share = investment_terms.get("price_per_share")
-    shares = investment_terms.get("shares")
-    total_shares = cap_table.get("total_shares")
+    investment_amount_override = investment_amount
+    price_per_share_override = price_per_share
+    shares_override = shares
+    total_shares_override = total_shares
 
-    if not all([investment_amount, price_per_share, shares, total_shares]):
+    investment_amount = investment_terms.get("investment_amount") if investment_amount_override is None else investment_amount_override
+    price_per_share = investment_terms.get("price_per_share") if price_per_share_override is None else price_per_share_override
+    shares = investment_terms.get("shares") if shares_override is None else shares_override
+    total_shares = cap_table.get("total_shares") if total_shares_override is None else total_shares_override
+
+    # Derive price_per_share when missing but investment_amount and shares are available.
+    if price_per_share is None and investment_amount is not None and shares not in (None, 0):
+        try:
+            price_per_share = int(round(float(investment_amount) / float(shares)))
+        except Exception:
+            price_per_share = None
+
+    missing = {
+        "investment_amount": investment_amount,
+        "price_per_share": price_per_share,
+        "shares": shares,
+        "total_shares": total_shares,
+    }
+    if any(v in (None, 0) for v in missing.values()):
         return {
             "success": False,
             "error": "필수 투자 정보가 부족합니다",
-            "found_data": {
-                "investment_amount": investment_amount,
-                "price_per_share": price_per_share,
-                "shares": shares,
-                "total_shares": total_shares,
-            },
+            "found_data": missing,
         }
 
     # 3단계: Exit 프로젝션 요약 계산
-    investment_year = datetime.now().year
-    holding_period_years = target_year - investment_year
+    investment_year_val = investment_year if investment_year is not None else datetime.now().year
+    holding_period_years = target_year - int(investment_year_val)
 
     projection_summary: List[Dict[str, Any]] = []
     for per in per_multiples:
@@ -441,6 +461,8 @@ def execute_analyze_and_generate_projection(
         str(int(net_income)),
         "--target_year",
         str(target_year),
+        "--investment_year",
+        str(int(investment_year_val)),
         "--company_name",
         company_name,
         "--per_multiples",
@@ -460,7 +482,7 @@ def execute_analyze_and_generate_projection(
             "assumptions": {
                 "company_name": company_name,
                 "target_year": target_year,
-                "investment_year": investment_year,
+                "investment_year": int(investment_year_val),
                 "holding_period_years": holding_period_years,
                 "investment_amount": investment_amount,
                 "shares": shares,

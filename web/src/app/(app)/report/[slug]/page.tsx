@@ -8,6 +8,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { PresenceBar } from "@/components/report/PresenceBar";
+import { FactsAssumptionsPanel } from "@/components/report/FactsAssumptionsPanel";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
@@ -755,160 +756,164 @@ export default function ReportSessionPage() {
           </div>
         </Card>
 
-        <Card variant="strong" className="p-5">
-          <div className="text-sm font-semibold text-[color:var(--ink)]" id="step-confirm">초안 바구니</div>
-          <div className="mt-1 text-sm text-[color:var(--muted)]">
-            확정된 초안을 모아 한 번에 드래프트로 옮기고, 커서식 리뷰(수정/좋음/대안)를 시작합니다.
-          </div>
+        <div className="space-y-6">
+          <FactsAssumptionsPanel sessionId={sessionId} companyName={meta?.companyName} evidenceJobs={evidenceJobs} />
 
-          <div className="mt-4 space-y-3">
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-xs font-semibold text-[color:var(--ink)]">확정된 초안</div>
-                <Button variant="ghost" onClick={loadStash} disabled={stashBusy}>
-                  새로고침
-                </Button>
-              </div>
+          <Card variant="strong" className="p-5">
+            <div className="text-sm font-semibold text-[color:var(--ink)]" id="step-confirm">초안 바구니</div>
+            <div className="mt-1 text-sm text-[color:var(--muted)]">
+              확정된 초안을 모아 한 번에 드래프트로 옮기고, 커서식 리뷰(수정/좋음/대안)를 시작합니다.
+            </div>
 
-              {stashMsg ? (
-                <div className="mt-3 rounded-xl border border-[color:var(--line)] bg-white/80 px-3 py-2 text-xs text-[color:var(--muted)]">
-                  {stashMsg}
+            <div className="mt-4 space-y-3">
+              <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-semibold text-[color:var(--ink)]">확정된 초안</div>
+                  <Button variant="ghost" onClick={loadStash} disabled={stashBusy}>
+                    새로고침
+                  </Button>
                 </div>
-              ) : null}
 
-              <div className="mt-3 space-y-2">
-                {!stash.length ? (
-                  <div className="text-sm text-[color:var(--muted)]">
-                    아직 바구니에 담긴 초안이 없습니다. 대화 메시지에서 &quot;초안 확정&quot;을 눌러 담아보세요.
+                {stashMsg ? (
+                  <div className="mt-3 rounded-xl border border-[color:var(--line)] bg-white/80 px-3 py-2 text-xs text-[color:var(--muted)]">
+                    {stashMsg}
                   </div>
-                ) : (
-                  orderedStash.map((it) => (
-                    <div key={it.itemId} className="rounded-2xl border border-[color:var(--line)] bg-white/80 p-3">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate text-sm font-medium text-[color:var(--ink)]">{it.title}</div>
-                          <div className="mt-1 flex items-center justify-between gap-2 text-xs text-[color:var(--muted)]">
-                            <span className="font-mono">{it.itemId}</span>
-                            <span>{(it.createdAt || "").slice(0, 16).replace("T", " ")}</span>
-                          </div>
-                          <div className="mt-2 line-clamp-3 text-xs text-[color:var(--muted)]">
-                            {(it.content || "").trim().slice(0, 180)}
-                          </div>
-                        </div>
-                        <Button variant="ghost" size="sm" disabled={stashBusy} onClick={() => removeFromStash(it.itemId)}>
-                          제거
-                        </Button>
-                      </div>
+                ) : null}
+
+                <div className="mt-3 space-y-2">
+                  {!stash.length ? (
+                    <div className="text-sm text-[color:var(--muted)]">
+                      아직 바구니에 담긴 초안이 없습니다. 대화 메시지에서 &quot;초안 확정&quot;을 눌러 담아보세요.
                     </div>
-                  ))
-                )}
-              </div>
-
-              <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                <div className="text-xs text-[color:var(--muted)]">{stash.length ? `${stash.length}개 파트 확정됨` : "0개"}</div>
-                <Button variant="primary" disabled={!stash.length || busy || stashBusy} onClick={commitStashToDraft}>
-                  드래프트로 옮기기
-                </Button>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4" id="step-evidence">
-              <div className="text-xs font-semibold text-[color:var(--ink)]">대상 드래프트</div>
-              <div className="mt-2 grid gap-2">
-                <select
-                  className="h-11 w-full rounded-xl border border-[color:var(--line)] bg-white/80 px-3 text-sm text-[color:var(--ink)] outline-none focus:border-[color:var(--accent)]"
-                  value={activeDraftId}
-                  onChange={(e) => setActiveDraftId(e.target.value)}
-                >
-                  <option value="">드래프트 선택…</option>
-                  {drafts.map((d) => (
-                    <option key={d.draftId} value={d.draftId}>
-                      {d.title} · {d.createdAt?.slice(0, 16).replace("T", " ") || d.draftId}
-                    </option>
-                  ))}
-                </select>
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[color:var(--muted)]">
-                  <span>근거 결과는 새 버전으로 저장됩니다.</span>
-                  {activeDraftId ? (
-                    <Link href={`/drafts/${activeDraftId}`} className="text-[color:var(--ink)] underline underline-offset-4 hover:no-underline">
-                      드래프트 열기
-                    </Link>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-xs font-semibold text-[color:var(--ink)]">PDF 근거 → 드래프트 버전</div>
-                <Button variant="ghost" onClick={loadJobs} disabled={recBusy}>
-                  새로고침
-                </Button>
-              </div>
-
-              <div className="mt-2 flex items-center gap-2 text-xs text-[color:var(--muted)]">
-                <label className="inline-flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 rounded border-[color:var(--line)]"
-                    checked={autoImportEvidence}
-                    onChange={(e) => setAutoImportEvidence(e.target.checked)}
-                    disabled={!activeDraftId}
-                  />
-                  완료 시 자동 저장
-                </label>
-                <span className="text-[color:var(--muted)]">·</span>
-                <Link href="/analysis" className="text-[color:var(--ink)] underline underline-offset-4 hover:no-underline">
-                  근거 추출 잡 실행
-                </Link>
-              </div>
-
-              {recMsg ? (
-                <div className="mt-3 rounded-xl border border-[color:var(--line)] bg-white/80 px-3 py-2 text-xs text-[color:var(--muted)]">
-                  {recMsg}
-                </div>
-              ) : null}
-
-              <div className="mt-3 space-y-2">
-                {!evidenceJobs.length ? (
-                  <div className="text-sm text-[color:var(--muted)]">최근 PDF 근거 추출 잡이 없습니다. 먼저 잡을 생성하세요.</div>
-                ) : (
-                  evidenceJobs.map((j) => {
-                    const ready =
-                      j.status === "succeeded" &&
-                      (j.artifacts || []).some((a) => a.artifactId === "pdf_evidence_json");
-                    return (
-                      <div key={j.jobId} className="rounded-2xl border border-[color:var(--line)] bg-white/80 p-3">
+                  ) : (
+                    orderedStash.map((it) => (
+                      <div key={it.itemId} className="rounded-2xl border border-[color:var(--line)] bg-white/80 p-3">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-medium text-[color:var(--ink)]">{j.title}</div>
+                            <div className="truncate text-sm font-medium text-[color:var(--ink)]">{it.title}</div>
                             <div className="mt-1 flex items-center justify-between gap-2 text-xs text-[color:var(--muted)]">
-                              <span className="font-mono">{j.jobId}</span>
-                              {badgeForJobStatus(j.status)}
+                              <span className="font-mono">{it.itemId}</span>
+                              <span>{(it.createdAt || "").slice(0, 16).replace("T", " ")}</span>
+                            </div>
+                            <div className="mt-2 line-clamp-3 text-xs text-[color:var(--muted)]">
+                              {(it.content || "").trim().slice(0, 180)}
                             </div>
                           </div>
-                          <Button variant="secondary" disabled={!ready || recBusy || !activeDraftId} onClick={() => importEvidenceToDraft(j)}>
-                            드래프트 저장
+                          <Button variant="ghost" size="sm" disabled={stashBusy} onClick={() => removeFromStash(it.itemId)}>
+                            제거
                           </Button>
                         </div>
                       </div>
-                    );
-                  })
-                )}
-              </div>
-            </div>
+                    ))
+                  )}
+                </div>
 
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4 text-sm text-[color:var(--muted)]">
-              <div className="text-xs font-semibold text-[color:var(--ink)]">다음 연결</div>
-              <div className="mt-2">
-                - PDF/엑셀 업로드 → 근거 추출<br />
-                - DART 인수인의견 데이터셋 검색<br />
-                - 심화 의견(딥 옵피니언) 파이프라인<br />
-                - 결과를 자동으로 드래프트 버전으로 저장
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs text-[color:var(--muted)]">{stash.length ? `${stash.length}개 파트 확정됨` : "0개"}</div>
+                  <Button variant="primary" disabled={!stash.length || busy || stashBusy} onClick={commitStashToDraft}>
+                    드래프트로 옮기기
+                  </Button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4" id="step-draft">
+                <div className="text-xs font-semibold text-[color:var(--ink)]">대상 드래프트</div>
+                <div className="mt-2 grid gap-2">
+                  <select
+                    className="h-11 w-full rounded-xl border border-[color:var(--line)] bg-white/80 px-3 text-sm text-[color:var(--ink)] outline-none focus:border-[color:var(--accent)]"
+                    value={activeDraftId}
+                    onChange={(e) => setActiveDraftId(e.target.value)}
+                  >
+                    <option value="">드래프트 선택…</option>
+                    {drafts.map((d) => (
+                      <option key={d.draftId} value={d.draftId}>
+                        {d.title} · {d.createdAt?.slice(0, 16).replace("T", " ") || d.draftId}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[color:var(--muted)]">
+                    <span>근거 결과는 새 버전으로 저장됩니다.</span>
+                    {activeDraftId ? (
+                      <Link href={`/drafts/${activeDraftId}`} className="text-[color:var(--ink)] underline underline-offset-4 hover:no-underline">
+                        드래프트 열기
+                      </Link>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-semibold text-[color:var(--ink)]">PDF 근거 → 드래프트 버전</div>
+                  <Button variant="ghost" onClick={loadJobs} disabled={recBusy}>
+                    새로고침
+                  </Button>
+                </div>
+
+                <div className="mt-2 flex items-center gap-2 text-xs text-[color:var(--muted)]">
+                  <label className="inline-flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      className="h-4 w-4 rounded border-[color:var(--line)]"
+                      checked={autoImportEvidence}
+                      onChange={(e) => setAutoImportEvidence(e.target.checked)}
+                      disabled={!activeDraftId}
+                    />
+                    완료 시 자동 저장
+                  </label>
+                  <span className="text-[color:var(--muted)]">·</span>
+                  <Link href="/analysis" className="text-[color:var(--ink)] underline underline-offset-4 hover:no-underline">
+                    근거 추출 잡 실행
+                  </Link>
+                </div>
+
+                {recMsg ? (
+                  <div className="mt-3 rounded-xl border border-[color:var(--line)] bg-white/80 px-3 py-2 text-xs text-[color:var(--muted)]">
+                    {recMsg}
+                  </div>
+                ) : null}
+
+                <div className="mt-3 space-y-2">
+                  {!evidenceJobs.length ? (
+                    <div className="text-sm text-[color:var(--muted)]">최근 PDF 근거 추출 잡이 없습니다. 먼저 잡을 생성하세요.</div>
+                  ) : (
+                    evidenceJobs.map((j) => {
+                      const ready =
+                        j.status === "succeeded" &&
+                        (j.artifacts || []).some((a) => a.artifactId === "pdf_evidence_json");
+                      return (
+                        <div key={j.jobId} className="rounded-2xl border border-[color:var(--line)] bg-white/80 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <div className="truncate text-sm font-medium text-[color:var(--ink)]">{j.title}</div>
+                              <div className="mt-1 flex items-center justify-between gap-2 text-xs text-[color:var(--muted)]">
+                                <span className="font-mono">{j.jobId}</span>
+                                {badgeForJobStatus(j.status)}
+                              </div>
+                            </div>
+                            <Button variant="secondary" disabled={!ready || recBusy || !activeDraftId} onClick={() => importEvidenceToDraft(j)}>
+                              드래프트 저장
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4 text-sm text-[color:var(--muted)]">
+                <div className="text-xs font-semibold text-[color:var(--ink)]">다음 연결</div>
+                <div className="mt-2">
+                  - PDF/엑셀 업로드 → 근거 추출<br />
+                  - DART 인수인의견 데이터셋 검색<br />
+                  - 심화 의견(딥 옵피니언) 파이프라인<br />
+                  - 결과를 자동으로 드래프트 버전으로 저장
+                </div>
               </div>
             </div>
-          </div>
-        </Card>
+          </Card>
+        </div>
       </div>
     </div>
   );

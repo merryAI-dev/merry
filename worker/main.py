@@ -215,7 +215,27 @@ def _write_json(path: Path, payload: Dict[str, Any]) -> None:
 def _handle_exit_projection(input_path: Path, params: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     from agent.tools.extraction_tools import execute_analyze_and_generate_projection
 
-    target_year = int(params.get("targetYear") or 2030)
+    def _to_int(v: Any) -> Optional[int]:
+        if v is None:
+            return None
+        try:
+            if isinstance(v, Decimal):
+                return int(v)
+            if isinstance(v, bool):
+                return None
+            if isinstance(v, (int,)):
+                return int(v)
+            if isinstance(v, float):
+                if not math.isfinite(v):
+                    return None
+                return int(v)
+            if isinstance(v, str) and v.strip():
+                return int(float(v.strip()))
+        except Exception:
+            return None
+        return None
+
+    target_year = _to_int(params.get("targetYear") or params.get("target_year")) or 2030
     per_multiples = params.get("perMultiples") or params.get("per_multiples") or params.get("perMultiples")
     if not isinstance(per_multiples, list) or not per_multiples:
         per_multiples = [10, 20, 30]
@@ -225,7 +245,14 @@ def _handle_exit_projection(input_path: Path, params: Dict[str, Any]) -> Tuple[L
         excel_path=str(input_path),
         target_year=target_year,
         per_multiples=per,
+        company_name=str(params.get("companyName") or params.get("company_name") or "").strip() or None,
         output_filename=f"exit_projection_{target_year}_{int(time.time())}.xlsx",
+        investment_year=_to_int(params.get("investmentYear") or params.get("investment_year")),
+        investment_amount=_to_int(params.get("investmentAmount") or params.get("investment_amount")),
+        price_per_share=_to_int(params.get("pricePerShare") or params.get("price_per_share")),
+        shares=_to_int(params.get("shares")),
+        total_shares=_to_int(params.get("totalShares") or params.get("total_shares")),
+        net_income=_to_int(params.get("netIncomeTargetYear") or params.get("net_income_target_year") or params.get("net_income")),
     )
     if not result.get("success"):
         raise RuntimeError(result.get("error") or "Exit projection failed")
