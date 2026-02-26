@@ -2,35 +2,39 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  /* Light Mode - Default for internal pages */
-  --bg: #ffffff;
-  --bg-subtle: #f8f9fa;
-  --ink: #001e46;
-  --ink-light: #003d7a;
-  --muted: #64748b;
+  /* ── Toss Design System ── */
 
-  /* Cards and Surfaces */
-  --card: rgba(248, 249, 250, 0.95);
-  --card-strong: rgba(255, 255, 255, 0.98);
-  --card-border: rgba(0, 30, 70, 0.08);
-  --line: rgba(0, 30, 70, 0.1);
+  /* Backgrounds */
+  --bg: #F2F4F6;
+  --bg-subtle: #FFFFFF;
 
-  /* Navy Blue Gradient Accents */
-  --accent-purple: #001e46;
-  --accent-cyan: #0066cc;
-  --accent-pink: #3b82f6;
-  --accent-blue: #60a5fa;
+  /* Text */
+  --ink: #191F28;
+  --ink-light: #3E4A5A;
+  --muted: #8B95A1;
 
-  /* Interactive Glow Effects */
-  --glow-purple: rgba(0, 30, 70, 0.3);
-  --glow-cyan: rgba(0, 102, 204, 0.3);
-  --glow-pink: rgba(59, 130, 246, 0.3);
+  /* Surfaces */
+  --card: #FFFFFF;
+  --card-strong: #FFFFFF;
+  --card-border: #E5E8EB;
+  --line: #E5E8EB;
+
+  /* Brand — Toss Blue */
+  --accent: #3182F6;
+  --accent-purple: #3182F6;
+  --accent-cyan: #3182F6;
+  --accent-pink: #3182F6;
+  --accent-blue: #3182F6;
+
+  /* Subtle glow (kept for focus rings only) */
+  --glow-purple: rgba(49, 130, 246, 0.2);
+  --glow-cyan: rgba(49, 130, 246, 0.2);
+  --glow-pink: rgba(49, 130, 246, 0.2);
 
   /* Shadows */
-  --shadow: 0 2px 8px rgba(0, 30, 70, 0.08);
-  --shadow-md: 0 4px 16px rgba(0, 30, 70, 0.12);
-  --shadow-lg: 0 8px 32px rgba(0, 30, 70, 0.16);
-  --shadow-glow: 0 0 30px var(--glow-cyan), 0 8px 32px rgba(0, 30, 70, 0.16);
+  --shadow:    0 1px 4px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 2px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.10);
 
   /* Fonts */
   --font-display: var(--font-merry-display);
@@ -42,238 +46,101 @@
   --font-sans: var(--font-merry-sans);
   --font-mono: var(--font-merry-mono);
 
-  /* Custom Colors for Tailwind */
-  --color-agent-purple: var(--accent-purple);
-  --color-agent-cyan: var(--accent-cyan);
-  --color-agent-pink: var(--accent-pink);
-  --color-agent-blue: var(--accent-blue);
+  --color-agent-purple: var(--accent);
+  --color-agent-cyan:   var(--accent);
+  --color-agent-pink:   var(--accent);
+  --color-agent-blue:   var(--accent);
 }
 
-/* Force light mode - disable system dark mode detection */
+/* Force light mode */
 @media (prefers-color-scheme: dark) {
-  :root {
-    color-scheme: light;
-  }
-
-  body {
-    background: #ffffff !important;
-    color: #001e46 !important;
-  }
+  :root { color-scheme: light; }
+  body { background: var(--bg) !important; color: var(--ink) !important; }
 }
 
-/* Body Background - White for internal pages */
 body {
-  color: #001e46;
-  font-family: var(--font-merry-sans), ui-sans-serif, system-ui;
-  background: #ffffff !important;
-  position: relative;
+  color: var(--ink);
+  font-family: var(--font-korean, var(--font-merry-sans), ui-sans-serif, system-ui);
+  background: var(--bg);
   min-height: 100vh;
 }
 
-/* Selection */
-::selection {
-  background: rgba(0, 102, 204, 0.2);
-  color: var(--ink);
-}
-
-/* Card Styles */
+/* ── Cards ── */
 .m-card {
   background: var(--card);
   border: 1px solid var(--card-border);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(12px);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 .m-card:hover {
-  background: var(--card-strong);
-  border-color: var(--accent-purple);
-  box-shadow: 0 0 20px rgba(0, 30, 70, 0.12), var(--shadow-md);
-  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: #D1D6DC;
 }
 
 .m-card-strong {
   background: var(--card-strong);
   border: 1px solid var(--card-border);
-  box-shadow: var(--shadow);
-  backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-md);
 }
 
-/* Interactive Button */
-.btn-agent {
-  position: relative;
-  background: linear-gradient(135deg, var(--accent-purple), var(--accent-cyan));
-  color: white;
-  border: none;
-  padding: 0.75rem 1.5rem;
-  border-radius: 0.75rem;
-  font-weight: 600;
-  cursor: pointer;
-  overflow: hidden;
-  transition: all 0.3s ease;
-  box-shadow: var(--shadow);
+/* ── Selection ── */
+::selection {
+  background: rgba(49, 130, 246, 0.15);
+  color: var(--ink);
 }
 
-.btn-agent::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: -100%;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-  transition: left 0.5s;
+/* ── Focus rings ── */
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
-.btn-agent:hover::before {
-  left: 100%;
-}
+/* ── Scrollbar ── */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #D1D6DC; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #B0B8C1; }
 
-.btn-agent:hover {
-  box-shadow: 0 0 30px var(--glow-cyan), var(--shadow-lg);
-  transform: translateY(-2px);
-}
-
-/* Navy Blue Border Effect */
-.neon-border {
-  border: 2px solid transparent;
-  background:
-    linear-gradient(var(--bg), var(--bg)) padding-box,
-    linear-gradient(135deg, var(--accent-purple), var(--accent-cyan)) border-box;
-  border-radius: 0.75rem;
-}
-
-.neon-border:hover {
-  box-shadow:
-    0 0 20px var(--glow-cyan),
-    inset 0 0 20px rgba(0, 102, 204, 0.05);
-}
-
-/* Gradient Text */
-.gradient-text {
-  background: linear-gradient(135deg, var(--accent-purple), var(--accent-cyan), var(--accent-pink));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  background-size: 200% 200%;
-  animation: gradientMove 3s ease infinite;
-}
-
-@keyframes gradientMove {
-  0%, 100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-}
-
-/* Pulse Animation */
-.pulse-glow {
-  animation: pulseGlow 2s ease-in-out infinite;
-}
-
-@keyframes pulseGlow {
-  0%, 100% {
-    box-shadow: 0 0 15px var(--glow-cyan);
-    opacity: 1;
-  }
-  50% {
-    box-shadow: 0 0 30px var(--glow-purple);
-    opacity: 0.85;
-  }
-}
-
-/* Typing Indicator */
-.typing-indicator {
-  display: inline-flex;
-  gap: 4px;
-}
-
+/* ── Typing indicator (kept for chat) ── */
+.typing-indicator { display: inline-flex; gap: 4px; }
 .typing-indicator span {
-  width: 8px;
-  height: 8px;
+  width: 6px; height: 6px;
   border-radius: 50%;
-  background: var(--accent-cyan);
+  background: var(--accent);
   animation: typingBounce 1.4s infinite;
 }
-
-.typing-indicator span:nth-child(2) {
-  animation-delay: 0.2s;
-}
-
-.typing-indicator span:nth-child(3) {
-  animation-delay: 0.4s;
-}
+.typing-indicator span:nth-child(2) { animation-delay: 0.2s; }
+.typing-indicator span:nth-child(3) { animation-delay: 0.4s; }
 
 @keyframes typingBounce {
-  0%, 60%, 100% {
-    transform: translateY(0);
-    opacity: 0.7;
-  }
-  30% {
-    transform: translateY(-10px);
-    opacity: 1;
-  }
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.5; }
+  30%           { transform: translateY(-6px); opacity: 1; }
 }
 
-/* Scrollbar Styling */
-::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--bg-subtle);
-}
-
-::-webkit-scrollbar-thumb {
-  background: linear-gradient(180deg, var(--accent-purple), var(--accent-cyan));
-  border-radius: 5px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: linear-gradient(180deg, var(--accent-cyan), var(--accent-purple));
-  box-shadow: 0 0 10px var(--glow-cyan);
-}
-
-/* Shimmer Loading Effect */
+/* ── Shimmer (kept for loading states) ── */
 .shimmer {
-  background: linear-gradient(
-    90deg,
-    rgba(0, 30, 70, 0.02) 0%,
-    rgba(0, 102, 204, 0.08) 50%,
-    rgba(0, 30, 70, 0.02) 100%
-  );
+  background: linear-gradient(90deg,
+    rgba(0,0,0,0.02) 0%,
+    rgba(0,0,0,0.05) 50%,
+    rgba(0,0,0,0.02) 100%);
   background-size: 200% 100%;
-  animation: shimmer 2s infinite;
+  animation: shimmer 1.6s infinite;
 }
 
 @keyframes shimmer {
-  0% {
-    background-position: -200% 0;
-  }
-  100% {
-    background-position: 200% 0;
-  }
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
 }
 
-/* Smooth Transitions */
-* {
-  transition-property: background-color, border-color, color, fill, stroke, opacity, box-shadow, transform;
+/* ── Gradient text (kept for hero) ── */
+.gradient-text {
+  color: var(--accent);
+}
+
+/* ── Smooth transitions for interactive elements only ── */
+button, a, input, select, textarea {
+  transition-property: background-color, border-color, color, box-shadow, opacity;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   transition-duration: 150ms;
-}
-
-/* Focus Rings */
-*:focus-visible {
-  outline: 2px solid var(--accent-cyan);
-  outline-offset: 2px;
-  box-shadow: 0 0 15px var(--glow-cyan);
-}
-
-/* Dark theme override for landing page only */
-.dark-landing {
-  background: #000000 !important;
-  color: #ffffff !important;
 }

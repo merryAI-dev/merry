@@ -72,19 +72,19 @@ export default function DraftsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <div className="text-sm font-medium text-[color:var(--muted)]">
+        <div className="text-sm font-medium text-[#8B95A1]">
           Drafts & Reviews
         </div>
-        <h1 className="mt-1 font-[family-name:var(--font-display)] text-3xl tracking-tight text-[color:var(--ink)]">
+        <h1 className="mt-1 font-black tracking-tight text-2xl text-[#191F28]">
           드래프트
         </h1>
-        <div className="mt-2 text-sm text-[color:var(--muted)]">
+        <div className="mt-2 text-sm text-[#8B95A1]">
           문서 버전, 코멘트 스레드, 반영 히스토리를 저장합니다.
         </div>
       </div>
 
       {error ? (
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-900">
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
         </div>
       ) : null}
@@ -93,10 +93,10 @@ export default function DraftsPage() {
         <Card variant="strong" className="p-5">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold text-[color:var(--ink)]">
+              <div className="text-sm font-semibold text-[#191F28]">
                 새 드래프트 만들기
               </div>
-              <div className="mt-1 text-sm text-[color:var(--muted)]">
+              <div className="mt-1 text-sm text-[#8B95A1]">
                 초안을 만들고, 특정 문장에 코멘트를 남겨 반영합니다.
               </div>
             </div>
@@ -108,13 +108,13 @@ export default function DraftsPage() {
 
           <div className="mt-4 space-y-3">
             <label className="block">
-              <div className="mb-1 text-xs font-medium text-[color:var(--muted)]">
+              <div className="mb-1 text-xs font-medium text-[#8B95A1]">
                 제목
               </div>
               <Input value={title} onChange={(e) => setTitle(e.target.value)} />
             </label>
             <label className="block">
-              <div className="mb-1 text-xs font-medium text-[color:var(--muted)]">
+              <div className="mb-1 text-xs font-medium text-[#8B95A1]">
                 내용 (Markdown)
               </div>
               <Textarea
@@ -128,7 +128,7 @@ export default function DraftsPage() {
 
         <Card variant="strong" className="p-5">
           <div className="flex items-center justify-between gap-3">
-            <div className="text-sm font-semibold text-[color:var(--ink)]">
+            <div className="text-sm font-semibold text-[#191F28]">
               최근 드래프트
             </div>
             <Button variant="ghost" onClick={load} disabled={busy}>
@@ -140,14 +140,14 @@ export default function DraftsPage() {
               <Link
                 key={d.draftId}
                 href={`/drafts/${d.draftId}`}
-                className="block rounded-2xl border border-[color:var(--line)] bg-white/70 p-4 hover:bg-white/90"
+                className="block rounded-2xl border border-[#E5E8EB] bg-white p-4 hover:bg-white"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium text-[color:var(--ink)]">
+                    <div className="truncate text-sm font-medium text-[#191F28]">
                       {d.title}
                     </div>
-                    <div className="mt-1 text-xs text-[color:var(--muted)]">
+                    <div className="mt-1 text-xs text-[#8B95A1]">
                       {d.createdAt?.slice(0, 16).replace("T", " ") || ""}
                     </div>
                   </div>
@@ -156,7 +156,7 @@ export default function DraftsPage() {
               </Link>
             ))}
             {!drafts.length ? (
-              <div className="text-sm text-[color:var(--muted)]">
+              <div className="text-sm text-[#8B95A1]">
                 아직 드래프트가 없습니다.
               </div>
             ) : null}

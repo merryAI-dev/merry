@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Fraunces, IBM_Plex_Mono, Space_Grotesk } from "next/font/google";
+import { Fraunces, IBM_Plex_Mono, Space_Grotesk, Noto_Sans_KR } from "next/font/google";
 import "./globals.css";
 
 const fontSans = Space_Grotesk({
@@ -21,6 +21,13 @@ const fontMono = IBM_Plex_Mono({
   display: "swap",
 });
 
+const fontKorean = Noto_Sans_KR({
+  variable: "--font-korean",
+  subsets: ["latin"],
+  weight: ["400", "700", "900"],
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: {
     default: "Merry",
@@ -37,7 +44,7 @@ export default function RootLayout({
   return (
     <html lang="ko" className="light" style={{ colorScheme: "light" }}>
       <body
-        className={`${fontSans.variable} ${fontDisplay.variable} ${fontMono.variable} antialiased`}
+        className={`${fontSans.variable} ${fontDisplay.variable} ${fontMono.variable} ${fontKorean.variable} antialiased`}
         style={{ background: "#ffffff", color: "#001e46" }}
       >
         {children}

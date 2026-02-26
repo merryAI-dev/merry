@@ -2,11 +2,10 @@
 
 import Link from "next/link";
 import * as React from "react";
-import { RefreshCw, Search } from "lucide-react";
+import { Plus, RefreshCw, Search } from "lucide-react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 
 type ReportSession = {
@@ -25,6 +24,60 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json?.error || "FAILED");
   return json as T;
+}
+
+function SessionCard({ s }: { s: ReportSession }) {
+  return (
+    <Link href={`/report/${s.slug}`} className="block group">
+      <div
+        className="rounded-2xl bg-white p-5 transition-all hover:shadow-md"
+        style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px #E5E8EB" }}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-[14px] font-bold text-[#191F28]">{s.title}</div>
+            <div className="mt-1 text-[11.5px] text-[#8B95A1]">
+              {s.createdAt ? s.createdAt.slice(0, 16).replace("T", " ") : "—"}
+            </div>
+          </div>
+          <Badge tone="accent">열기</Badge>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-x-4 gap-y-1 text-[12px]">
+          <div>
+            <span className="text-[#8B95A1]">기업 </span>
+            <span className="font-medium text-[#191F28]">{s.companyName || "—"}</span>
+          </div>
+          <div>
+            <span className="text-[#8B95A1]">작성자 </span>
+            <span className="font-medium text-[#191F28]">{s.author || "—"}</span>
+          </div>
+          <div>
+            <span className="text-[#8B95A1]">작성일 </span>
+            <span className="font-medium text-[#191F28]">{s.reportDate || "—"}</span>
+          </div>
+          <div>
+            <span className="text-[#8B95A1]">펀드 </span>
+            <span className="font-medium text-[#191F28]">{s.fundName || "—"}</span>
+          </div>
+        </div>
+      </div>
+    </Link>
+  );
+}
+
+function SkeletonCard() {
+  return (
+    <div className="animate-pulse rounded-2xl bg-white p-5" style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px #E5E8EB" }}>
+      <div className="h-4 w-2/3 rounded-lg bg-[#F2F4F6]" />
+      <div className="mt-2 h-3 w-1/3 rounded-lg bg-[#F2F4F6]" />
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="h-3 rounded-lg bg-[#F2F4F6]" />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function ReportSessionsPage() {
@@ -47,16 +100,13 @@ export default function ReportSessionsPage() {
     }
   }
 
-  React.useEffect(() => {
-    load();
-  }, []);
+  React.useEffect(() => { load(); }, []);
 
   const filtered = React.useMemo(() => {
     const needle = q.trim().toLowerCase();
-    const list = (sessions || []).filter((s) => {
+    const list = sessions.filter((s) => {
       if (!needle) return true;
-      const hay = `${s.title || ""} ${s.companyName || ""} ${s.fundName || ""} ${s.author || ""}`.toLowerCase();
-      return hay.includes(needle);
+      return `${s.title} ${s.companyName || ""} ${s.fundName || ""} ${s.author || ""}`.toLowerCase().includes(needle);
     });
     list.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
     return list;
@@ -64,95 +114,67 @@ export default function ReportSessionsPage() {
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-[color:var(--muted)]">Investment Report</div>
-          <h1 className="mt-1 font-[family-name:var(--font-display)] text-3xl tracking-tight text-[color:var(--ink)]">
-            투자심사 세션
-          </h1>
-          <div className="mt-2 text-sm text-[color:var(--muted)]">
-            세션 URL로 공유해 여러 명이 동시에 초안을 만들고, 드래프트 리뷰로 이어갑니다.
+          <div className="text-[12px] font-semibold uppercase tracking-widest text-[#8B95A1]">
+            Investment Report
+          </div>
+          <h1 className="mt-1 text-2xl font-black tracking-tight text-[#191F28]">투자심사 세션</h1>
+          <div className="mt-1 text-[13px] text-[#8B95A1]">
+            세션 URL로 공유해 여러 명이 함께 초안을 만들고 드래프트로 이어갑니다.
           </div>
         </div>
-
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-black/50" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#B0B8C1]" />
             <Input
-              className="w-[18rem] pl-9"
-              placeholder="세션 검색 (제목/기업/작성자)"
+              className="w-64 pl-9"
+              placeholder="세션 검색"
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
           </div>
-          <Button variant="secondary" onClick={load} disabled={busy}>
-            <RefreshCw className="h-4 w-4" />
+          <Button variant="secondary" size="sm" onClick={load} disabled={busy}>
+            <RefreshCw className="h-3.5 w-3.5" />
             새로고침
           </Button>
-          <Link href="/report/new" className="inline-flex">
-            <Button variant="primary">새 보고서</Button>
+          <Link href="/report/new">
+            <Button variant="primary" size="sm">
+              <Plus className="h-3.5 w-3.5" />
+              새 보고서
+            </Button>
           </Link>
         </div>
       </div>
 
-      {error ? (
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-900">
+      {error && (
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
         </div>
-      ) : null}
+      )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {busy && !filtered.length ? (
-          Array.from({ length: 6 }).map((_, idx) => (
-            <div key={idx} className="m-card animate-pulse rounded-3xl p-5" aria-label="loading">
-              <div className="h-2 w-24 rounded-full bg-black/10" />
-              <div className="mt-4 h-6 w-2/3 rounded-xl bg-black/10" />
-              <div className="mt-3 h-4 w-1/2 rounded-xl bg-black/10" />
-              <div className="mt-5 h-16 rounded-2xl bg-black/5" />
-            </div>
-          ))
-        ) : null}
-
-        {filtered.map((s) => (
-          <Link key={s.sessionId} href={`/report/${s.slug}`} className="block">
-            <Card variant="strong" className="group relative overflow-hidden rounded-3xl p-5 transition-colors hover:bg-white/95">
-              <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[color:var(--accent)] via-[color:color-mix(in_oklab,var(--accent),white_24%)] to-[color:var(--accent-2)]" />
-
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-semibold text-[color:var(--ink)]">{s.title}</div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[color:var(--muted)]">
-                    <span className="font-mono">{s.sessionId}</span>
-                    {s.createdAt ? (
-                      <>
-                        <span>·</span>
-                        <span>{s.createdAt.slice(0, 16).replace("T", " ")}</span>
-                      </>
-                    ) : null}
-                  </div>
-                </div>
-                <Badge tone="accent">열기</Badge>
-              </div>
-
-              <div className="mt-4 grid gap-2 text-xs text-[color:var(--muted)]">
-                <div>기업: <span className="text-[color:var(--ink)]">{s.companyName || "—"}</span></div>
-                <div>작성자: <span className="text-[color:var(--ink)]">{s.author || "—"}</span></div>
-                <div>작성일: <span className="text-[color:var(--ink)]">{s.reportDate || "—"}</span></div>
-                <div>펀드: <span className="text-[color:var(--ink)]">{s.fundName || "—"}</span></div>
-              </div>
-
-              <div className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full bg-[color:color-mix(in_oklab,var(--accent),white_70%)] blur-2xl opacity-0 transition-opacity group-hover:opacity-100" />
-            </Card>
-          </Link>
-        ))}
+        {busy && !filtered.length
+          ? Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)
+          : filtered.map((s) => <SessionCard key={s.sessionId} s={s} />)
+        }
       </div>
 
-      {!busy && !error && !filtered.length ? (
-        <div className="text-sm text-[color:var(--muted)]">
-          표시할 세션이 없습니다. 새 보고서를 만들어 시작하세요.
+      {!busy && !error && !filtered.length && (
+        <div className="rounded-2xl bg-white py-16 text-center" style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px #E5E8EB" }}>
+          <div className="text-[15px] font-semibold text-[#191F28]">세션이 없어요</div>
+          <div className="mt-1 text-[13px] text-[#8B95A1]">새 보고서를 만들어 시작하세요.</div>
+          <div className="mt-4">
+            <Link href="/report/new">
+              <Button variant="primary" size="sm">
+                <Plus className="h-3.5 w-3.5" />
+                새 보고서
+              </Button>
+            </Link>
+          </div>
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
-

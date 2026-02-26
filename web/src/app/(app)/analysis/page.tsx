@@ -254,11 +254,11 @@ export default function AnalysisPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-[color:var(--muted)]">Secure Analysis</div>
-          <h1 className="mt-1 font-[family-name:var(--font-display)] text-3xl tracking-tight text-[color:var(--ink)]">
+          <div className="text-sm font-medium text-[#8B95A1]">Secure Analysis</div>
+          <h1 className="mt-1 font-black tracking-tight text-2xl text-[#191F28]">
             문서 업로드 & 분석 잡
           </h1>
-          <div className="mt-2 text-sm text-[color:var(--muted)]">
+          <div className="mt-2 text-sm text-[#8B95A1]">
             업로드는 S3 프리사인 URL로 브라우저에서 직접 전송되고, 분석은 Python 워커 잡으로 처리됩니다.
           </div>
         </div>
@@ -272,7 +272,7 @@ export default function AnalysisPage() {
       </div>
 
       {error ? (
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-900">
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
         </div>
       ) : null}
@@ -281,8 +281,8 @@ export default function AnalysisPage() {
         <Card variant="strong" className="p-5">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold text-[color:var(--ink)]">새 분석</div>
-              <div className="mt-1 text-sm text-[color:var(--muted)]">
+              <div className="text-sm font-semibold text-[#191F28]">새 분석</div>
+              <div className="mt-1 text-sm text-[#8B95A1]">
                 파일 1개 업로드 후, 잡을 생성합니다. (원본 삭제/아티팩트 보관 정책은 워커에서 관리)
               </div>
             </div>
@@ -291,9 +291,9 @@ export default function AnalysisPage() {
 
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             <label className="grid gap-1">
-              <span className="text-xs font-medium text-[color:var(--muted)]">잡 타입</span>
+              <span className="text-xs font-medium text-[#8B95A1]">잡 타입</span>
               <select
-                className="h-11 rounded-xl border border-[color:var(--line)] bg-white/80 px-3 text-sm text-[color:var(--ink)] outline-none focus:border-[color:var(--accent)]"
+                className="h-11 rounded-xl border border-[#E5E8EB] bg-white px-3 text-sm text-[#191F28] outline-none focus:border-[color:var(--accent)]"
                 value={jobType}
                 onChange={(e) => setJobType(e.target.value as JobType)}
                 disabled={busy}
@@ -309,25 +309,25 @@ export default function AnalysisPage() {
             {jobType === "contract_review" ? (
               <>
                 <label className="grid gap-1">
-                  <span className="text-xs font-medium text-[color:var(--muted)]">텀싯 (필수)</span>
+                  <span className="text-xs font-medium text-[#8B95A1]">텀싯 (필수)</span>
                   <input
                     ref={file1Ref}
                     id="analysis-file-1"
                     type="file"
                     accept={acceptForJob(jobType)}
-                    className="h-11 rounded-xl border border-[color:var(--line)] bg-white/80 px-3 text-sm"
+                    className="h-11 rounded-xl border border-[#E5E8EB] bg-white px-3 text-sm"
                     onChange={(e) => setFile1(e.target.files?.[0] ?? null)}
                     disabled={busy}
                   />
                 </label>
                 <label className="grid gap-1">
-                  <span className="text-xs font-medium text-[color:var(--muted)]">투자계약서 (선택)</span>
+                  <span className="text-xs font-medium text-[#8B95A1]">투자계약서 (선택)</span>
                   <input
                     ref={file2Ref}
                     id="analysis-file-2"
                     type="file"
                     accept={acceptForJob(jobType)}
-                    className="h-11 rounded-xl border border-[color:var(--line)] bg-white/80 px-3 text-sm"
+                    className="h-11 rounded-xl border border-[#E5E8EB] bg-white px-3 text-sm"
                     onChange={(e) => setFile2(e.target.files?.[0] ?? null)}
                     disabled={busy}
                   />
@@ -335,13 +335,13 @@ export default function AnalysisPage() {
               </>
             ) : (
               <label className="grid gap-1">
-                <span className="text-xs font-medium text-[color:var(--muted)]">파일</span>
+                <span className="text-xs font-medium text-[#8B95A1]">파일</span>
                 <input
                   ref={file1Ref}
                   id="analysis-file-1"
                   type="file"
                   accept={acceptForJob(jobType)}
-                  className="h-11 rounded-xl border border-[color:var(--line)] bg-white/80 px-3 text-sm"
+                  className="h-11 rounded-xl border border-[#E5E8EB] bg-white px-3 text-sm"
                   onChange={(e) => setFile1(e.target.files?.[0] ?? null)}
                   disabled={busy}
                 />
@@ -352,7 +352,7 @@ export default function AnalysisPage() {
           {jobType === "exit_projection" ? (
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <label className="grid gap-1">
-                <span className="text-xs font-medium text-[color:var(--muted)]">Target year</span>
+                <span className="text-xs font-medium text-[#8B95A1]">Target year</span>
                 <Input
                   value={exitTargetYear}
                   onChange={(e) => setExitTargetYear(e.target.value)}
@@ -360,7 +360,7 @@ export default function AnalysisPage() {
                 />
               </label>
               <label className="grid gap-1">
-                <span className="text-xs font-medium text-[color:var(--muted)]">PER multiples</span>
+                <span className="text-xs font-medium text-[#8B95A1]">PER multiples</span>
                 <Input
                   value={exitPer}
                   onChange={(e) => setExitPer(e.target.value)}
@@ -373,7 +373,7 @@ export default function AnalysisPage() {
           {jobType === "pdf_evidence" ? (
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <label className="grid gap-1">
-                <span className="text-xs font-medium text-[color:var(--muted)]">Max pages</span>
+                <span className="text-xs font-medium text-[#8B95A1]">Max pages</span>
                 <Input
                   value={evidenceMaxPages}
                   onChange={(e) => setEvidenceMaxPages(e.target.value)}
@@ -381,7 +381,7 @@ export default function AnalysisPage() {
                 />
               </label>
               <label className="grid gap-1">
-                <span className="text-xs font-medium text-[color:var(--muted)]">Max results</span>
+                <span className="text-xs font-medium text-[#8B95A1]">Max results</span>
                 <Input
                   value={evidenceMaxResults}
                   onChange={(e) => setEvidenceMaxResults(e.target.value)}
@@ -394,7 +394,7 @@ export default function AnalysisPage() {
           {jobType === "pdf_parse" ? (
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <label className="grid gap-1">
-                <span className="text-xs font-medium text-[color:var(--muted)]">Max pages</span>
+                <span className="text-xs font-medium text-[#8B95A1]">Max pages</span>
                 <Input
                   value={parseMaxPages}
                   onChange={(e) => setParseMaxPages(e.target.value)}
@@ -402,9 +402,9 @@ export default function AnalysisPage() {
                 />
               </label>
               <label className="grid gap-1">
-                <span className="text-xs font-medium text-[color:var(--muted)]">Output mode</span>
+                <span className="text-xs font-medium text-[#8B95A1]">Output mode</span>
                 <select
-                  className="h-11 rounded-xl border border-[color:var(--line)] bg-white/80 px-3 text-sm text-[color:var(--ink)] outline-none focus:border-[color:var(--accent)]"
+                  className="h-11 rounded-xl border border-[#E5E8EB] bg-white px-3 text-sm text-[#191F28] outline-none focus:border-[color:var(--accent)]"
                   value={parseOutputMode}
                   onChange={(e) => setParseOutputMode(e.target.value)}
                   disabled={busy}
@@ -418,7 +418,7 @@ export default function AnalysisPage() {
           ) : null}
 
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-            <div className="text-xs text-[color:var(--muted)]">
+            <div className="text-xs text-[#8B95A1]">
               S3 버킷: <span className="font-mono">MERRY_S3_BUCKET</span> · DDB: <span className="font-mono">MERRY_DDB_TABLE</span>
             </div>
             <Button variant="primary" onClick={uploadAndRun} disabled={busy || !file1}>
@@ -429,10 +429,10 @@ export default function AnalysisPage() {
         </Card>
 
         <Card variant="strong" className="p-5">
-          <div className="text-sm font-semibold text-[color:var(--ink)]">최근 잡</div>
+          <div className="text-sm font-semibold text-[#191F28]">최근 잡</div>
           <div className="mt-3 space-y-2">
             {jobs.length === 0 ? (
-              <div className="text-sm text-[color:var(--muted)]">아직 생성된 잡이 없습니다.</div>
+              <div className="text-sm text-[#8B95A1]">아직 생성된 잡이 없습니다.</div>
             ) : (
               jobs.map((job) => {
                 const active = job.jobId === activeJobId;
@@ -444,14 +444,14 @@ export default function AnalysisPage() {
                       "w-full rounded-2xl border px-3 py-2 text-left transition-colors",
                       active
                         ? "border-[color:var(--accent)] bg-[color:color-mix(in_oklab,var(--accent),white_92%)]"
-                        : "border-[color:var(--line)] bg-white/70 hover:bg-white",
+                        : "border-[#E5E8EB] bg-white hover:bg-white",
                     )}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <div className="text-sm font-medium text-[color:var(--ink)]">{job.title}</div>
+                      <div className="text-sm font-medium text-[#191F28]">{job.title}</div>
                       {badgeForStatus(job.status)}
                     </div>
-                    <div className="mt-1 flex items-center justify-between gap-2 text-xs text-[color:var(--muted)]">
+                    <div className="mt-1 flex items-center justify-between gap-2 text-xs text-[#8B95A1]">
                       <div>{labelForType(job.type)}</div>
                       <div className="font-mono">{job.jobId}</div>
                     </div>
@@ -466,36 +466,36 @@ export default function AnalysisPage() {
       <Card variant="strong" className="p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-[color:var(--ink)]">비용 외삽 (200건)</div>
-            <div className="mt-1 text-sm text-[color:var(--muted)]">
+            <div className="text-sm font-semibold text-[#191F28]">비용 외삽 (200건)</div>
+            <div className="mt-1 text-sm text-[#8B95A1]">
               최근 성공 잡의 토큰 사용량(usage)을 기반으로 평균 비용을 계산합니다. 단가는 환경변수로 오버라이드 가능합니다.
             </div>
           </div>
           <Badge tone="neutral">MVP</Badge>
         </div>
 
-        <div className="mt-4 rounded-2xl border border-[color:var(--line)] bg-white/70 p-4 text-sm">
+        <div className="mt-4 rounded-2xl border border-[#E5E8EB] bg-white p-4 text-sm">
           {!cost ? (
-            <div className="text-[color:var(--muted)]">계산 정보를 불러오지 못했습니다.</div>
+            <div className="text-[#8B95A1]">계산 정보를 불러오지 못했습니다.</div>
           ) : cost.ok && cost.samples === 0 ? (
-            <div className="text-[color:var(--muted)]">{cost.note ?? "아직 샘플이 없습니다."}</div>
+            <div className="text-[#8B95A1]">{cost.note ?? "아직 샘플이 없습니다."}</div>
           ) : cost.ok ? (
             <div className="grid gap-2 sm:grid-cols-3">
               <div>
-                <div className="text-xs font-medium text-[color:var(--muted)]">샘플 수</div>
-                <div className="mt-1 font-mono text-[color:var(--ink)]">{cost.samples}</div>
+                <div className="text-xs font-medium text-[#8B95A1]">샘플 수</div>
+                <div className="mt-1 font-mono text-[#191F28]">{cost.samples}</div>
               </div>
               <div>
-                <div className="text-xs font-medium text-[color:var(--muted)]">평균 비용(USD)</div>
-                <div className="mt-1 font-mono text-[color:var(--ink)]">{(cost.avgUsd ?? 0).toFixed(4)}</div>
+                <div className="text-xs font-medium text-[#8B95A1]">평균 비용(USD)</div>
+                <div className="mt-1 font-mono text-[#191F28]">{(cost.avgUsd ?? 0).toFixed(4)}</div>
               </div>
               <div>
-                <div className="text-xs font-medium text-[color:var(--muted)]">200건 추정(USD)</div>
-                <div className="mt-1 font-mono text-[color:var(--ink)]">{(cost.estimateUsd ?? 0).toFixed(2)}</div>
+                <div className="text-xs font-medium text-[#8B95A1]">200건 추정(USD)</div>
+                <div className="mt-1 font-mono text-[#191F28]">{(cost.estimateUsd ?? 0).toFixed(2)}</div>
               </div>
             </div>
           ) : (
-            <div className="text-rose-900">실패: {cost.error}</div>
+            <div className="text-rose-700">실패: {cost.error}</div>
           )}
         </div>
       </Card>
@@ -503,8 +503,8 @@ export default function AnalysisPage() {
       <Card variant="strong" className="p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-[color:var(--ink)]">잡 상세</div>
-            <div className="mt-1 text-sm text-[color:var(--muted)]">
+            <div className="text-sm font-semibold text-[#191F28]">잡 상세</div>
+            <div className="mt-1 text-sm text-[#8B95A1]">
               결과 파일은 S3 아티팩트로 저장되고, 다운로드는 프리사인 URL로 제공됩니다.
             </div>
           </div>
@@ -512,43 +512,43 @@ export default function AnalysisPage() {
         </div>
 
         {!activeJob ? (
-          <div className="mt-4 text-sm text-[color:var(--muted)]">오른쪽에서 잡을 선택하세요.</div>
+          <div className="mt-4 text-sm text-[#8B95A1]">오른쪽에서 잡을 선택하세요.</div>
         ) : (
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4">
-              <div className="text-xs font-medium text-[color:var(--muted)]">메타</div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4">
+              <div className="text-xs font-medium text-[#8B95A1]">메타</div>
               <div className="mt-2 grid gap-2 text-sm">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[color:var(--muted)]">Type</span>
-                  <span className="font-medium text-[color:var(--ink)]">{labelForType(activeJob.type)}</span>
+                  <span className="text-[#8B95A1]">Type</span>
+                  <span className="font-medium text-[#191F28]">{labelForType(activeJob.type)}</span>
                 </div>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[color:var(--muted)]">Created</span>
-                  <span className="font-mono text-xs text-[color:var(--ink)]">{activeJob.createdAt}</span>
+                  <span className="text-[#8B95A1]">Created</span>
+                  <span className="font-mono text-xs text-[#191F28]">{activeJob.createdAt}</span>
                 </div>
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-[color:var(--muted)]">Inputs</span>
-                  <span className="font-mono text-xs text-[color:var(--ink)]">{activeJob.inputFileIds.join(", ")}</span>
+                  <span className="text-[#8B95A1]">Inputs</span>
+                  <span className="font-mono text-xs text-[#191F28]">{activeJob.inputFileIds.join(", ")}</span>
                 </div>
               </div>
               {activeJob.error ? (
-                <div className="mt-3 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-900">
+                <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
                   {activeJob.error}
                 </div>
               ) : null}
             </div>
 
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4">
-              <div className="text-xs font-medium text-[color:var(--muted)]">아티팩트</div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4">
+              <div className="text-xs font-medium text-[#8B95A1]">아티팩트</div>
               <div className="mt-3 space-y-2">
                 {(activeJob.artifacts ?? []).length === 0 ? (
-                  <div className="text-sm text-[color:var(--muted)]">아직 결과가 없습니다.</div>
+                  <div className="text-sm text-[#8B95A1]">아직 결과가 없습니다.</div>
                 ) : (
                   (activeJob.artifacts ?? []).map((a) => (
-                    <div key={a.artifactId} className="flex items-center justify-between gap-2 rounded-xl border border-[color:var(--line)] bg-white/80 px-3 py-2">
+                    <div key={a.artifactId} className="flex items-center justify-between gap-2 rounded-xl border border-[#E5E8EB] bg-white px-3 py-2">
                       <div>
-                        <div className="text-sm font-medium text-[color:var(--ink)]">{a.label}</div>
-                        <div className="mt-0.5 font-mono text-xs text-[color:var(--muted)]">{a.artifactId}</div>
+                        <div className="text-sm font-medium text-[#191F28]">{a.label}</div>
+                        <div className="mt-0.5 font-mono text-xs text-[#8B95A1]">{a.artifactId}</div>
                       </div>
                       <Button variant="secondary" onClick={() => downloadArtifact(activeJob, a)} disabled={busy}>
                         <Download className="h-4 w-4" />
@@ -560,7 +560,7 @@ export default function AnalysisPage() {
               </div>
 
               {activeJob.status === "queued" ? (
-                <div className="mt-3 flex items-center gap-2 text-xs text-[color:var(--muted)]">
+                <div className="mt-3 flex items-center gap-2 text-xs text-[#8B95A1]">
                   <Play className="h-4 w-4" />
                   워커가 SQS에서 잡을 가져가면 진행으로 바뀝니다.
                 </div>

@@ -1,5 +1,4 @@
 import * as React from "react";
-
 import { cn } from "@/lib/cn";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
@@ -11,39 +10,29 @@ export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
 };
 
 const base =
-  "inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-all duration-300 " +
-  "disabled:opacity-50 disabled:pointer-events-none disabled:cursor-not-allowed " +
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--accent-cyan)] " +
-  "focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--bg)]";
+  "inline-flex items-center justify-center gap-2 rounded-xl font-semibold " +
+  "transition-colors duration-150 " +
+  "disabled:opacity-40 disabled:pointer-events-none " +
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3182F6] focus-visible:ring-offset-2";
 
 const variants: Record<ButtonVariant, string> = {
   primary:
-    "bg-gradient-to-r from-[color:var(--accent-purple)] to-[color:var(--accent-cyan)] " +
-    "text-white font-semibold shadow-lg " +
-    "hover:shadow-[0_0_30px_rgba(0,102,204,0.3),0_8px_32px_rgba(0,30,70,0.2)] hover:scale-[1.02] " +
-    "active:scale-[0.98] relative overflow-hidden " +
-    "before:absolute before:inset-0 before:bg-gradient-to-r before:from-white/0 before:via-white/20 before:to-white/0 " +
-    "before:translate-x-[-200%] hover:before:translate-x-[200%] before:transition-transform before:duration-700",
+    "bg-[#3182F6] text-white hover:bg-[#1B6AE4] active:bg-[#1460CC] " +
+    "shadow-[0_2px_8px_rgba(49,130,246,0.25)]",
   secondary:
-    "bg-[color:var(--card)] backdrop-blur-lg text-[color:var(--ink)] " +
-    "border border-[color:var(--line)] hover:border-[color:var(--accent-purple)]/40 " +
-    "hover:bg-[color:var(--card-strong)] hover:shadow-[0_4px_16px_rgba(0,30,70,0.12)] " +
-    "hover:scale-[1.01] active:scale-[0.99]",
+    "bg-white text-[#191F28] border border-[#E5E8EB] " +
+    "hover:bg-[#F8F9FA] hover:border-[#D1D6DC] active:bg-[#F2F4F6]",
   ghost:
-    "text-[color:var(--ink)] hover:bg-[color:var(--card)]/50 backdrop-blur-sm " +
-    "border border-transparent hover:border-[color:var(--accent-purple)]/20 " +
-    "hover:shadow-[0_2px_8px_rgba(0,30,70,0.08)]",
+    "text-[#4E5968] hover:bg-[#F2F4F6] active:bg-[#E5E8EB]",
   danger:
-    "bg-gradient-to-r from-red-600 to-red-700 " +
-    "text-white font-semibold shadow-lg " +
-    "hover:shadow-[0_0_30px_rgba(220,38,38,0.3),0_8px_32px_rgba(220,38,38,0.2)] hover:scale-[1.02] " +
-    "active:scale-[0.98]",
+    "bg-[#F03E3E] text-white hover:bg-[#D63030] active:bg-[#BE2A2A] " +
+    "shadow-[0_2px_8px_rgba(240,62,62,0.25)]",
 };
 
 const sizes: Record<ButtonSize, string> = {
   sm: "h-9 px-3 text-sm",
   md: "h-11 px-4 text-sm",
-  lg: "h-12 px-5 text-base",
+  lg: "h-12 px-5 text-[15px]",
 };
 
 export function Button({

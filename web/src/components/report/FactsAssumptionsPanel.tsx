@@ -421,30 +421,30 @@ export function FactsAssumptionsPanel(props: {
   const editable = !locked;
 
   return (
-    <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4" id="step-evidence">
+    <div className="rounded-2xl bg-white p-4" style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px #E5E8EB" }} id="step-evidence">
       <div className="flex items-center justify-between gap-2">
-        <div className="text-xs font-semibold text-[color:var(--ink)]">2. 근거(Facts) / 가정(Assumptions)</div>
+        <div className="text-[14px] font-bold text-[#191F28]">2. 근거(Facts) / 가정(Assumptions)</div>
         <Button variant="ghost" size="sm" onClick={loadAll} disabled={busy}>
           새로고침
         </Button>
       </div>
 
       {msg ? (
-        <div className="mt-3 rounded-xl border border-[color:var(--line)] bg-white/80 px-3 py-2 text-xs text-[color:var(--muted)]">
+        <div className="mt-3 rounded-xl border border-[#E5E8EB] bg-[#F8F9FA] px-3 py-2 text-xs text-[#8B95A1]">
           {msg}
         </div>
       ) : null}
 
       <div className="mt-3 space-y-3">
-        <div className="rounded-xl border border-[color:var(--line)] bg-white/80 p-3">
+        <div className="rounded-xl border border-[#E5E8EB] bg-[#F8F9FA] p-3">
           <div className="flex items-center justify-between gap-2">
-            <div className="text-xs font-semibold text-[color:var(--ink)]">FactPack</div>
+            <div className="text-xs font-semibold text-[#191F28]">FactPack</div>
             {factPack ? <Badge tone="accent">latest</Badge> : <Badge tone="neutral">none</Badge>}
           </div>
-          <div className="mt-2 text-xs text-[color:var(--muted)]">
+          <div className="mt-2 text-xs text-[#8B95A1]">
             {factPack ? (
               <>
-                id: <span className="font-mono text-[color:var(--ink)]">{factPack.factPackId}</span> · facts{" "}
+                id: <span className="font-mono text-[#191F28]">{factPack.factPackId}</span> · facts{" "}
                 {(factPack.facts || []).length} · warnings {(factPack.warnings || []).length}
               </>
             ) : (
@@ -454,7 +454,7 @@ export function FactsAssumptionsPanel(props: {
 
           <div className="mt-3 grid gap-2">
             <select
-              className="h-11 w-full rounded-xl border border-[color:var(--line)] bg-white/80 px-3 text-sm text-[color:var(--ink)] outline-none focus:border-[color:var(--accent)]"
+              className="h-11 w-full rounded-xl border border-[#E5E8EB] bg-white px-3 text-sm text-[#191F28] outline-none focus:border-[#3182F6] focus:ring-2 focus:ring-[#3182F6]/15"
               value={selectedEvidenceJobId}
               onChange={(e) => setSelectedEvidenceJobId(e.target.value)}
               disabled={busy}
@@ -472,15 +472,15 @@ export function FactsAssumptionsPanel(props: {
           </div>
         </div>
 
-        <div className="rounded-xl border border-[color:var(--line)] bg-white/80 p-3">
+        <div className="rounded-xl border border-[#E5E8EB] bg-[#F8F9FA] p-3">
           <div className="flex items-center justify-between gap-2">
-            <div className="text-xs font-semibold text-[color:var(--ink)]">AssumptionPack</div>
+            <div className="text-xs font-semibold text-[#191F28]">AssumptionPack</div>
             {packBadge(assumptionPack?.status)}
           </div>
-          <div className="mt-2 text-xs text-[color:var(--muted)]">
+          <div className="mt-2 text-xs text-[#8B95A1]">
             {assumptionPack ? (
               <>
-                id: <span className="font-mono text-[color:var(--ink)]">{assumptionPack.packId}</span> ·{" "}
+                id: <span className="font-mono text-[#191F28]">{assumptionPack.packId}</span> ·{" "}
                 {assumptionPack.status}
               </>
             ) : (
@@ -564,8 +564,8 @@ export function FactsAssumptionsPanel(props: {
             <div className="mt-3 space-y-1 text-xs">
               {checks.slice(0, 10).map((c, idx) => (
                 <div key={idx} className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-[10px] text-[color:var(--muted)]">{c.check}</span>
-                  <span className="flex-1 truncate text-[color:var(--muted)]">{c.message}</span>
+                  <span className="font-mono text-[10px] text-[#8B95A1]">{c.check}</span>
+                  <span className="flex-1 truncate text-[#8B95A1]">{c.message}</span>
                   <Badge tone={c.status === "pass" ? "success" : c.status === "warn" ? "accent" : "danger"}>{c.status}</Badge>
                 </div>
               ))}
@@ -573,16 +573,16 @@ export function FactsAssumptionsPanel(props: {
           ) : null}
         </div>
 
-        <div className="rounded-xl border border-[color:var(--line)] bg-white/80 p-3">
+        <div className="rounded-xl border border-[#E5E8EB] bg-[#F8F9FA] p-3">
           <div className="flex items-center justify-between gap-2">
-            <div className="text-xs font-semibold text-[color:var(--ink)]">Compute (Exit Projection)</div>
+            <div className="text-xs font-semibold text-[#191F28]">Compute (Exit Projection)</div>
             {badgeForStatus(computeJob?.status)}
           </div>
 
-          <div className="mt-2 text-xs text-[color:var(--muted)]">
+          <div className="mt-2 text-xs text-[#8B95A1]">
             {computeJob?.jobId ? (
               <>
-                job: <span className="font-mono text-[color:var(--ink)]">{computeJob.jobId}</span>
+                job: <span className="font-mono text-[#191F28]">{computeJob.jobId}</span>
               </>
             ) : (
               "아직 실행된 Exit 프로젝션 잡이 없습니다."
@@ -594,7 +594,7 @@ export function FactsAssumptionsPanel(props: {
               ref={fileRef}
               type="file"
               accept=".xlsx,.xls"
-              className="block w-full text-xs text-[color:var(--muted)]"
+              className="block w-full rounded-lg border border-[#E5E8EB] px-3 py-2 text-xs text-[#4E5968] file:mr-3 file:rounded-md file:border-0 file:bg-[#F2F4F6] file:px-2 file:py-1 file:text-xs file:font-medium"
               onChange={(e) => setXlsxFile(e.target.files?.[0] ?? null)}
               disabled={busy}
             />
@@ -609,9 +609,9 @@ export function FactsAssumptionsPanel(props: {
           </div>
 
           {computeJob?.metrics?.projection_summary ? (
-            <div className="mt-3 text-xs text-[color:var(--muted)]">
+            <div className="mt-3 text-xs text-[#8B95A1]">
               projection_summary:{" "}
-              <span className="font-mono text-[color:var(--ink)]">
+              <span className="font-mono text-[#191F28]">
                 {Array.isArray(computeJob.metrics.projection_summary) ? `${computeJob.metrics.projection_summary.length} rows` : "ok"}
               </span>
             </div>

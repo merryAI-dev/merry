@@ -1,8 +1,11 @@
 import { redirect } from "next/navigation";
-import { Shield } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { LoginPanel } from "@/components/LoginPanel";
-import { SpaceBackground } from "@/components/SpaceBackground";
+import { HeroIllustration } from "@/components/icons/HeroIllustration";
+import { IconChart } from "@/components/icons/IconChart";
+import { IconFolder } from "@/components/icons/IconFolder";
+import { IconTeam } from "@/components/icons/IconTeam";
 import { getWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export default async function Home({
@@ -18,66 +21,85 @@ export default async function Home({
   const googleEnabled = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 
   return (
-    <>
-      <SpaceBackground />
-
-      <div className="dark-landing flex min-h-screen items-center justify-center px-4 py-12 relative">
-        <div className="mx-auto max-w-2xl w-full relative z-10 space-y-12">
-          {/* Hero Content */}
-          <div className="text-center space-y-8">
-            <div className="inline-flex items-center gap-2 rounded-full bg-[color:var(--card)] backdrop-blur-md px-4 py-2 text-xs font-medium text-[color:var(--ink-light)] border border-[color:var(--accent-purple)]/30 shadow-[0_0_30px_rgba(30,64,175,0.15)]">
-              <Shield className="h-4 w-4 text-[color:var(--accent-cyan)]" />
-              서버 측 저장 + 협업 히스토리
-            </div>
-
-            <h1 className="font-[family-name:var(--font-display)] text-6xl md:text-7xl leading-tight tracking-tight text-white font-bold">
-              투자 분석을 함께
-            </h1>
-
-            <div className="space-y-2">
-              <p className="text-xl md:text-2xl text-[color:var(--ink-light)] font-light">
-                <span className="gradient-text font-semibold">협업 문서</span>로 만드는
-              </p>
-              <p className="text-lg md:text-xl text-[color:var(--muted)]">
-                Tokens / Equity
-              </p>
-            </div>
-
-            <div className="flex items-center justify-center gap-4 pt-4">
-              <div className="h-px w-16 bg-gradient-to-r from-transparent via-[color:var(--accent-cyan)] to-transparent"></div>
-              <div className="h-2 w-2 rounded-full bg-[color:var(--accent-cyan)] shadow-[0_0_10px_rgba(14,165,233,0.8)]"></div>
-              <div className="h-px w-16 bg-gradient-to-r from-transparent via-[color:var(--accent-cyan)] to-transparent"></div>
-            </div>
+    <div className="min-h-screen bg-[#F2F4F6]">
+      {/* ── Header ── */}
+      <header className="flex items-center px-6 py-5">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-[#3182F6] flex items-center justify-center shadow-sm">
+            <span className="text-white font-black text-sm leading-none">M</span>
           </div>
+          <span
+            className="font-bold text-[#191F28] text-lg tracking-tight"
+            style={{ fontFamily: "var(--font-korean, var(--font-merry-sans), system-ui)" }}
+          >
+            Merry
+          </span>
+        </div>
+      </header>
 
-          {/* Login Panel */}
-          <div className="max-w-md mx-auto">
-            <LoginPanel googleEnabled={googleEnabled} errorCode={errorCode} />
-          </div>
+      {/* ── Main ── */}
+      <main className="flex flex-col items-center px-6 pt-2 pb-20">
+        {/* Hero Illustration */}
+        <HeroIllustration className="w-full max-w-[480px] h-auto" />
 
-          {/* Features */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-center pt-8">
-            <div className="p-4 rounded-xl bg-[color:var(--card)]/50 backdrop-blur-sm border border-[color:var(--card-border)]">
-              <div className="text-2xl font-bold text-[color:var(--accent-cyan)] mb-1">팀 과업</div>
-              <div className="text-sm text-[color:var(--muted)]">실시간 협업</div>
-            </div>
-            <div className="p-4 rounded-xl bg-[color:var(--card)]/50 backdrop-blur-sm border border-[color:var(--card-border)]">
-              <div className="text-2xl font-bold text-[color:var(--accent-purple)] mb-1">서류 관리</div>
-              <div className="text-sm text-[color:var(--muted)]">통합 문서함</div>
-            </div>
-            <div className="p-4 rounded-xl bg-[color:var(--card)]/50 backdrop-blur-sm border border-[color:var(--card-border)]">
-              <div className="text-2xl font-bold text-[color:var(--accent-pink)] mb-1">일정 공유</div>
-              <div className="text-sm text-[color:var(--muted)]">달력 연동</div>
-            </div>
-          </div>
+        {/* Hero Text */}
+        <div className="text-center mt-6 mb-10">
+          <h1
+            className="text-[50px] font-black text-[#191F28] leading-[1.15] tracking-[-0.03em] mb-3"
+            style={{ fontFamily: "var(--font-korean, var(--font-merry-sans), system-ui)" }}
+          >
+            투자 분석을<br />한 단계 더
+          </h1>
+          <p
+            className="text-[#8B95A1] text-lg"
+            style={{ fontFamily: "var(--font-korean, var(--font-merry-sans), system-ui)" }}
+          >
+            VC 심사역을 위한 협업 분석 워크스페이스
+          </p>
         </div>
 
-        {/* Ambient glow effects */}
-        <div className="fixed inset-0 pointer-events-none -z-5">
-          <div className="absolute top-20 left-10 w-96 h-96 bg-[color:var(--accent-purple)] rounded-full opacity-20 blur-[120px]"></div>
-          <div className="absolute bottom-20 right-10 w-96 h-96 bg-[color:var(--accent-cyan)] rounded-full opacity-20 blur-[120px]"></div>
+        {/* Login Panel */}
+        <div className="w-full max-w-sm">
+          <LoginPanel googleEnabled={googleEnabled} errorCode={errorCode} />
+        </div>
+
+        {/* Feature Cards */}
+        <div className="mt-12 grid grid-cols-3 gap-3 w-full max-w-sm">
+          <FeatureCard icon={<IconChart className="w-9 h-9" />} title="투자 분석" subtitle="AI 심사" />
+          <FeatureCard icon={<IconFolder className="w-9 h-9" />} title="서류 관리" subtitle="문서함" />
+          <FeatureCard icon={<IconTeam className="w-9 h-9" />} title="팀 협업" subtitle="실시간" />
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function FeatureCard({
+  icon,
+  title,
+  subtitle,
+}: {
+  icon: ReactNode;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <div className="bg-white rounded-2xl p-4 flex flex-col items-center gap-2.5 shadow-[0_2px_12px_rgba(0,0,0,0.06)]">
+      {icon}
+      <div className="text-center">
+        <div
+          className="text-[13px] font-semibold text-[#191F28]"
+          style={{ fontFamily: "var(--font-korean, system-ui)" }}
+        >
+          {title}
+        </div>
+        <div
+          className="text-[11px] text-[#8B95A1] mt-0.5"
+          style={{ fontFamily: "var(--font-korean, system-ui)" }}
+        >
+          {subtitle}
         </div>
       </div>
-    </>
+    </div>
   );
 }

@@ -11,7 +11,6 @@ import { PresenceBar } from "@/components/report/PresenceBar";
 import { FactsAssumptionsPanel } from "@/components/report/FactsAssumptionsPanel";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { Card } from "@/components/ui/Card";
 import { Textarea } from "@/components/ui/Textarea";
 
 type ReportSessionMeta = {
@@ -524,14 +523,14 @@ export default function ReportSessionPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-sm font-medium text-[color:var(--muted)]">Investment Report</div>
+          <div className="text-[12px] font-semibold uppercase tracking-widest text-[#8B95A1]">Investment Report</div>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <h1 className="min-w-0 truncate font-[family-name:var(--font-display)] text-3xl tracking-tight text-[color:var(--ink)]">
+            <h1 className="min-w-0 truncate text-2xl font-black tracking-tight text-[#191F28]">
               {meta?.title ?? "투자심사 보고서"}
             </h1>
             <Badge tone="accent">스트리밍</Badge>
           </div>
-          <div className="mt-2 text-sm text-[color:var(--muted)]">
+          <div className="mt-1 text-[13px] text-[#8B95A1]">
             필요한 답변을 &quot;초안 확정&quot;으로 담고, 여러 파트를 한 번에 드래프트로 옮겨 리뷰합니다.
           </div>
         </div>
@@ -579,16 +578,16 @@ export default function ReportSessionPage() {
       </div>
 
       {error ? (
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 backdrop-blur-sm px-4 py-3 text-sm text-rose-300 shadow-[0_0_20px_rgba(244,63,94,0.15)]">
+        <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
         </div>
       ) : null}
 
-      <Card variant="strong" className="p-5" id="step-info">
+      <div className="rounded-2xl bg-white p-5" style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px #E5E8EB" }} id="step-info">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="text-sm font-semibold text-[color:var(--ink)]">세션 정보</div>
-            <div className="mt-1 text-sm text-[color:var(--muted)]">
+            <div className="text-[14px] font-bold text-[#191F28]">세션 정보</div>
+            <div className="mt-0.5 text-[12px] text-[#8B95A1]">
               팀 히스토리는 AWS(DynamoDB)에 저장됩니다.
             </div>
           </div>
@@ -597,7 +596,7 @@ export default function ReportSessionPage() {
           </div>
         </div>
 
-        <div className="mt-4 flex flex-wrap items-center gap-2">
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
           <Button variant="ghost" size="sm" onClick={() => scrollTo("step-info")}>1. 정보</Button>
           <Button variant="ghost" size="sm" onClick={() => scrollTo("step-evidence")}>2. 근거</Button>
           <Button variant="ghost" size="sm" onClick={() => scrollTo("step-write")}>3. 작성</Button>
@@ -605,40 +604,40 @@ export default function ReportSessionPage() {
         </div>
 
         <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4 text-sm">
-            <div className="text-xs font-semibold text-[color:var(--ink)]">기업</div>
-            <div className="mt-1 text-[color:var(--ink)]">{meta?.companyName || "—"}</div>
+          <div className="rounded-xl border border-[#E5E8EB] bg-[#F8F9FA] p-4">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-[#8B95A1]">기업</div>
+            <div className="mt-1.5 text-[14px] font-semibold text-[#191F28]">{meta?.companyName || "—"}</div>
             {meta?.companyId ? (
-              <div className="mt-2 text-xs text-[color:var(--muted)]">
-                <Link href={`/companies/${meta.companyId}${meta.fundId ? `?fundId=${encodeURIComponent(meta.fundId)}` : ""}`} className="underline underline-offset-4 hover:no-underline">
+              <div className="mt-2 text-[12px]">
+                <Link href={`/companies/${meta.companyId}${meta.fundId ? `?fundId=${encodeURIComponent(meta.fundId)}` : ""}`} className="text-[#3182F6] underline underline-offset-4 hover:no-underline">
                   기업 상세 열기
                 </Link>
               </div>
             ) : null}
           </div>
-          <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4 text-sm">
-            <div className="text-xs font-semibold text-[color:var(--ink)]">메타데이터</div>
-            <div className="mt-2 grid gap-1 text-xs text-[color:var(--muted)]">
-              <div>작성자: <span className="text-[color:var(--ink)]">{meta?.author || "—"}</span></div>
-              <div>작성일: <span className="text-[color:var(--ink)]">{meta?.reportDate || "—"}</span></div>
-              <div>파일 제목: <span className="text-[color:var(--ink)]">{meta?.fileTitle || meta?.title || "—"}</span></div>
-              <div>펀드: <span className="text-[color:var(--ink)]">{meta?.fundName || meta?.fundId || "—"}</span></div>
+          <div className="rounded-xl border border-[#E5E8EB] bg-[#F8F9FA] p-4">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-[#8B95A1]">메타데이터</div>
+            <div className="mt-1.5 grid gap-1 text-[12px]">
+              <div><span className="text-[#8B95A1]">작성자 </span><span className="font-medium text-[#191F28]">{meta?.author || "—"}</span></div>
+              <div><span className="text-[#8B95A1]">작성일 </span><span className="font-medium text-[#191F28]">{meta?.reportDate || "—"}</span></div>
+              <div><span className="text-[#8B95A1]">파일 제목 </span><span className="font-medium text-[#191F28]">{meta?.fileTitle || meta?.title || "—"}</span></div>
+              <div><span className="text-[#8B95A1]">펀드 </span><span className="font-medium text-[#191F28]">{meta?.fundName || meta?.fundId || "—"}</span></div>
             </div>
           </div>
         </div>
-      </Card>
+      </div>
 
       <div className={panelOpen ? "grid gap-6 lg:grid-cols-[2fr_1fr]" : ""}>
-        <Card variant="strong" className="p-0" id="step-write">
-          <div className="border-b border-[color:var(--line)] px-5 py-4">
-            <div className="text-sm font-semibold text-[color:var(--ink)]">대화</div>
-            <div className="mt-1 text-sm text-[color:var(--muted)]">답변은 Markdown 초안 형태로 생성됩니다.</div>
+        <div className="rounded-2xl bg-white p-0 overflow-hidden" style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px #E5E8EB" }} id="step-write">
+          <div className="border-b border-[#F2F4F6] px-5 py-4">
+            <div className="text-[14px] font-bold text-[#191F28]">대화</div>
+            <div className="mt-0.5 text-[12px] text-[#8B95A1]">답변은 Markdown 초안 형태로 생성됩니다.</div>
           </div>
 
-          <div className="border-b border-[color:var(--line)] px-5 py-4">
+          <div className="border-b border-[#F2F4F6] px-5 py-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-xs font-semibold text-[color:var(--ink)]">목차별 생성</div>
-              <div className="text-xs text-[color:var(--muted)]">섹션을 하나씩 생성하고, 마음에 들면 &quot;초안 확정&quot;으로 담으세요.</div>
+              <div className="text-[12px] font-bold text-[#191F28]">목차별 생성</div>
+              <div className="text-[11.5px] text-[#8B95A1]">섹션을 하나씩 생성하고, 마음에 들면 &quot;초안 확정&quot;으로 담으세요.</div>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               {TOC_SECTIONS.map((sec) => {
@@ -674,21 +673,21 @@ export default function ReportSessionPage() {
                   <div
                     className={
                       m.role === "user"
-                        ? "max-w-[84%] rounded-2xl bg-gradient-to-br from-[color:var(--accent-purple)]/20 to-[color:var(--accent-cyan)]/20 border border-[color:var(--accent-purple)]/30 backdrop-blur-sm px-4 py-3 text-sm text-[color:var(--ink)] shadow-[0_0_15px_rgba(30,64,175,0.1)]"
-                        : "max-w-[84%] rounded-2xl border border-[color:var(--line)] bg-[color:var(--card)]/80 backdrop-blur-md px-4 py-3 text-sm text-[color:var(--ink)] shadow-sm"
+                        ? "max-w-[84%] rounded-2xl bg-[#EBF3FF] border border-[#C0D8FF] px-4 py-3 text-sm text-[#191F28]"
+                        : "max-w-[84%] rounded-2xl border border-[#E5E8EB] bg-white px-4 py-3 text-sm text-[#191F28]"
                     }
                   >
                     {m.role === "assistant" ? (
                       <>
                         {m.section ? (
-                          <div className="mb-2 text-xs font-semibold text-black/50">
+                          <div className="mb-2 text-[11px] font-semibold text-[#8B95A1]">
                             {sectionLabel(m.section) || ""}
                           </div>
                         ) : null}
                         {sending && idx === streamingAssistantIndex ? (
                           <div className="whitespace-pre-wrap">{m.content}</div>
                         ) : (
-                          <article className="prose prose-zinc max-w-none prose-headings:font-[family-name:var(--font-display)] prose-p:text-[color:var(--ink)] prose-li:text-[color:var(--ink)] prose-strong:text-[color:var(--ink)] prose-a:text-[color:var(--accent-cyan)] prose-a:underline prose-a:underline-offset-4 hover:prose-a:no-underline">
+                          <article className="prose prose-zinc max-w-none prose-p:text-[#191F28] prose-li:text-[#191F28] prose-strong:text-[#191F28] prose-a:text-[#3182F6] prose-a:underline prose-a:underline-offset-4 hover:prose-a:no-underline">
                             <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                           </article>
                         )}
@@ -696,7 +695,7 @@ export default function ReportSessionPage() {
                     ) : (
                       <>
                         {m.section ? (
-                          <div className="mb-2 text-xs font-semibold text-black/50">
+                          <div className="mb-2 text-[11px] font-semibold text-[#3182F6]">
                             {sectionLabel(m.section) || ""}
                           </div>
                         ) : null}
@@ -735,20 +734,20 @@ export default function ReportSessionPage() {
                         ) : null}
                       </div>
                     ) : null}
-                    <div className="mt-2 text-[10px] text-black/40">
+                    <div className="mt-2 text-[10px] text-[#B0B8C1]">
                       {m.role === "user" ? "you" : "merry"} · {m.createdAt?.slice(0, 16).replace("T", " ") || ""}
                     </div>
                   </div>
                 </div>
               ))
             ) : (
-              <div className="rounded-2xl border border-[color:var(--line)] bg-white/60 p-4 text-sm text-[color:var(--muted)]">
+              <div className="rounded-xl border border-[#E5E8EB] bg-[#F8F9FA] p-4 text-sm text-[#8B95A1]">
                 시작 프롬프트 예시를 눌러 대화를 시작하세요.
               </div>
             )}
           </div>
 
-          <div className="border-t border-[color:var(--line)] px-5 py-4">
+          <div className="border-t border-[#F2F4F6] px-5 py-4">
             <div className="flex flex-wrap gap-2">
               <Button
                 variant="secondary"
@@ -806,48 +805,48 @@ export default function ReportSessionPage() {
               </Button>
             </div>
           </div>
-        </Card>
+        </div>
 
-        {panelOpen ? <div className="space-y-6">
+        {panelOpen ? <div className="space-y-4">
           <FactsAssumptionsPanel sessionId={sessionId} companyName={meta?.companyName} evidenceJobs={evidenceJobs} />
 
-          <Card variant="strong" className="p-5">
-            <div className="text-sm font-semibold text-[color:var(--ink)]" id="step-confirm">초안 바구니</div>
-            <div className="mt-1 text-sm text-[color:var(--muted)]">
+          <div className="rounded-2xl bg-white p-5" style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px #E5E8EB" }}>
+            <div className="text-[14px] font-bold text-[#191F28]" id="step-confirm">초안 바구니</div>
+            <div className="mt-0.5 text-[12px] text-[#8B95A1]">
               확정된 초안을 모아 한 번에 드래프트로 옮기고, 커서식 리뷰(수정/좋음/대안)를 시작합니다.
             </div>
 
             <div className="mt-4 space-y-3">
-              <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4">
+              <div className="rounded-xl border border-[#E5E8EB] p-4">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-semibold text-[color:var(--ink)]">확정된 초안</div>
-                  <Button variant="ghost" onClick={loadStash} disabled={stashBusy}>
+                  <div className="text-[12px] font-bold text-[#191F28]">확정된 초안</div>
+                  <Button variant="ghost" size="sm" onClick={loadStash} disabled={stashBusy}>
                     새로고침
                   </Button>
                 </div>
 
                 {stashMsg ? (
-                  <div className="mt-3 rounded-xl border border-[color:var(--line)] bg-white/80 px-3 py-2 text-xs text-[color:var(--muted)]">
+                  <div className="mt-3 rounded-lg border border-[#E5E8EB] bg-[#F8F9FA] px-3 py-2 text-[11.5px] text-[#4E5968]">
                     {stashMsg}
                   </div>
                 ) : null}
 
                 <div className="mt-3 space-y-2">
                   {!stash.length ? (
-                    <div className="text-sm text-[color:var(--muted)]">
+                    <div className="text-[12px] text-[#8B95A1]">
                       아직 바구니에 담긴 초안이 없습니다. 대화 메시지에서 &quot;초안 확정&quot;을 눌러 담아보세요.
                     </div>
                   ) : (
                     orderedStash.map((it) => (
-                      <div key={it.itemId} className="rounded-2xl border border-[color:var(--line)] bg-white/80 p-3">
+                      <div key={it.itemId} className="rounded-xl border border-[#E5E8EB] bg-[#F8F9FA] p-3">
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
-                            <div className="truncate text-sm font-medium text-[color:var(--ink)]">{it.title}</div>
-                            <div className="mt-1 flex items-center justify-between gap-2 text-xs text-[color:var(--muted)]">
+                            <div className="truncate text-[13px] font-semibold text-[#191F28]">{it.title}</div>
+                            <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-[#8B95A1]">
                               <span className="font-mono">{it.itemId}</span>
                               <span>{(it.createdAt || "").slice(0, 16).replace("T", " ")}</span>
                             </div>
-                            <div className="mt-2 line-clamp-3 text-xs text-[color:var(--muted)]">
+                            <div className="mt-1.5 line-clamp-3 text-[11.5px] text-[#4E5968]">
                               {(it.content || "").trim().slice(0, 180)}
                             </div>
                           </div>
@@ -861,18 +860,18 @@ export default function ReportSessionPage() {
                 </div>
 
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-xs text-[color:var(--muted)]">{stash.length ? `${stash.length}개 파트 확정됨` : "0개"}</div>
-                  <Button variant="primary" disabled={!stash.length || busy || stashBusy} onClick={commitStashToDraft}>
+                  <div className="text-[11.5px] text-[#8B95A1]">{stash.length ? `${stash.length}개 파트 확정됨` : "0개"}</div>
+                  <Button variant="primary" size="sm" disabled={!stash.length || busy || stashBusy} onClick={commitStashToDraft}>
                     드래프트로 옮기기
                   </Button>
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4" id="step-draft">
-                <div className="text-xs font-semibold text-[color:var(--ink)]">대상 드래프트</div>
+              <div className="rounded-xl border border-[#E5E8EB] p-4" id="step-draft">
+                <div className="text-[12px] font-bold text-[#191F28]">대상 드래프트</div>
                 <div className="mt-2 grid gap-2">
                   <select
-                    className="h-11 w-full rounded-xl border border-[color:var(--line)] bg-white/80 px-3 text-sm text-[color:var(--ink)] outline-none focus:border-[color:var(--accent)]"
+                    className="h-11 w-full rounded-xl border border-[#E5E8EB] bg-white px-3 text-sm text-[#191F28] outline-none focus:border-[#3182F6] focus:ring-2 focus:ring-[#3182F6]/15"
                     value={activeDraftId}
                     onChange={(e) => setActiveDraftId(e.target.value)}
                   >
@@ -883,10 +882,10 @@ export default function ReportSessionPage() {
                       </option>
                     ))}
                   </select>
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-[color:var(--muted)]">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11.5px] text-[#8B95A1]">
                     <span>근거 결과는 새 버전으로 저장됩니다.</span>
                     {activeDraftId ? (
-                      <Link href={`/drafts/${activeDraftId}`} className="text-[color:var(--ink)] underline underline-offset-4 hover:no-underline">
+                      <Link href={`/drafts/${activeDraftId}`} className="text-[#3182F6] underline underline-offset-4 hover:no-underline">
                         드래프트 열기
                       </Link>
                     ) : null}
@@ -894,56 +893,56 @@ export default function ReportSessionPage() {
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4">
+              <div className="rounded-xl border border-[#E5E8EB] p-4">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-semibold text-[color:var(--ink)]">PDF 근거 → 드래프트 버전</div>
-                  <Button variant="ghost" onClick={loadJobs} disabled={recBusy}>
+                  <div className="text-[12px] font-bold text-[#191F28]">PDF 근거 → 드래프트 버전</div>
+                  <Button variant="ghost" size="sm" onClick={loadJobs} disabled={recBusy}>
                     새로고침
                   </Button>
                 </div>
 
-                <div className="mt-2 flex items-center gap-2 text-xs text-[color:var(--muted)]">
+                <div className="mt-2 flex items-center gap-2 text-[11.5px] text-[#8B95A1]">
                   <label className="inline-flex items-center gap-2">
                     <input
                       type="checkbox"
-                      className="h-4 w-4 rounded border-[color:var(--line)]"
+                      className="h-4 w-4 rounded border-[#E5E8EB] accent-[#3182F6]"
                       checked={autoImportEvidence}
                       onChange={(e) => setAutoImportEvidence(e.target.checked)}
                       disabled={!activeDraftId}
                     />
                     완료 시 자동 저장
                   </label>
-                  <span className="text-[color:var(--muted)]">·</span>
-                  <Link href="/analysis" className="text-[color:var(--ink)] underline underline-offset-4 hover:no-underline">
+                  <span>·</span>
+                  <Link href="/analysis" className="text-[#3182F6] underline underline-offset-4 hover:no-underline">
                     근거 추출 잡 실행
                   </Link>
                 </div>
 
                 {recMsg ? (
-                  <div className="mt-3 rounded-xl border border-[color:var(--line)] bg-white/80 px-3 py-2 text-xs text-[color:var(--muted)]">
+                  <div className="mt-3 rounded-lg border border-[#E5E8EB] bg-[#F8F9FA] px-3 py-2 text-[11.5px] text-[#4E5968]">
                     {recMsg}
                   </div>
                 ) : null}
 
                 <div className="mt-3 space-y-2">
                   {!evidenceJobs.length ? (
-                    <div className="text-sm text-[color:var(--muted)]">최근 PDF 근거 추출 잡이 없습니다. 먼저 잡을 생성하세요.</div>
+                    <div className="text-[12px] text-[#8B95A1]">최근 PDF 근거 추출 잡이 없습니다. 먼저 잡을 생성하세요.</div>
                   ) : (
                     evidenceJobs.map((j) => {
                       const ready =
                         j.status === "succeeded" &&
                         (j.artifacts || []).some((a) => a.artifactId === "pdf_evidence_json");
                       return (
-                        <div key={j.jobId} className="rounded-2xl border border-[color:var(--line)] bg-white/80 p-3">
+                        <div key={j.jobId} className="rounded-xl border border-[#E5E8EB] bg-[#F8F9FA] p-3">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0 flex-1">
-                              <div className="truncate text-sm font-medium text-[color:var(--ink)]">{j.title}</div>
-                              <div className="mt-1 flex items-center justify-between gap-2 text-xs text-[color:var(--muted)]">
+                              <div className="truncate text-[13px] font-semibold text-[#191F28]">{j.title}</div>
+                              <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-[#8B95A1]">
                                 <span className="font-mono">{j.jobId}</span>
                                 {badgeForJobStatus(j.status)}
                               </div>
                             </div>
-                            <Button variant="secondary" disabled={!ready || recBusy || !activeDraftId} onClick={() => importEvidenceToDraft(j)}>
+                            <Button variant="secondary" size="sm" disabled={!ready || recBusy || !activeDraftId} onClick={() => importEvidenceToDraft(j)}>
                               드래프트 저장
                             </Button>
                           </div>
@@ -954,9 +953,9 @@ export default function ReportSessionPage() {
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4 text-sm text-[color:var(--muted)]">
-                <div className="text-xs font-semibold text-[color:var(--ink)]">다음 연결</div>
-                <div className="mt-2">
+              <div className="rounded-xl border border-[#E5E8EB] bg-[#F8F9FA] p-4">
+                <div className="text-[12px] font-bold text-[#191F28]">다음 연결</div>
+                <div className="mt-2 text-[12px] text-[#8B95A1] leading-relaxed">
                   - PDF/엑셀 업로드 → 근거 추출<br />
                   - DART 인수인의견 데이터셋 검색<br />
                   - 심화 의견(딥 옵피니언) 파이프라인<br />
@@ -964,7 +963,7 @@ export default function ReportSessionPage() {
                 </div>
               </div>
             </div>
-          </Card>
+          </div>
         </div> : null}
       </div>
     </div>

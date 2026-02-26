@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 
 import { WORKSPACE_COOKIE_NAME, verifyWorkspaceSession } from "@/lib/workspace";
@@ -12,7 +13,10 @@ function memberNameFromSession(session: any): string {
   return "member";
 }
 
-export async function getWorkspaceFromCookies() {
+// React.cache() deduplicates calls within a single server-render pass.
+// Without this, layout + page both calling getWorkspaceFromCookies() would
+// trigger auth() twice per navigation.
+export const getWorkspaceFromCookies = cache(async function _getWorkspace() {
   // Prefer Google OAuth when configured (and ignore the legacy passcode cookie).
   if (googleAuthEnabled()) {
     const session = await auth();
@@ -28,7 +32,7 @@ export async function getWorkspaceFromCookies() {
   const token = cookieStore.get(WORKSPACE_COOKIE_NAME)?.value;
   if (!token) return null;
   return await verifyWorkspaceSession(token);
-}
+});
 
 export async function requireWorkspaceFromCookies() {
   const session = await getWorkspaceFromCookies();

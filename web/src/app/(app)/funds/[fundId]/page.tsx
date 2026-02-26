@@ -75,8 +75,8 @@ function tickShortDate(s: string) {
 
 function TooltipBox({ label, rows }: { label?: string; rows: Array<{ name: string; value: string; color?: string }> }) {
   return (
-    <div className="rounded-2xl border border-[color:var(--line)] bg-white/95 px-3 py-2 shadow-sm">
-      {label ? <div className="text-xs font-medium text-[color:var(--muted)]">{label}</div> : null}
+    <div className="rounded-2xl border border-[#E5E8EB] bg-white px-3 py-2 shadow-sm">
+      {label ? <div className="text-xs font-medium text-[#8B95A1]">{label}</div> : null}
       <div className="mt-1 space-y-1">
         {rows.map((r) => (
           <div key={r.name} className="flex items-center justify-between gap-4 text-xs">
@@ -85,9 +85,9 @@ function TooltipBox({ label, rows }: { label?: string; rows: Array<{ name: strin
                 className="h-2.5 w-2.5 rounded-full"
                 style={{ background: r.color ?? "rgba(0,0,0,0.25)" }}
               />
-              <span className="text-[color:var(--muted)]">{r.name}</span>
+              <span className="text-[#8B95A1]">{r.name}</span>
             </div>
-            <span className="font-mono text-[color:var(--ink)]">{r.value}</span>
+            <span className="font-mono text-[#191F28]">{r.value}</span>
           </div>
         ))}
       </div>
@@ -185,7 +185,7 @@ export default function FundDetailPage() {
   if (error) {
     return (
       <div className="space-y-4">
-        <Link href="/funds" className="inline-flex items-center gap-2 text-sm text-[color:var(--muted)] hover:text-[color:var(--ink)]">
+        <Link href="/funds" className="inline-flex items-center gap-2 text-sm text-[#8B95A1] hover:text-[#191F28]">
           <ArrowLeft className="h-4 w-4" />
           펀드 목록
         </Link>
@@ -199,11 +199,11 @@ export default function FundDetailPage() {
   if (!fund) {
     return (
       <div className="space-y-4">
-        <Link href="/funds" className="inline-flex items-center gap-2 text-sm text-[color:var(--muted)] hover:text-[color:var(--ink)]">
+        <Link href="/funds" className="inline-flex items-center gap-2 text-sm text-[#8B95A1] hover:text-[#191F28]">
           <ArrowLeft className="h-4 w-4" />
           펀드 목록
         </Link>
-        <div className="text-sm text-[color:var(--muted)]">펀드를 찾지 못했습니다.</div>
+        <div className="text-sm text-[#8B95A1]">펀드를 찾지 못했습니다.</div>
       </div>
     );
   }
@@ -221,24 +221,24 @@ export default function FundDetailPage() {
         <div className="min-w-0">
           <Link
             href="/funds"
-            className="inline-flex items-center gap-2 text-sm text-[color:var(--muted)] hover:text-[color:var(--ink)]"
+            className="inline-flex items-center gap-2 text-sm text-[#8B95A1] hover:text-[#191F28]"
           >
             <ArrowLeft className="h-4 w-4" />
             펀드 목록
           </Link>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <h1 className="min-w-0 truncate font-[family-name:var(--font-display)] text-3xl tracking-tight text-[color:var(--ink)]">
+            <h1 className="min-w-0 truncate font-[family-name:var(--font-display)] text-3xl tracking-tight text-[#191F28]">
               {fund.name}
             </h1>
             <Badge tone="accent">Airtable</Badge>
             {fund.vintage ? <Badge tone="neutral">Vintage {fund.vintage}</Badge> : null}
             {fund.manager ? <Badge tone="neutral">{fund.manager}</Badge> : null}
           </div>
-          <div className="mt-2 text-sm text-[color:var(--muted)]">
+          <div className="mt-2 text-sm text-[#8B95A1]">
             마지막 스냅샷:{" "}
-            <span className="font-mono text-[color:var(--ink)]">{last?.date ?? "—"}</span>
+            <span className="font-mono text-[#191F28]">{last?.date ?? "—"}</span>
             {warnings.length ? (
-              <span className="ml-2 text-xs text-[color:var(--muted)]">
+              <span className="ml-2 text-xs text-[#8B95A1]">
                 (일부 데이터/스냅샷을 불러오지 못했을 수 있습니다)
               </span>
             ) : null}
@@ -255,11 +255,11 @@ export default function FundDetailPage() {
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card variant="strong" className="rounded-3xl p-5">
-          <div className="text-xs font-medium text-[color:var(--muted)]">Committed</div>
-          <div className="mt-2 font-[family-name:var(--font-display)] text-2xl tracking-tight text-[color:var(--ink)]">
+          <div className="text-xs font-medium text-[#8B95A1]">Committed</div>
+          <div className="mt-2 font-[family-name:var(--font-display)] text-2xl tracking-tight text-[#191F28]">
             {fmtCompact(fund.committed)}
           </div>
-          <div className="mt-3 text-xs text-[color:var(--muted)]">Deploy</div>
+          <div className="mt-3 text-xs text-[#8B95A1]">Deploy</div>
           <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-black/10">
             <div
               className="h-full rounded-full bg-gradient-to-r from-[color:var(--accent)] to-[color:var(--accent-2)]"
@@ -267,47 +267,47 @@ export default function FundDetailPage() {
             />
           </div>
           <div className="mt-2 flex items-center justify-between text-xs">
-            <span className="text-[color:var(--muted)]">Called</span>
-            <span className="font-mono text-[color:var(--ink)]">
+            <span className="text-[#8B95A1]">Called</span>
+            <span className="font-mono text-[#191F28]">
               {fmtCompact(called)} {calledPct != null ? `(${Math.round(calledPct * 100)}%)` : ""}
             </span>
           </div>
         </Card>
 
         <Card variant="strong" className="rounded-3xl p-5">
-          <div className="text-xs font-medium text-[color:var(--muted)]">NAV</div>
-          <div className="mt-2 font-[family-name:var(--font-display)] text-2xl tracking-tight text-[color:var(--ink)]">
+          <div className="text-xs font-medium text-[#8B95A1]">NAV</div>
+          <div className="mt-2 font-[family-name:var(--font-display)] text-2xl tracking-tight text-[#191F28]">
             {fmtCompact(last?.nav ?? fund.nav)}
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-              <div className="text-[11px] font-medium text-[color:var(--muted)]">Distributed</div>
-              <div className="mt-1 font-mono text-sm text-[color:var(--ink)]">{fmtCompact(last?.distributed ?? fund.distributed)}</div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+              <div className="text-[11px] font-medium text-[#8B95A1]">Distributed</div>
+              <div className="mt-1 font-mono text-sm text-[#191F28]">{fmtCompact(last?.distributed ?? fund.distributed)}</div>
             </div>
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-              <div className="text-[11px] font-medium text-[color:var(--muted)]">Called</div>
-              <div className="mt-1 font-mono text-sm text-[color:var(--ink)]">{fmtCompact(called)}</div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+              <div className="text-[11px] font-medium text-[#8B95A1]">Called</div>
+              <div className="mt-1 font-mono text-sm text-[#191F28]">{fmtCompact(called)}</div>
             </div>
           </div>
         </Card>
 
         <Card variant="strong" className="rounded-3xl p-5">
-          <div className="text-xs font-medium text-[color:var(--muted)]">Performance</div>
+          <div className="text-xs font-medium text-[#8B95A1]">Performance</div>
           <div className="mt-3 grid grid-cols-3 gap-2">
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-              <div className="text-[11px] font-medium text-[color:var(--muted)]">TVPI</div>
-              <div className="mt-1 font-mono text-sm text-[color:var(--ink)]">{fmtMultiple(last?.tvpi ?? fund.tvpi)}</div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+              <div className="text-[11px] font-medium text-[#8B95A1]">TVPI</div>
+              <div className="mt-1 font-mono text-sm text-[#191F28]">{fmtMultiple(last?.tvpi ?? fund.tvpi)}</div>
             </div>
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-              <div className="text-[11px] font-medium text-[color:var(--muted)]">DPI</div>
-              <div className="mt-1 font-mono text-sm text-[color:var(--ink)]">{fmtMultiple(last?.dpi ?? fund.dpi)}</div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+              <div className="text-[11px] font-medium text-[#8B95A1]">DPI</div>
+              <div className="mt-1 font-mono text-sm text-[#191F28]">{fmtMultiple(last?.dpi ?? fund.dpi)}</div>
             </div>
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-              <div className="text-[11px] font-medium text-[color:var(--muted)]">IRR</div>
-              <div className="mt-1 font-mono text-sm text-[color:var(--ink)]">{fmtPct(last?.irr ?? fund.irr)}</div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+              <div className="text-[11px] font-medium text-[#8B95A1]">IRR</div>
+              <div className="mt-1 font-mono text-sm text-[#191F28]">{fmtPct(last?.irr ?? fund.irr)}</div>
             </div>
           </div>
-          <div className="mt-3 text-xs text-[color:var(--muted)]">
+          <div className="mt-3 text-xs text-[#8B95A1]">
             모델/지표 정의는 Airtable 원본을 기준으로 표시합니다.
           </div>
         </Card>
@@ -316,39 +316,39 @@ export default function FundDetailPage() {
       <Card variant="strong" className="rounded-3xl p-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-[color:var(--ink)]">기본 정보</div>
-            <div className="mt-1 text-xs text-[color:var(--muted)]">약정/투자/회수 등 핵심 항목만 표시합니다.</div>
+            <div className="text-sm font-semibold text-[#191F28]">기본 정보</div>
+            <div className="mt-1 text-xs text-[#8B95A1]">약정/투자/회수 등 핵심 항목만 표시합니다.</div>
           </div>
           <Badge tone="neutral">Terms</Badge>
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-            <div className="text-[11px] font-medium text-[color:var(--muted)]">구분</div>
-            <div className="mt-1 text-sm text-[color:var(--ink)]">{fund.strategy ?? "—"}</div>
+          <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+            <div className="text-[11px] font-medium text-[#8B95A1]">구분</div>
+            <div className="mt-1 text-sm text-[#191F28]">{fund.strategy ?? "—"}</div>
           </div>
-          <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-            <div className="text-[11px] font-medium text-[color:var(--muted)]">존속기간</div>
-            <div className="mt-1 text-sm text-[color:var(--ink)]">{fund.lifeTerm ?? "—"}</div>
+          <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+            <div className="text-[11px] font-medium text-[#8B95A1]">존속기간</div>
+            <div className="mt-1 text-sm text-[#191F28]">{fund.lifeTerm ?? "—"}</div>
           </div>
-          <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-            <div className="text-[11px] font-medium text-[color:var(--muted)]">투자기간</div>
-            <div className="mt-1 text-sm text-[color:var(--ink)]">{fund.investmentTerm ?? "—"}</div>
+          <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+            <div className="text-[11px] font-medium text-[#8B95A1]">투자기간</div>
+            <div className="mt-1 text-sm text-[#191F28]">{fund.investmentTerm ?? "—"}</div>
           </div>
-          <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-            <div className="text-[11px] font-medium text-[color:var(--muted)]">투자건수</div>
-            <div className="mt-1 font-mono text-sm text-[color:var(--ink)]">
+          <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+            <div className="text-[11px] font-medium text-[#8B95A1]">투자건수</div>
+            <div className="mt-1 font-mono text-sm text-[#191F28]">
               {typeof fund.dealCount === "number" && Number.isFinite(fund.dealCount) ? Math.round(fund.dealCount) : "—"}
             </div>
           </div>
-          <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-            <div className="text-[11px] font-medium text-[color:var(--muted)]">투자가용금액</div>
-            <div className="mt-1 font-mono text-sm text-[color:var(--ink)]">{fmtCompact(fund.availableCapital)}</div>
+          <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+            <div className="text-[11px] font-medium text-[#8B95A1]">투자가용금액</div>
+            <div className="mt-1 font-mono text-sm text-[#191F28]">{fmtCompact(fund.availableCapital)}</div>
           </div>
-          <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-            <div className="text-[11px] font-medium text-[color:var(--muted)]">MYSC 출자</div>
+          <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+            <div className="text-[11px] font-medium text-[#8B95A1]">MYSC 출자</div>
             <div className="mt-1 flex items-baseline justify-between gap-2">
-              <span className="font-mono text-sm text-[color:var(--ink)]">{fmtCompact(fund.myscCommitment)}</span>
-              <span className="text-xs text-[color:var(--muted)]">{fmtRatio(fund.myscRatio)}</span>
+              <span className="font-mono text-sm text-[#191F28]">{fmtCompact(fund.myscCommitment)}</span>
+              <span className="text-xs text-[#8B95A1]">{fmtRatio(fund.myscRatio)}</span>
             </div>
           </div>
         </div>
@@ -357,8 +357,8 @@ export default function FundDetailPage() {
       <Card variant="strong" className="rounded-3xl p-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-[color:var(--ink)]">투자기업</div>
-            <div className="mt-1 text-xs text-[color:var(--muted)]">
+            <div className="text-sm font-semibold text-[#191F28]">투자기업</div>
+            <div className="mt-1 text-xs text-[#8B95A1]">
               {companyQ.trim()
                 ? `검색 결과 ${filteredCompanies.length} / ${companies.length}개`
                 : `연결된 스타트업 ${companies.length}개`}
@@ -385,16 +385,16 @@ export default function FundDetailPage() {
               className="block"
             >
               <Card
-                className="group relative overflow-hidden rounded-3xl p-4 transition-colors hover:bg-white/95"
+                className="group relative overflow-hidden rounded-3xl p-4 transition-colors hover:bg-white"
               >
                 <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[color:var(--accent)] via-[color:color-mix(in_oklab,var(--accent),white_24%)] to-[color:var(--accent-2)]" />
 
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold text-[color:var(--ink)]">
+                    <div className="truncate text-sm font-semibold text-[#191F28]">
                       {c.name}
                     </div>
-                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[color:var(--muted)]">
+                    <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#8B95A1]">
                       {c.stage ? <span>{c.stage}</span> : null}
                       {c.category ? (
                         <>
@@ -414,19 +414,19 @@ export default function FundDetailPage() {
                 </div>
 
                 <div className="mt-4 grid grid-cols-3 gap-2">
-                  <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-                    <div className="text-[11px] font-medium text-[color:var(--muted)]">Invested</div>
-                    <div className="mt-1 font-mono text-sm text-[color:var(--ink)]">{fmtCompact(c.investedAmount)}</div>
+                  <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+                    <div className="text-[11px] font-medium text-[#8B95A1]">Invested</div>
+                    <div className="mt-1 font-mono text-sm text-[#191F28]">{fmtCompact(c.investedAmount)}</div>
                   </div>
-                  <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-                    <div className="text-[11px] font-medium text-[color:var(--muted)]">Multiple</div>
-                    <div className="mt-1 font-mono text-sm text-[color:var(--ink)]">
+                  <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+                    <div className="text-[11px] font-medium text-[#8B95A1]">Multiple</div>
+                    <div className="mt-1 font-mono text-sm text-[#191F28]">
                       {typeof c.multiple === "number" && Number.isFinite(c.multiple) ? `${c.multiple.toFixed(2)}x` : "—"}
                     </div>
                   </div>
-                  <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-                    <div className="text-[11px] font-medium text-[color:var(--muted)]">NAV</div>
-                    <div className="mt-1 font-mono text-sm text-[color:var(--ink)]">{fmtCompact(c.nav)}</div>
+                  <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+                    <div className="text-[11px] font-medium text-[#8B95A1]">NAV</div>
+                    <div className="mt-1 font-mono text-sm text-[#191F28]">{fmtCompact(c.nav)}</div>
                   </div>
                 </div>
 
@@ -435,7 +435,7 @@ export default function FundDetailPage() {
                     {c.categories.slice(0, 4).map((t) => (
                       <span
                         key={t}
-                        className="rounded-full border border-[color:var(--line)] bg-black/[0.03] px-2 py-0.5 text-[11px] text-[color:var(--muted)]"
+                        className="rounded-full border border-[#E5E8EB] bg-black/[0.03] px-2 py-0.5 text-[11px] text-[#8B95A1]"
                       >
                         {t}
                       </span>
@@ -450,7 +450,7 @@ export default function FundDetailPage() {
         </div>
 
         {!busy && !filteredCompanies.length ? (
-          <div className="mt-4 text-sm text-[color:var(--muted)]">
+          <div className="mt-4 text-sm text-[#8B95A1]">
             {companyQ.trim()
               ? "검색 결과가 없습니다."
               : "표시할 투자기업이 없습니다. Airtable의 펀드-투자기업 링크 필드를 확인하세요."}
@@ -462,8 +462,8 @@ export default function FundDetailPage() {
         <Card variant="strong" className="rounded-3xl p-5">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
-              <div className="text-sm font-semibold text-[color:var(--ink)]">NAV 추이</div>
-              <div className="mt-1 text-xs text-[color:var(--muted)]">그라데이션 영역 + 브러시로 구간 확대</div>
+              <div className="text-sm font-semibold text-[#191F28]">NAV 추이</div>
+              <div className="mt-1 text-xs text-[#8B95A1]">그라데이션 영역 + 브러시로 구간 확대</div>
             </div>
             <Badge tone={series.length >= 2 ? "accent" : "neutral"}>{series.length >= 2 ? "시계열" : "단일 시점"}</Badge>
           </div>
@@ -514,8 +514,8 @@ export default function FundDetailPage() {
         <Card variant="strong" className="rounded-3xl p-5">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
-              <div className="text-sm font-semibold text-[color:var(--ink)]">투입/회수</div>
-              <div className="mt-1 text-xs text-[color:var(--muted)]">스냅샷 기준 Called vs Distributed</div>
+              <div className="text-sm font-semibold text-[#191F28]">투입/회수</div>
+              <div className="mt-1 text-xs text-[#8B95A1]">스냅샷 기준 Called vs Distributed</div>
             </div>
             <Badge tone="neutral">Cashflow</Badge>
           </div>
@@ -563,8 +563,8 @@ export default function FundDetailPage() {
       <Card variant="strong" className="rounded-3xl p-5">
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div>
-            <div className="text-sm font-semibold text-[color:var(--ink)]">Multiples (TVPI / DPI)</div>
-            <div className="mt-1 text-xs text-[color:var(--muted)]">라인 차트 + 툴팁</div>
+            <div className="text-sm font-semibold text-[#191F28]">Multiples (TVPI / DPI)</div>
+            <div className="mt-1 text-xs text-[#8B95A1]">라인 차트 + 툴팁</div>
           </div>
           <Badge tone="neutral">Performance</Badge>
         </div>

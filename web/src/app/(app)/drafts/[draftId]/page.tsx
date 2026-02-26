@@ -440,13 +440,13 @@ export default function DraftDetailPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-[color:var(--muted)]">
+          <div className="text-sm font-medium text-[#8B95A1]">
             Draft Review
           </div>
-          <h1 className="mt-1 font-[family-name:var(--font-display)] text-3xl tracking-tight text-[color:var(--ink)]">
+          <h1 className="mt-1 font-black tracking-tight text-2xl text-[#191F28]">
             드래프트 리뷰
           </h1>
-          <div className="mt-2 text-sm text-[color:var(--muted)]">
+          <div className="mt-2 text-sm text-[#8B95A1]">
             텍스트를 드래그해 코멘트를 남기고, 반영/거절을 기록합니다.
           </div>
         </div>
@@ -464,19 +464,19 @@ export default function DraftDetailPage() {
       </div>
 
       {error ? (
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-900">
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
         </div>
       ) : null}
 
       <div className="grid gap-6 lg:grid-cols-[1.55fr_1fr]">
         <Card variant="strong" className="relative p-0">
-          <div className="flex items-center justify-between gap-3 border-b border-[color:var(--line)] px-5 py-4">
+          <div className="flex items-center justify-between gap-3 border-b border-[#E5E8EB] px-5 py-4">
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-medium text-[color:var(--muted)]">버전</div>
+              <div className="text-xs font-medium text-[#8B95A1]">버전</div>
               <div className="mt-1 flex flex-wrap items-center gap-2">
                 <select
-                  className="h-10 max-w-[28rem] rounded-xl border border-[color:var(--line)] bg-white/80 px-3 text-sm text-[color:var(--ink)] outline-none focus:border-[color:var(--accent)]"
+                  className="h-10 max-w-[28rem] rounded-xl border border-[#E5E8EB] bg-white px-3 text-sm text-[#191F28] outline-none focus:border-[color:var(--accent)]"
                   value={activeVersion?.versionId || ""}
                   onChange={(e) => {
                     setActiveVersionId(e.target.value);
@@ -499,11 +499,11 @@ export default function DraftDetailPage() {
           {editMode ? (
             <div className="space-y-3 p-5">
               <label className="block">
-                <div className="mb-1 text-xs font-medium text-[color:var(--muted)]">제목</div>
+                <div className="mb-1 text-xs font-medium text-[#8B95A1]">제목</div>
                 <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
               </label>
               <label className="block">
-                <div className="mb-1 text-xs font-medium text-[color:var(--muted)]">내용 (Markdown)</div>
+                <div className="mb-1 text-xs font-medium text-[#8B95A1]">내용 (Markdown)</div>
                 <Textarea
                   value={editContent}
                   onChange={(e) => setEditContent(e.target.value)}
@@ -543,21 +543,21 @@ export default function DraftDetailPage() {
               >
                 {commentDraft.open && commentDraft.anchor ? (
                   <div
-                    className="absolute z-20 w-[360px] max-w-[92%] rounded-2xl border border-[color:var(--line)] bg-white/95 p-4 shadow-xl backdrop-blur"
+                    className="absolute z-20 w-[360px] max-w-[92%] rounded-2xl border border-[#E5E8EB] bg-white p-4 shadow-xl "
                     style={{ top: commentDraft.y, left: commentDraft.x }}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <div className="text-xs font-semibold text-[color:var(--ink)]">
+                        <div className="text-xs font-semibold text-[#191F28]">
                           코멘트 추가
                         </div>
-                        <div className="mt-1 text-xs text-[color:var(--muted)]">
+                        <div className="mt-1 text-xs text-[#8B95A1]">
                           선택: “{commentDraft.anchor.quote.slice(0, 80)}
                           {commentDraft.anchor.quote.length > 80 ? "…" : ""}”
                         </div>
                       </div>
                       <button
-                        className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-[color:var(--line)] bg-white/70 text-black/60 hover:bg-white"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-[#E5E8EB] bg-white text-black/60 hover:bg-white"
                         onClick={() => setCommentDraft((p) => ({ ...p, open: false, anchor: null }))}
                       >
                         <X className="h-4 w-4" />
@@ -565,9 +565,9 @@ export default function DraftDetailPage() {
                     </div>
 
                     <div className="mt-3 grid grid-cols-[92px_1fr] items-center gap-2">
-                      <div className="text-xs font-medium text-[color:var(--muted)]">타입</div>
+                      <div className="text-xs font-medium text-[#8B95A1]">타입</div>
                       <select
-                        className="h-10 rounded-xl border border-[color:var(--line)] bg-white/80 px-3 text-sm text-[color:var(--ink)] outline-none focus:border-[color:var(--accent)]"
+                        className="h-10 rounded-xl border border-[#E5E8EB] bg-white px-3 text-sm text-[#191F28] outline-none focus:border-[color:var(--accent)]"
                         value={commentDraft.kind}
                         onChange={(e) => {
                           const v = e.target.value;
@@ -581,7 +581,7 @@ export default function DraftDetailPage() {
                         <option value="대안">대안</option>
                       </select>
 
-                      <div className="text-xs font-medium text-[color:var(--muted)]">내용</div>
+                      <div className="text-xs font-medium text-[#8B95A1]">내용</div>
                       <Textarea
                         value={commentDraft.text}
                         onChange={(e) =>
@@ -609,7 +609,7 @@ export default function DraftDetailPage() {
                 ) : null}
 
                 <div ref={contentRef}>
-                  <article className="prose prose-zinc max-w-none prose-headings:font-[family-name:var(--font-display)] prose-p:text-[color:var(--ink)] prose-li:text-[color:var(--ink)] prose-strong:text-[color:var(--ink)]">
+                  <article className="prose prose-zinc max-w-none prose-headings:font-black tracking-tight prose-p:text-[#191F28] prose-li:text-[#191F28] prose-strong:text-[#191F28]">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>
                       {activeVersion?.content || ""}
                     </ReactMarkdown>
@@ -622,8 +622,8 @@ export default function DraftDetailPage() {
 
         <div className="space-y-4">
           <Card variant="strong" className="p-5">
-            <div className="text-sm font-semibold text-[color:var(--ink)]">코멘트</div>
-            <div className="mt-1 text-sm text-[color:var(--muted)]">
+            <div className="text-sm font-semibold text-[#191F28]">코멘트</div>
+            <div className="mt-1 text-sm text-[#8B95A1]">
               반영/거절을 남기면 히스토리에 저장됩니다.
             </div>
 
@@ -636,7 +636,7 @@ export default function DraftDetailPage() {
                   <div
                     key={t.threadId}
                     className={cn(
-                      "rounded-2xl border border-[color:var(--line)] bg-white/70 p-3",
+                      "rounded-2xl border border-[#E5E8EB] bg-white p-3",
                       selected && "ring-2 ring-[color:var(--accent)]",
                     )}
                   >
@@ -654,12 +654,12 @@ export default function DraftDetailPage() {
                           {t.replies.length ? (
                             <Badge tone="neutral">답글 {t.replies.length}</Badge>
                           ) : null}
-                          <span className="text-xs text-[color:var(--muted)]">
+                          <span className="text-xs text-[#8B95A1]">
                             {c.createdBy || "멤버"} · {c.createdAt?.slice(0, 16).replace("T", " ")}
                           </span>
                         </div>
-                        <div className="mt-2 text-sm text-[color:var(--ink)]">{c.text}</div>
-                        <div className="mt-2 rounded-xl border border-[color:var(--line)] bg-white/60 px-3 py-2 text-xs text-[color:var(--muted)]">
+                        <div className="mt-2 text-sm text-[#191F28]">{c.text}</div>
+                        <div className="mt-2 rounded-xl border border-[#E5E8EB] bg-white px-3 py-2 text-xs text-[#8B95A1]">
                           “{c.anchor.quote.slice(0, 120)}
                           {c.anchor.quote.length > 120 ? "…" : ""}”
                         </div>
@@ -667,7 +667,7 @@ export default function DraftDetailPage() {
 
                       <div className="flex flex-col items-end gap-2">
                         <select
-                          className="h-9 rounded-xl border border-[color:var(--line)] bg-white/80 px-2 text-xs text-[color:var(--ink)] outline-none focus:border-[color:var(--accent)]"
+                          className="h-9 rounded-xl border border-[#E5E8EB] bg-white px-2 text-xs text-[#191F28] outline-none focus:border-[color:var(--accent)]"
                           value={c.status}
                           onChange={(e) => {
                             const v = e.target.value;
@@ -699,21 +699,21 @@ export default function DraftDetailPage() {
                         {t.replies.map((r) => (
                           <div
                             key={r.commentId}
-                            className="ml-3 rounded-2xl border border-[color:var(--line)] bg-white/60 p-3"
+                            className="ml-3 rounded-2xl border border-[#E5E8EB] bg-white p-3"
                           >
-                            <div className="text-xs text-[color:var(--muted)]">
+                            <div className="text-xs text-[#8B95A1]">
                               {r.createdBy || "멤버"} · {r.createdAt?.slice(0, 16).replace("T", " ")}
                             </div>
-                            <div className="mt-1 text-sm text-[color:var(--ink)]">{r.text}</div>
+                            <div className="mt-1 text-sm text-[#191F28]">{r.text}</div>
                           </div>
                         ))}
 
                         {replyOpen ? (
-                          <div className="ml-3 rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
+                          <div className="ml-3 rounded-2xl border border-[#E5E8EB] bg-white p-3">
                             <div className="grid grid-cols-[92px_1fr] items-center gap-2">
-                              <div className="text-xs font-medium text-[color:var(--muted)]">타입</div>
+                              <div className="text-xs font-medium text-[#8B95A1]">타입</div>
                               <select
-                                className="h-10 rounded-xl border border-[color:var(--line)] bg-white/80 px-3 text-sm text-[color:var(--ink)] outline-none focus:border-[color:var(--accent)]"
+                                className="h-10 rounded-xl border border-[#E5E8EB] bg-white px-3 text-sm text-[#191F28] outline-none focus:border-[color:var(--accent)]"
                                 value={replyDraft.kind}
                                 onChange={(e) => {
                                   const v = e.target.value;
@@ -727,7 +727,7 @@ export default function DraftDetailPage() {
                                 <option value="좋음">좋음</option>
                               </select>
 
-                              <div className="text-xs font-medium text-[color:var(--muted)]">내용</div>
+                              <div className="text-xs font-medium text-[#8B95A1]">내용</div>
                               <Textarea
                                 value={replyDraft.text}
                                 onChange={(e) => setReplyDraft((p) => ({ ...p, text: e.target.value }))}
@@ -760,7 +760,7 @@ export default function DraftDetailPage() {
               })}
 
               {!threads.length ? (
-                <div className="rounded-2xl border border-[color:var(--line)] bg-white/60 p-4 text-sm text-[color:var(--muted)]">
+                <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4 text-sm text-[#8B95A1]">
                   텍스트를 드래그해 코멘트를 남겨보세요.
                 </div>
               ) : null}

@@ -93,11 +93,11 @@ export default function FundsPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-[color:var(--muted)]">Fund Intelligence</div>
-          <h1 className="mt-1 font-[family-name:var(--font-display)] text-3xl tracking-tight text-[color:var(--ink)]">
+          <div className="text-sm font-medium text-[#8B95A1]">Fund Intelligence</div>
+          <h1 className="mt-1 font-black tracking-tight text-2xl text-[#191F28]">
             펀드
           </h1>
-          <div className="mt-2 text-sm text-[color:var(--muted)]">
+          <div className="mt-2 text-sm text-[#8B95A1]">
             Airtable에서 펀드 메타데이터를 가져와 KPI와 성과 추이를 한 눈에 봅니다.
           </div>
         </div>
@@ -120,7 +120,7 @@ export default function FundsPage() {
       </div>
 
       {error ? (
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-900">
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
         </div>
       ) : null}
@@ -145,16 +145,16 @@ export default function FundsPage() {
           <Link key={f.fundId} href={`/funds/${f.fundId}`} className="block">
             <Card
               variant="strong"
-              className="group relative overflow-hidden rounded-3xl p-5 transition-colors hover:bg-white/95"
+              className="group relative overflow-hidden rounded-3xl p-5 transition-colors hover:bg-white"
             >
               <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-[color:var(--accent)] via-[color:color-mix(in_oklab,var(--accent),white_24%)] to-[color:var(--accent-2)]" />
 
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-semibold text-[color:var(--ink)]">
+                  <div className="truncate text-sm font-semibold text-[#191F28]">
                     {f.name}
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[color:var(--muted)]">
+                  <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#8B95A1]">
                     {f.vintage ? <span>Vintage {f.vintage}</span> : <span>Vintage —</span>}
                     <span>·</span>
                     <span className="font-mono">{f.fundId}</span>
@@ -164,36 +164,36 @@ export default function FundsPage() {
               </div>
 
               <div className="mt-4 grid grid-cols-3 gap-2">
-                <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-                  <div className="text-[11px] font-medium text-[color:var(--muted)]">TVPI</div>
-                  <div className="mt-1 font-mono text-sm text-[color:var(--ink)]">{fmtMultiple(f.tvpi)}</div>
+                <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+                  <div className="text-[11px] font-medium text-[#8B95A1]">TVPI</div>
+                  <div className="mt-1 font-mono text-sm text-[#191F28]">{fmtMultiple(f.tvpi)}</div>
                 </div>
-                <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-                  <div className="text-[11px] font-medium text-[color:var(--muted)]">DPI</div>
-                  <div className="mt-1 font-mono text-sm text-[color:var(--ink)]">{fmtMultiple(f.dpi)}</div>
+                <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+                  <div className="text-[11px] font-medium text-[#8B95A1]">DPI</div>
+                  <div className="mt-1 font-mono text-sm text-[#191F28]">{fmtMultiple(f.dpi)}</div>
                 </div>
-                <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-                  <div className="text-[11px] font-medium text-[color:var(--muted)]">IRR</div>
-                  <div className="mt-1 font-mono text-sm text-[color:var(--ink)]">{fmtPct(f.irr)}</div>
+                <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+                  <div className="text-[11px] font-medium text-[#8B95A1]">IRR</div>
+                  <div className="mt-1 font-mono text-sm text-[#191F28]">{fmtPct(f.irr)}</div>
                 </div>
               </div>
 
               <div className="mt-4 grid grid-cols-4 gap-2 text-xs">
                 <div className="rounded-2xl bg-black/[0.03] p-3">
-                  <div className="font-medium text-[color:var(--muted)]">Committed</div>
-                  <div className="mt-1 font-mono text-[color:var(--ink)]">{fmtCompact(f.committed)}</div>
+                  <div className="font-medium text-[#8B95A1]">Committed</div>
+                  <div className="mt-1 font-mono text-[#191F28]">{fmtCompact(f.committed)}</div>
                 </div>
                 <div className="rounded-2xl bg-black/[0.03] p-3">
-                  <div className="font-medium text-[color:var(--muted)]">Called</div>
-                  <div className="mt-1 font-mono text-[color:var(--ink)]">{fmtCompact(f.called)}</div>
+                  <div className="font-medium text-[#8B95A1]">Called</div>
+                  <div className="mt-1 font-mono text-[#191F28]">{fmtCompact(f.called)}</div>
                 </div>
                 <div className="rounded-2xl bg-black/[0.03] p-3">
-                  <div className="font-medium text-[color:var(--muted)]">Dist.</div>
-                  <div className="mt-1 font-mono text-[color:var(--ink)]">{fmtCompact(f.distributed)}</div>
+                  <div className="font-medium text-[#8B95A1]">Dist.</div>
+                  <div className="mt-1 font-mono text-[#191F28]">{fmtCompact(f.distributed)}</div>
                 </div>
                 <div className="rounded-2xl bg-black/[0.03] p-3">
-                  <div className="font-medium text-[color:var(--muted)]">NAV</div>
-                  <div className="mt-1 font-mono text-[color:var(--ink)]">{fmtCompact(f.nav)}</div>
+                  <div className="font-medium text-[#8B95A1]">NAV</div>
+                  <div className="mt-1 font-mono text-[#191F28]">{fmtCompact(f.nav)}</div>
                 </div>
               </div>
 
@@ -204,7 +204,7 @@ export default function FundsPage() {
       </div>
 
       {!busy && !error && !filtered.length ? (
-        <div className="text-sm text-[color:var(--muted)]">
+        <div className="text-sm text-[#8B95A1]">
           표시할 펀드가 없습니다. Airtable 테이블/뷰 설정을 확인하세요.
         </div>
       ) : null}

@@ -98,7 +98,7 @@ export default function CompanyDetailPage() {
   if (error) {
     return (
       <div className="space-y-4">
-        <Link href={backHref} className="inline-flex items-center gap-2 text-sm text-[color:var(--muted)] hover:text-[color:var(--ink)]">
+        <Link href={backHref} className="inline-flex items-center gap-2 text-sm text-[#8B95A1] hover:text-[#191F28]">
           <ArrowLeft className="h-4 w-4" />
           돌아가기
         </Link>
@@ -112,11 +112,11 @@ export default function CompanyDetailPage() {
   if (!company) {
     return (
       <div className="space-y-4">
-        <Link href={backHref} className="inline-flex items-center gap-2 text-sm text-[color:var(--muted)] hover:text-[color:var(--ink)]">
+        <Link href={backHref} className="inline-flex items-center gap-2 text-sm text-[#8B95A1] hover:text-[#191F28]">
           <ArrowLeft className="h-4 w-4" />
           돌아가기
         </Link>
-        <div className="text-sm text-[color:var(--muted)]">기업을 찾지 못했습니다.</div>
+        <div className="text-sm text-[#8B95A1]">기업을 찾지 못했습니다.</div>
       </div>
     );
   }
@@ -127,13 +127,13 @@ export default function CompanyDetailPage() {
         <div className="min-w-0">
           <Link
             href={backHref}
-            className="inline-flex items-center gap-2 text-sm text-[color:var(--muted)] hover:text-[color:var(--ink)]"
+            className="inline-flex items-center gap-2 text-sm text-[#8B95A1] hover:text-[#191F28]"
           >
             <ArrowLeft className="h-4 w-4" />
             {fromFundId ? "펀드로 돌아가기" : "펀드 목록"}
           </Link>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <h1 className="min-w-0 truncate font-[family-name:var(--font-display)] text-3xl tracking-tight text-[color:var(--ink)]">
+            <h1 className="min-w-0 truncate font-[family-name:var(--font-display)] text-3xl tracking-tight text-[#191F28]">
               {company.name}
             </h1>
             <Badge tone="accent">Airtable</Badge>
@@ -141,10 +141,10 @@ export default function CompanyDetailPage() {
             {company.category ? <Badge tone="neutral">{company.category}</Badge> : null}
             {company.investmentType ? <Badge tone="neutral">{company.investmentType}</Badge> : null}
           </div>
-          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-[color:var(--muted)]">
+          <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-[#8B95A1]">
             {company.investedAt ? (
               <span>
-                투자일 <span className="font-mono text-[color:var(--ink)]">{company.investedAt}</span>
+                투자일 <span className="font-mono text-[#191F28]">{company.investedAt}</span>
               </span>
             ) : null}
             <span className="font-mono">ID {company.companyId}</span>
@@ -161,36 +161,36 @@ export default function CompanyDetailPage() {
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card variant="strong" className="rounded-3xl p-5">
-          <div className="text-xs font-medium text-[color:var(--muted)]">Invested</div>
-          <div className="mt-2 font-[family-name:var(--font-display)] text-2xl tracking-tight text-[color:var(--ink)]">
+          <div className="text-xs font-medium text-[#8B95A1]">Invested</div>
+          <div className="mt-2 font-[family-name:var(--font-display)] text-2xl tracking-tight text-[#191F28]">
             {fmtCompact(company.investedAmount)}
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2">
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-              <div className="text-[11px] font-medium text-[color:var(--muted)]">Principal</div>
-              <div className="mt-1 font-mono text-sm text-[color:var(--ink)]">{fmtCompact(company.returnedPrincipal)}</div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+              <div className="text-[11px] font-medium text-[#8B95A1]">Principal</div>
+              <div className="mt-1 font-mono text-sm text-[#191F28]">{fmtCompact(company.returnedPrincipal)}</div>
             </div>
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-              <div className="text-[11px] font-medium text-[color:var(--muted)]">Profit</div>
-              <div className="mt-1 font-mono text-sm text-[color:var(--ink)]">{fmtCompact(company.returnedProfit)}</div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+              <div className="text-[11px] font-medium text-[#8B95A1]">Profit</div>
+              <div className="mt-1 font-mono text-sm text-[#191F28]">{fmtCompact(company.returnedProfit)}</div>
             </div>
           </div>
         </Card>
 
         <Card variant="strong" className="rounded-3xl p-5">
-          <div className="text-xs font-medium text-[color:var(--muted)]">NAV</div>
-          <div className="mt-2 font-[family-name:var(--font-display)] text-2xl tracking-tight text-[color:var(--ink)]">
+          <div className="text-xs font-medium text-[#8B95A1]">NAV</div>
+          <div className="mt-2 font-[family-name:var(--font-display)] text-2xl tracking-tight text-[#191F28]">
             {fmtCompact(company.nav)}
           </div>
-          <div className="mt-4 text-xs text-[color:var(--muted)]">미회수투자자산 기준</div>
+          <div className="mt-4 text-xs text-[#8B95A1]">미회수투자자산 기준</div>
         </Card>
 
         <Card variant="strong" className="rounded-3xl p-5">
-          <div className="text-xs font-medium text-[color:var(--muted)]">Multiple</div>
-          <div className="mt-2 font-[family-name:var(--font-display)] text-2xl tracking-tight text-[color:var(--ink)]">
+          <div className="text-xs font-medium text-[#8B95A1]">Multiple</div>
+          <div className="mt-2 font-[family-name:var(--font-display)] text-2xl tracking-tight text-[#191F28]">
             {fmtMultiple(company.multiple)}
           </div>
-          <div className="mt-4 text-xs text-[color:var(--muted)]">Airtable formula 기반</div>
+          <div className="mt-4 text-xs text-[#8B95A1]">Airtable formula 기반</div>
         </Card>
       </div>
 
@@ -198,27 +198,27 @@ export default function CompanyDetailPage() {
         <Card variant="strong" className="rounded-3xl p-5">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
-              <div className="text-sm font-semibold text-[color:var(--ink)]">기업 정보</div>
-              <div className="mt-1 text-xs text-[color:var(--muted)]">핵심 필드만 노출</div>
+              <div className="text-sm font-semibold text-[#191F28]">기업 정보</div>
+              <div className="mt-1 text-xs text-[#8B95A1]">핵심 필드만 노출</div>
             </div>
             <Badge tone="neutral">Profile</Badge>
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-              <div className="text-[11px] font-medium text-[color:var(--muted)]">본점 소재지</div>
-              <div className="mt-1 text-sm text-[color:var(--ink)]">{company.location ?? "—"}</div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+              <div className="text-[11px] font-medium text-[#8B95A1]">본점 소재지</div>
+              <div className="mt-1 text-sm text-[#191F28]">{company.location ?? "—"}</div>
             </div>
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-              <div className="text-[11px] font-medium text-[color:var(--muted)]">설립일</div>
-              <div className="mt-1 text-sm text-[color:var(--ink)]">{company.foundedAt ?? "—"}</div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+              <div className="text-[11px] font-medium text-[#8B95A1]">설립일</div>
+              <div className="mt-1 text-sm text-[#191F28]">{company.foundedAt ?? "—"}</div>
             </div>
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-              <div className="text-[11px] font-medium text-[color:var(--muted)]">대표자</div>
-              <div className="mt-1 text-sm text-[color:var(--ink)]">{company.ceo ?? "—"}</div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+              <div className="text-[11px] font-medium text-[#8B95A1]">대표자</div>
+              <div className="mt-1 text-sm text-[#191F28]">{company.ceo ?? "—"}</div>
             </div>
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-              <div className="text-[11px] font-medium text-[color:var(--muted)]">연락처</div>
-              <div className="mt-1 text-sm text-[color:var(--ink)]">{company.contact ?? "—"}</div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+              <div className="text-[11px] font-medium text-[#8B95A1]">연락처</div>
+              <div className="mt-1 text-sm text-[#191F28]">{company.contact ?? "—"}</div>
             </div>
           </div>
         </Card>
@@ -226,12 +226,12 @@ export default function CompanyDetailPage() {
         <Card variant="strong" className="rounded-3xl p-5">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
-              <div className="text-sm font-semibold text-[color:var(--ink)]">제품/서비스</div>
-              <div className="mt-1 text-xs text-[color:var(--muted)]">요약 텍스트</div>
+              <div className="text-sm font-semibold text-[#191F28]">제품/서비스</div>
+              <div className="mt-1 text-xs text-[#8B95A1]">요약 텍스트</div>
             </div>
             <Badge tone="neutral">Notes</Badge>
           </div>
-          <div className="mt-4 whitespace-pre-wrap text-sm text-[color:var(--ink)]">
+          <div className="mt-4 whitespace-pre-wrap text-sm text-[#191F28]">
             {company.products ?? "—"}
           </div>
         </Card>
@@ -241,23 +241,23 @@ export default function CompanyDetailPage() {
         <Card variant="strong" className="rounded-3xl p-5">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
-              <div className="text-sm font-semibold text-[color:var(--ink)]">투자 메모</div>
-              <div className="mt-1 text-xs text-[color:var(--muted)]">Airtable 원본 기준</div>
+              <div className="text-sm font-semibold text-[#191F28]">투자 메모</div>
+              <div className="mt-1 text-xs text-[#8B95A1]">Airtable 원본 기준</div>
             </div>
             <Badge tone="neutral">Memo</Badge>
           </div>
           <div className="mt-4 grid gap-3 lg:grid-cols-3">
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4">
-              <div className="text-xs font-semibold text-[color:var(--ink)]">투자포인트</div>
-              <div className="mt-2 whitespace-pre-wrap text-sm text-[color:var(--muted)]">{company.investmentPoint ?? "—"}</div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4">
+              <div className="text-xs font-semibold text-[#191F28]">투자포인트</div>
+              <div className="mt-2 whitespace-pre-wrap text-sm text-[#8B95A1]">{company.investmentPoint ?? "—"}</div>
             </div>
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4">
-              <div className="text-xs font-semibold text-[color:var(--ink)]">Exit 방안</div>
-              <div className="mt-2 whitespace-pre-wrap text-sm text-[color:var(--muted)]">{company.exitPlan ?? "—"}</div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4">
+              <div className="text-xs font-semibold text-[#191F28]">Exit 방안</div>
+              <div className="mt-2 whitespace-pre-wrap text-sm text-[#8B95A1]">{company.exitPlan ?? "—"}</div>
             </div>
-            <div className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4">
-              <div className="text-xs font-semibold text-[color:var(--ink)]">Exit 예상</div>
-              <div className="mt-2 whitespace-pre-wrap text-sm text-[color:var(--muted)]">{company.exitExpectation ?? "—"}</div>
+            <div className="rounded-2xl border border-[#E5E8EB] bg-white p-4">
+              <div className="text-xs font-semibold text-[#191F28]">Exit 예상</div>
+              <div className="mt-2 whitespace-pre-wrap text-sm text-[#8B95A1]">{company.exitExpectation ?? "—"}</div>
             </div>
           </div>
         </Card>

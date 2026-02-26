@@ -78,7 +78,7 @@ export function PresenceBar({ sessionId }: { sessionId: string }) {
             <div
               key={m.memberKey}
               title={m.memberName}
-              className="h-8 w-8 overflow-hidden rounded-full border border-white/70 bg-white/80 shadow-sm"
+              className="h-8 w-8 overflow-hidden rounded-full border-2 border-white bg-[#F2F4F6] shadow-sm"
             >
               {m.memberImage ? (
                 // eslint-disable-next-line @next/next/no-img-element

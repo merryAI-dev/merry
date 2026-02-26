@@ -11,15 +11,12 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
         ref={ref}
         type={type}
         className={cn(
-          "h-11 w-full rounded-xl border border-[color:var(--line)] " +
-            "bg-[color:var(--card)] backdrop-blur-md px-3 text-sm text-[color:var(--ink)] " +
-            "shadow-sm outline-none transition-all duration-300 " +
-            "placeholder:text-[color:var(--muted)] " +
-            "focus:border-[color:var(--accent-cyan)] " +
-            "focus:bg-white " +
-            "focus:shadow-[0_0_15px_rgba(0,102,204,0.12),0_4px_16px_rgba(0,30,70,0.08)] " +
-            "hover:border-[color:var(--accent-purple)]/40 " +
-            "dark:focus:bg-[color:var(--card-strong)] dark:focus:shadow-[0_0_20px_rgba(30,64,175,0.15)]",
+          "h-11 w-full rounded-xl border border-[#E5E8EB] bg-white px-3 text-sm text-[#191F28] " +
+          "placeholder:text-[#B0B8C1] outline-none " +
+          "hover:border-[#C7CDD3] " +
+          "focus:border-[#3182F6] focus:ring-2 focus:ring-[#3182F6]/15 " +
+          "disabled:bg-[#F2F4F6] disabled:text-[#B0B8C1] disabled:cursor-not-allowed " +
+          "read-only:bg-[#F8F9FA] read-only:text-[#4E5968]",
           className,
         )}
         {...props}

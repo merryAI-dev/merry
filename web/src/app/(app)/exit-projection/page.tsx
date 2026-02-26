@@ -167,15 +167,15 @@ function ExitTooltip({ active, payload }: any) {
   const p = payload[0]?.payload as ExitScenario | undefined;
   if (!p) return null;
   return (
-    <div className="rounded-2xl border border-[color:var(--line)] bg-white/95 px-3 py-2 shadow-sm">
-      <div className="text-xs font-medium text-[color:var(--muted)]">PER {p.per}</div>
+    <div className="rounded-2xl border border-[#E5E8EB] bg-white px-3 py-2 shadow-sm">
+      <div className="text-xs font-medium text-[#8B95A1]">PER {p.per}</div>
       <div className="mt-1 flex items-center justify-between gap-6 text-xs">
-        <span className="text-[color:var(--muted)]">IRR</span>
-        <span className="font-mono text-[color:var(--ink)]">{fmtIrr(p.irr)}</span>
+        <span className="text-[#8B95A1]">IRR</span>
+        <span className="font-mono text-[#191F28]">{fmtIrr(p.irr)}</span>
       </div>
       <div className="mt-1 flex items-center justify-between gap-6 text-xs">
-        <span className="text-[color:var(--muted)]">Multiple</span>
-        <span className="font-mono text-[color:var(--ink)]">{fmtMultiple(p.multiple)}</span>
+        <span className="text-[#8B95A1]">Multiple</span>
+        <span className="font-mono text-[#191F28]">{fmtMultiple(p.multiple)}</span>
       </div>
     </div>
   );
@@ -310,11 +310,11 @@ export default function ExitProjectionPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-[color:var(--muted)]">Exit Projection</div>
-          <h1 className="mt-1 font-[family-name:var(--font-display)] text-3xl tracking-tight text-[color:var(--ink)]">
+          <div className="text-sm font-medium text-[#8B95A1]">Exit Projection</div>
+          <h1 className="mt-1 font-black tracking-tight text-2xl text-[#191F28]">
             Exit 프로젝션
           </h1>
-          <div className="mt-2 text-sm text-[color:var(--muted)]">
+          <div className="mt-2 text-sm text-[#8B95A1]">
             엑셀을 업로드하면 S3로 직접 전송되고, 계산은 워커 잡으로 처리됩니다. 원본 파일은 처리 후 삭제됩니다.
           </div>
         </div>
@@ -324,14 +324,14 @@ export default function ExitProjectionPage() {
             <RefreshCw className="h-4 w-4" />
             새로고침
           </Button>
-          <Link href="/analysis" className="text-sm text-[color:var(--muted)] hover:text-[color:var(--ink)]">
+          <Link href="/analysis" className="text-sm text-[#8B95A1] hover:text-[#191F28]">
             (고급) 전체 잡 러너 →
           </Link>
         </div>
       </div>
 
       {error ? (
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-900">
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
         </div>
       ) : null}
@@ -343,8 +343,8 @@ export default function ExitProjectionPage() {
 
           <div className="relative flex items-start justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold text-[color:var(--ink)]">새 프로젝션 만들기</div>
-              <div className="mt-1 text-xs text-[color:var(--muted)]">
+              <div className="text-sm font-semibold text-[#191F28]">새 프로젝션 만들기</div>
+              <div className="mt-1 text-xs text-[#8B95A1]">
                 PER 시나리오별 IRR을 색상으로 표시합니다. (녹색 &gt; 30%, 노랑 15-30%, 빨강 &lt; 15%)
               </div>
             </div>
@@ -352,23 +352,23 @@ export default function ExitProjectionPage() {
           </div>
 
           <div className="relative mt-4 grid gap-3 md:grid-cols-2">
-            <div className="rounded-3xl border border-dashed border-[color:var(--line)] bg-white/60 p-4">
-              <div className="flex items-center gap-2 text-sm font-medium text-[color:var(--ink)]">
-                <UploadCloud className="h-4 w-4 text-[color:var(--accent-cyan)]" />
+            <div className="rounded-3xl border border-dashed border-[#E5E8EB] bg-white p-4">
+              <div className="flex items-center gap-2 text-sm font-medium text-[#191F28]">
+                <UploadCloud className="h-4 w-4 text-[#3182F6]" />
                 엑셀 업로드
               </div>
-              <div className="mt-2 text-xs text-[color:var(--muted)]">`.xlsx`, `.xls`</div>
+              <div className="mt-2 text-xs text-[#8B95A1]">`.xlsx`, `.xls`</div>
               <div className="mt-3">
                 <input
                   ref={fileRef}
                   type="file"
                   accept=".xlsx,.xls"
-                  className="block w-full text-sm text-[color:var(--muted)] file:mr-3 file:rounded-xl file:border-0 file:bg-black/[0.06] file:px-3 file:py-2 file:text-sm file:font-medium file:text-[color:var(--ink)] hover:file:bg-black/[0.08]"
+                  className="block w-full text-sm text-[#8B95A1] file:mr-3 file:rounded-xl file:border-0 file:bg-black/[0.06] file:px-3 file:py-2 file:text-sm file:font-medium file:text-[#191F28] hover:file:bg-black/[0.08]"
                   onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 />
               </div>
               {file ? (
-                <div className="mt-3 rounded-2xl border border-[color:var(--line)] bg-white/70 px-3 py-2 text-xs text-[color:var(--muted)]">
+                <div className="mt-3 rounded-2xl border border-[#E5E8EB] bg-white px-3 py-2 text-xs text-[#8B95A1]">
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate">{file.name}</span>
                     <span className="font-mono">{fmtCompact(file.size)}B</span>
@@ -377,10 +377,10 @@ export default function ExitProjectionPage() {
               ) : null}
             </div>
 
-            <div className="rounded-3xl border border-[color:var(--line)] bg-white/60 p-4">
+            <div className="rounded-3xl border border-[#E5E8EB] bg-white p-4">
               <div className="grid gap-3">
                 <div>
-                  <div className="text-xs font-medium text-[color:var(--muted)]">목표 연도</div>
+                  <div className="text-xs font-medium text-[#8B95A1]">목표 연도</div>
                   <Input
                     value={targetYear}
                     onChange={(e) => setTargetYear(e.target.value)}
@@ -392,8 +392,8 @@ export default function ExitProjectionPage() {
 
                 <div>
                   <div className="flex items-center justify-between gap-2">
-                    <div className="text-xs font-medium text-[color:var(--muted)]">PER 배수</div>
-                    <div className="text-[11px] text-[color:var(--muted)]">{perMultiples.length}개</div>
+                    <div className="text-xs font-medium text-[#8B95A1]">PER 배수</div>
+                    <div className="text-[11px] text-[#8B95A1]">{perMultiples.length}개</div>
                   </div>
                   <Input
                     value={perRaw}
@@ -411,8 +411,8 @@ export default function ExitProjectionPage() {
                           className={cn(
                             "rounded-full px-2.5 py-1 text-xs font-medium transition-colors",
                             active
-                              ? "bg-[color:color-mix(in_oklab,var(--accent-cyan),white_86%)] text-[color:var(--ink)]"
-                              : "bg-black/[0.05] text-[color:var(--muted)] hover:bg-black/[0.08]",
+                              ? "bg-[color:color-mix(in_oklab,var(--accent-cyan),white_86%)] text-[#191F28]"
+                              : "bg-black/[0.05] text-[#8B95A1] hover:bg-black/[0.08]",
                           )}
                           onClick={() => {
                             const set = new Set(perMultiples);
@@ -445,8 +445,8 @@ export default function ExitProjectionPage() {
         <Card variant="strong" className="rounded-3xl p-5 lg:col-span-2">
           <div className="flex items-end justify-between gap-3">
             <div>
-              <div className="text-sm font-semibold text-[color:var(--ink)]">최근 실행</div>
-              <div className="mt-1 text-xs text-[color:var(--muted)]">{jobs.length}개</div>
+              <div className="text-sm font-semibold text-[#191F28]">최근 실행</div>
+              <div className="mt-1 text-xs text-[#8B95A1]">{jobs.length}개</div>
             </div>
             <Badge tone="neutral">Exit</Badge>
           </div>
@@ -461,14 +461,14 @@ export default function ExitProjectionPage() {
                     "w-full rounded-2xl border px-3 py-2 text-left transition-colors",
                     j.jobId === activeJobId
                       ? "border-[color:var(--accent-cyan)]/40 bg-[color:color-mix(in_oklab,var(--accent-cyan),white_92%)]"
-                      : "border-[color:var(--line)] bg-white/60 hover:bg-white/80",
+                      : "border-[#E5E8EB] bg-white hover:bg-white",
                   )}
                   onClick={() => setActiveJobId(j.jobId)}
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="truncate text-sm font-medium text-[color:var(--ink)]">{j.title}</div>
-                      <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-[color:var(--muted)]">
+                      <div className="truncate text-sm font-medium text-[#191F28]">{j.title}</div>
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-[#8B95A1]">
                         <span className="font-mono">{j.jobId}</span>
                         <span>·</span>
                         <span className="font-mono">{(j.createdAt || "").replace("T", " ").slice(0, 16)}</span>
@@ -479,7 +479,7 @@ export default function ExitProjectionPage() {
                 </button>
               ))
             ) : (
-              <div className="rounded-2xl border border-[color:var(--line)] bg-white/60 px-4 py-3 text-sm text-[color:var(--muted)]">
+              <div className="rounded-2xl border border-[#E5E8EB] bg-white px-4 py-3 text-sm text-[#8B95A1]">
                 아직 실행한 기록이 없습니다.
               </div>
             )}
@@ -490,11 +490,11 @@ export default function ExitProjectionPage() {
       <Card variant="strong" className="rounded-3xl p-5">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <div className="text-sm font-semibold text-[color:var(--ink)]">시나리오</div>
-            <div className="mt-1 text-xs text-[color:var(--muted)]">
+            <div className="text-sm font-semibold text-[#191F28]">시나리오</div>
+            <div className="mt-1 text-xs text-[#8B95A1]">
               {activeJob ? (
                 <>
-                  선택된 잡: <span className="font-mono text-[color:var(--ink)]">{activeJob.jobId}</span>{" "}
+                  선택된 잡: <span className="font-mono text-[#191F28]">{activeJob.jobId}</span>{" "}
                   {activeJob.status ? <span className="ml-2">{statusBadge(activeJob.status)}</span> : null}
                 </>
               ) : (
@@ -514,7 +514,7 @@ export default function ExitProjectionPage() {
         </div>
 
         {activeJob?.status === "failed" ? (
-          <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-900">
+          <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
             {activeJob.error || "실패"}
           </div>
         ) : null}
@@ -522,74 +522,74 @@ export default function ExitProjectionPage() {
         {activeJob?.status === "succeeded" && scenarios.length ? (
           <>
             <div className="mt-4 grid gap-3 md:grid-cols-4">
-              <div className="rounded-3xl border border-[color:var(--line)] bg-white/60 p-4">
-                <div className="flex items-center gap-2 text-sm font-semibold text-[color:var(--ink)]">
-                  <FileSpreadsheet className="h-4 w-4 text-[color:var(--accent-purple)]" />
+              <div className="rounded-3xl border border-[#E5E8EB] bg-white p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-[#191F28]">
+                  <FileSpreadsheet className="h-4 w-4 text-[#3182F6]" />
                   요약
                 </div>
                 <div className="mt-3 space-y-2 text-xs">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-[color:var(--muted)]">회사</span>
-                    <span className="max-w-[14rem] truncate font-mono text-[color:var(--ink)]">
+                    <span className="text-[#8B95A1]">회사</span>
+                    <span className="max-w-[14rem] truncate font-mono text-[#191F28]">
                       {assumptions.company_name || "—"}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-[color:var(--muted)]">목표연도</span>
-                    <span className="font-mono text-[color:var(--ink)]">{assumptions.target_year ?? "—"}</span>
+                    <span className="text-[#8B95A1]">목표연도</span>
+                    <span className="font-mono text-[#191F28]">{assumptions.target_year ?? "—"}</span>
                   </div>
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-[color:var(--muted)]">보유기간</span>
-                    <span className="font-mono text-[color:var(--ink)]">
+                    <span className="text-[#8B95A1]">보유기간</span>
+                    <span className="font-mono text-[#191F28]">
                       {typeof assumptions.holding_period_years === "number" ? `${assumptions.holding_period_years}y` : "—"}
                     </span>
                   </div>
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-[color:var(--line)] bg-white/60 p-4">
-                <div className="text-xs font-medium text-[color:var(--muted)]">Investment</div>
-                <div className="mt-2 font-[family-name:var(--font-display)] text-2xl tracking-tight text-[color:var(--ink)]">
+              <div className="rounded-3xl border border-[#E5E8EB] bg-white p-4">
+                <div className="text-xs font-medium text-[#8B95A1]">Investment</div>
+                <div className="mt-2 font-black tracking-tight text-2xl tracking-tight text-[#191F28]">
                   {fmtCompact(assumptions.investment_amount)}
                 </div>
-                <div className="mt-2 text-xs text-[color:var(--muted)]">
-                  Shares <span className="ml-2 font-mono text-[color:var(--ink)]">{fmtCompact(assumptions.shares)}</span>
+                <div className="mt-2 text-xs text-[#8B95A1]">
+                  Shares <span className="ml-2 font-mono text-[#191F28]">{fmtCompact(assumptions.shares)}</span>
                 </div>
-                <div className="mt-1 text-xs text-[color:var(--muted)]">
-                  Total <span className="ml-2 font-mono text-[color:var(--ink)]">{fmtCompact(assumptions.total_shares)}</span>
+                <div className="mt-1 text-xs text-[#8B95A1]">
+                  Total <span className="ml-2 font-mono text-[#191F28]">{fmtCompact(assumptions.total_shares)}</span>
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-[color:var(--line)] bg-white/60 p-4">
-                <div className="text-xs font-medium text-[color:var(--muted)]">Net Income (Target Year)</div>
-                <div className="mt-2 font-[family-name:var(--font-display)] text-2xl tracking-tight text-[color:var(--ink)]">
+              <div className="rounded-3xl border border-[#E5E8EB] bg-white p-4">
+                <div className="text-xs font-medium text-[#8B95A1]">Net Income (Target Year)</div>
+                <div className="mt-2 font-black tracking-tight text-2xl tracking-tight text-[#191F28]">
                   {fmtCompact(assumptions.net_income)}
                 </div>
-                <div className="mt-3 text-xs text-[color:var(--muted)]">
-                  PER 목록 <span className="ml-2 font-mono text-[color:var(--ink)]">{(assumptions.per_multiples || []).join(", ") || "—"}</span>
+                <div className="mt-3 text-xs text-[#8B95A1]">
+                  PER 목록 <span className="ml-2 font-mono text-[#191F28]">{(assumptions.per_multiples || []).join(", ") || "—"}</span>
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-[color:var(--line)] bg-white/60 p-4">
-                <div className="text-xs font-medium text-[color:var(--muted)]">Best IRR</div>
+              <div className="rounded-3xl border border-[#E5E8EB] bg-white p-4">
+                <div className="text-xs font-medium text-[#8B95A1]">Best IRR</div>
                 <div className="mt-2 flex items-baseline justify-between gap-2">
-                  <div className="font-[family-name:var(--font-display)] text-2xl tracking-tight text-[color:var(--ink)]">
+                  <div className="font-black tracking-tight text-2xl tracking-tight text-[#191F28]">
                     {fmtIrr(best?.irr)}
                   </div>
                   <Badge tone={irrTone(best?.irr)}>{best ? `${best.per}x` : "—"}</Badge>
                 </div>
-                <div className="mt-3 text-xs text-[color:var(--muted)]">
-                  Multiple <span className="ml-2 font-mono text-[color:var(--ink)]">{fmtMultiple(best?.multiple)}</span>
+                <div className="mt-3 text-xs text-[#8B95A1]">
+                  Multiple <span className="ml-2 font-mono text-[#191F28]">{fmtMultiple(best?.multiple)}</span>
                 </div>
               </div>
             </div>
 
             <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <div className="rounded-3xl border border-[color:var(--line)] bg-white/60 p-4">
+              <div className="rounded-3xl border border-[#E5E8EB] bg-white p-4">
                 <div className="flex items-end justify-between gap-3">
                   <div>
-                    <div className="text-sm font-semibold text-[color:var(--ink)]">IRR 분포</div>
-                    <div className="mt-1 text-xs text-[color:var(--muted)]">PER에 따른 IRR 변화</div>
+                    <div className="text-sm font-semibold text-[#191F28]">IRR 분포</div>
+                    <div className="mt-1 text-xs text-[#8B95A1]">PER에 따른 IRR 변화</div>
                   </div>
                   <div className="flex items-center gap-2 text-xs">
                     <Badge tone="success">30%+</Badge>
@@ -620,28 +620,28 @@ export default function ExitProjectionPage() {
                 </div>
               </div>
 
-              <div className="rounded-3xl border border-[color:var(--line)] bg-white/60 p-4">
-                <div className="text-sm font-semibold text-[color:var(--ink)]">시나리오 테이블</div>
-                <div className="mt-1 text-xs text-[color:var(--muted)]">IRR 기준으로 빠르게 비교합니다.</div>
-                <div className="mt-4 overflow-hidden rounded-2xl border border-[color:var(--line)]">
+              <div className="rounded-3xl border border-[#E5E8EB] bg-white p-4">
+                <div className="text-sm font-semibold text-[#191F28]">시나리오 테이블</div>
+                <div className="mt-1 text-xs text-[#8B95A1]">IRR 기준으로 빠르게 비교합니다.</div>
+                <div className="mt-4 overflow-hidden rounded-2xl border border-[#E5E8EB]">
                   <table className="w-full text-sm">
-                    <thead className="bg-black/[0.03] text-xs text-[color:var(--muted)]">
+                    <thead className="bg-black/[0.03] text-xs text-[#8B95A1]">
                       <tr>
                         <th className="px-3 py-2 text-left font-medium">PER</th>
                         <th className="px-3 py-2 text-left font-medium">IRR</th>
                         <th className="px-3 py-2 text-left font-medium">Multiple</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-[color:var(--line)] bg-white/40">
+                    <tbody className="divide-y divide-[color:var(--line)] bg-white">
                       {[...scenarios]
                         .sort((a, b) => (b.irr ?? -999) - (a.irr ?? -999))
                         .map((s) => (
-                          <tr key={`row-${s.per}`} className="hover:bg-white/60">
-                            <td className="px-3 py-2 font-mono text-[color:var(--ink)]">{s.per}x</td>
+                          <tr key={`row-${s.per}`} className="hover:bg-white">
+                            <td className="px-3 py-2 font-mono text-[#191F28]">{s.per}x</td>
                             <td className="px-3 py-2">
                               <Badge tone={irrTone(s.irr)}>{fmtIrr(s.irr)}</Badge>
                             </td>
-                            <td className="px-3 py-2 font-mono text-[color:var(--ink)]">{fmtMultiple(s.multiple)}</td>
+                            <td className="px-3 py-2 font-mono text-[#191F28]">{fmtMultiple(s.multiple)}</td>
                           </tr>
                         ))}
                     </tbody>
@@ -651,7 +651,7 @@ export default function ExitProjectionPage() {
             </div>
           </>
         ) : (
-          <div className="mt-4 rounded-2xl border border-[color:var(--line)] bg-white/60 px-4 py-3 text-sm text-[color:var(--muted)]">
+          <div className="mt-4 rounded-2xl border border-[#E5E8EB] bg-white px-4 py-3 text-sm text-[#8B95A1]">
             {activeJob?.status === "queued" || activeJob?.status === "running" ? "계산 중입니다. 잠시만 기다려주세요." : "결과가 아직 없습니다."}
           </div>
         )}

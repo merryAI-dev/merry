@@ -109,7 +109,7 @@ function Column({
       )}
     >
       <div className="flex items-center justify-between">
-        <div className="text-sm font-semibold text-[color:var(--ink)]">{title}</div>
+        <div className="text-sm font-semibold text-[#191F28]">{title}</div>
         <Badge tone="neutral">{count}</Badge>
       </div>
       <div className="mt-3 flex flex-col gap-2">{children}</div>
@@ -132,13 +132,13 @@ function TaskCard({ task }: { task: TeamTask }) {
       ref={setNodeRef}
       style={style}
       className={cn(
-        "rounded-2xl border border-[color:var(--line)] bg-white/80 p-3 shadow-sm transition-shadow",
+        "rounded-2xl border border-[#E5E8EB] bg-white p-3 shadow-sm transition-shadow",
         isDragging && "shadow-lg",
       )}
     >
       <div className="flex items-start gap-2">
         <button
-          className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-xl border border-[color:var(--line)] bg-white/70 text-black/60 hover:bg-white"
+          className="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-xl border border-[#E5E8EB] bg-white text-black/60 hover:bg-white"
           {...listeners}
           {...attributes}
           aria-label="drag"
@@ -146,10 +146,10 @@ function TaskCard({ task }: { task: TeamTask }) {
           <GripVertical className="h-4 w-4" />
         </button>
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-medium text-[color:var(--ink)]">
+          <div className="truncate text-sm font-medium text-[#191F28]">
             {task.title}
           </div>
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[color:var(--muted)]">
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#8B95A1]">
             <span>담당: {task.owner || "미정"}</span>
             {due ? <span>· {due}</span> : null}
           </div>
@@ -339,13 +339,13 @@ export default function HubPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="text-sm font-medium text-[color:var(--muted)]">
+          <div className="text-sm font-medium text-[#8B95A1]">
             Team Collaboration Hub
           </div>
-          <h1 className="mt-1 font-[family-name:var(--font-display)] text-3xl tracking-tight text-[color:var(--ink)]">
+          <h1 className="mt-1 font-black tracking-tight text-2xl text-[#191F28]">
             팀 협업 허브
           </h1>
-          <div className="mt-2 text-sm text-[color:var(--muted)]">
+          <div className="mt-2 text-sm text-[#8B95A1]">
             과업, 서류, 일정, 코멘트를 한 화면에서 정돈합니다.
           </div>
         </div>
@@ -358,27 +358,27 @@ export default function HubPage() {
       </div>
 
       {error ? (
-        <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-900">
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
           {error}
         </div>
       ) : null}
 
       <div className="grid gap-4 md:grid-cols-4">
         <Card>
-          <div className="text-xs font-medium text-[color:var(--muted)]">진행 전</div>
-          <div className="mt-1 text-2xl font-semibold text-[color:var(--ink)]">{todo.length}</div>
+          <div className="text-xs font-medium text-[#8B95A1]">진행 전</div>
+          <div className="mt-1 text-2xl font-semibold text-[#191F28]">{todo.length}</div>
         </Card>
         <Card>
-          <div className="text-xs font-medium text-[color:var(--muted)]">진행 중</div>
-          <div className="mt-1 text-2xl font-semibold text-[color:var(--ink)]">{progress.length}</div>
+          <div className="text-xs font-medium text-[#8B95A1]">진행 중</div>
+          <div className="mt-1 text-2xl font-semibold text-[#191F28]">{progress.length}</div>
         </Card>
         <Card>
-          <div className="text-xs font-medium text-[color:var(--muted)]">완료</div>
-          <div className="mt-1 text-2xl font-semibold text-[color:var(--ink)]">{done.length}</div>
+          <div className="text-xs font-medium text-[#8B95A1]">완료</div>
+          <div className="mt-1 text-2xl font-semibold text-[#191F28]">{done.length}</div>
         </Card>
         <Card>
-          <div className="text-xs font-medium text-[color:var(--muted)]">필수 서류 업로드</div>
-          <div className="mt-1 text-2xl font-semibold text-[color:var(--ink)]">
+          <div className="text-xs font-medium text-[#8B95A1]">필수 서류 업로드</div>
+          <div className="mt-1 text-2xl font-semibold text-[#191F28]">
             {requiredUploaded.length}/{required.length}
           </div>
         </Card>
@@ -389,10 +389,10 @@ export default function HubPage() {
           <Card variant="strong" className="p-5">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-[color:var(--ink)]">
+                <div className="text-sm font-semibold text-[#191F28]">
                   팀 과업 보드
                 </div>
-                <div className="mt-1 text-sm text-[color:var(--muted)]">
+                <div className="mt-1 text-sm text-[#8B95A1]">
                   카드를 드래그해서 상태를 바꾸세요.
                 </div>
               </div>
@@ -447,10 +447,10 @@ export default function HubPage() {
           <Card variant="strong" className="p-5">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-[color:var(--ink)]">
+                <div className="text-sm font-semibold text-[#191F28]">
                   메리의 협업 브리프
                 </div>
-                <div className="mt-1 text-sm text-[color:var(--muted)]">
+                <div className="mt-1 text-sm text-[#8B95A1]">
                   팀 데이터를 요약해 오늘의 실행 포인트를 제안합니다.
                 </div>
               </div>
@@ -472,9 +472,9 @@ export default function HubPage() {
                     ["확인 질문", brief.questions],
                   ] as Array<[string, string[] | undefined]>
                 ).map(([title, items]) => (
-                  <div key={title} className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-4">
-                    <div className="text-xs font-semibold text-[color:var(--ink)]">{title}</div>
-                    <div className="mt-2 space-y-1 text-sm text-[color:var(--muted)]">
+                  <div key={title} className="rounded-2xl border border-[#E5E8EB] bg-white p-4">
+                    <div className="text-xs font-semibold text-[#191F28]">{title}</div>
+                    <div className="mt-2 space-y-1 text-sm text-[#8B95A1]">
                       {(items ?? []).length ? (
                         (items ?? []).slice(0, 6).map((it, idx) => (
                           <div key={idx} className="flex gap-2">
@@ -483,14 +483,14 @@ export default function HubPage() {
                           </div>
                         ))
                       ) : (
-                        <div className="text-sm text-[color:var(--muted)]">없음</div>
+                        <div className="text-sm text-[#8B95A1]">없음</div>
                       )}
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="mt-4 text-sm text-[color:var(--muted)]">
+              <div className="mt-4 text-sm text-[#8B95A1]">
                 버튼을 누르면 브리프를 생성합니다.
               </div>
             )}
@@ -501,8 +501,8 @@ export default function HubPage() {
           <Card variant="strong" className="p-5">
             <div className="flex items-end justify-between gap-3">
               <div>
-                <div className="text-sm font-semibold text-[color:var(--ink)]">서류 체크리스트</div>
-                <div className="mt-1 text-sm text-[color:var(--muted)]">
+                <div className="text-sm font-semibold text-[#191F28]">서류 체크리스트</div>
+                <div className="mt-1 text-sm text-[#8B95A1]">
                   필수 서류 업로드를 빠르게 체크합니다.
                 </div>
               </div>
@@ -522,7 +522,7 @@ export default function HubPage() {
                 {docs.map((d) => (
                   <label
                     key={d.id}
-                    className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[color:var(--line)] bg-[color:var(--card)]/60 backdrop-blur-sm p-3 transition-all duration-200 hover:bg-[color:var(--card)]/90 hover:border-[color:var(--accent-purple)]/30 hover:shadow-[0_0_15px_rgba(30,64,175,0.1)]"
+                    className="flex cursor-pointer items-start gap-3 rounded-2xl border border-[#E5E8EB] bg-white  p-3 transition-all duration-200 hover:bg-white hover:border-[color:var(--accent-purple)]/30 hover:shadow-[0_0_15px_rgba(30,64,175,0.1)]"
                   >
                     <input
                       type="checkbox"
@@ -532,12 +532,12 @@ export default function HubPage() {
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <div className="truncate text-sm font-medium text-[color:var(--ink)]">
+                        <div className="truncate text-sm font-medium text-[#191F28]">
                           {d.name}
                         </div>
                         {d.required ? <Badge tone="accent">필수</Badge> : <Badge>선택</Badge>}
                       </div>
-                      <div className="mt-1 text-xs text-[color:var(--muted)]">
+                      <div className="mt-1 text-xs text-[#8B95A1]">
                         담당: {d.owner || "미정"}
                       </div>
                     </div>
@@ -548,8 +548,8 @@ export default function HubPage() {
           </Card>
 
           <Card variant="strong" className="p-5">
-            <div className="text-sm font-semibold text-[color:var(--ink)]">팀 캘린더</div>
-            <div className="mt-1 text-sm text-[color:var(--muted)]">다가오는 일정 메모.</div>
+            <div className="text-sm font-semibold text-[#191F28]">팀 캘린더</div>
+            <div className="mt-1 text-sm text-[#8B95A1]">다가오는 일정 메모.</div>
             <div className="mt-4 space-y-2">
               <div className="grid grid-cols-[1fr_1.2fr_auto] gap-2">
                 <Input
@@ -570,22 +570,22 @@ export default function HubPage() {
                 {events.map((e) => (
                   <div
                     key={e.id}
-                    className="rounded-2xl border border-[color:var(--line)] bg-[color:var(--card)]/60 backdrop-blur-sm p-3 transition-all duration-200 hover:border-[color:var(--accent-cyan)]/30 hover:shadow-[0_0_15px_rgba(6,182,212,0.1)]"
+                    className="rounded-2xl border border-[#E5E8EB] bg-white  p-3 transition-all duration-200 hover:border-[color:var(--accent-cyan)]/30 hover:shadow-[0_0_15px_rgba(6,182,212,0.1)]"
                   >
-                    <div className="text-xs font-medium text-[color:var(--accent-cyan)]">{e.date}</div>
-                    <div className="mt-1 text-sm font-medium text-[color:var(--ink)]">{e.title}</div>
+                    <div className="text-xs font-medium text-[#3182F6]">{e.date}</div>
+                    <div className="mt-1 text-sm font-medium text-[#191F28]">{e.title}</div>
                   </div>
                 ))}
                 {!events.length ? (
-                  <div className="text-sm text-[color:var(--muted)]">일정이 없습니다.</div>
+                  <div className="text-sm text-[#8B95A1]">일정이 없습니다.</div>
                 ) : null}
               </div>
             </div>
           </Card>
 
           <Card variant="strong" className="p-5">
-            <div className="text-sm font-semibold text-[color:var(--ink)]">팀 코멘트</div>
-            <div className="mt-1 text-sm text-[color:var(--muted)]">
+            <div className="text-sm font-semibold text-[#191F28]">팀 코멘트</div>
+            <div className="mt-1 text-sm text-[#8B95A1]">
               메모/결정사항을 짧게 남겨두세요.
             </div>
             <div className="mt-4 space-y-2">
@@ -600,11 +600,11 @@ export default function HubPage() {
               </Button>
               <div className="max-h-56 space-y-2 overflow-auto pr-1">
                 {comments.map((c, idx) => (
-                  <div key={idx} className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-                    <div className="text-xs text-[color:var(--muted)]">
+                  <div key={idx} className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+                    <div className="text-xs text-[#8B95A1]">
                       {c.created_by || "멤버"} · {c.created_at?.slice(0, 16).replace("T", " ")}
                     </div>
-                    <div className="mt-1 text-sm text-[color:var(--ink)]">{c.text}</div>
+                    <div className="mt-1 text-sm text-[#191F28]">{c.text}</div>
                   </div>
                 ))}
               </div>
@@ -612,24 +612,24 @@ export default function HubPage() {
           </Card>
 
           <Card variant="strong" className="p-5">
-            <div className="text-sm font-semibold text-[color:var(--ink)]">최근 활동</div>
-            <div className="mt-1 text-sm text-[color:var(--muted)]">
+            <div className="text-sm font-semibold text-[#191F28]">최근 활동</div>
+            <div className="mt-1 text-sm text-[#8B95A1]">
               최근 저장된 이벤트 로그.
             </div>
             <div className="mt-4 max-h-72 space-y-2 overflow-auto pr-1">
               {activity.map((a, idx) => (
-                <div key={idx} className="rounded-2xl border border-[color:var(--line)] bg-white/70 p-3">
-                  <div className="text-xs text-[color:var(--muted)]">
+                <div key={idx} className="rounded-2xl border border-[#E5E8EB] bg-white p-3">
+                  <div className="text-xs text-[#8B95A1]">
                     {a.member || "멤버"} · {a.created_at?.slice(0, 16).replace("T", " ")}
                   </div>
-                  <div className="mt-1 text-sm text-[color:var(--ink)]">
+                  <div className="mt-1 text-sm text-[#191F28]">
                     <span className="font-mono text-xs text-black/50">{a.role}</span>{" "}
                     {a.content}
                   </div>
                 </div>
               ))}
               {!activity.length ? (
-                <div className="text-sm text-[color:var(--muted)]">활동이 없습니다.</div>
+                <div className="text-sm text-[#8B95A1]">활동이 없습니다.</div>
               ) : null}
             </div>
           </Card>
