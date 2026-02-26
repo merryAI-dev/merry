@@ -243,7 +243,7 @@ export async function POST(req: Request) {
       .slice(body.section ? -8 : -20)
       .map((m) => ({ role: m.role, content: m.content })) as Array<{ role: "user" | "assistant"; content: string }>;
 
-    const maxTokens = Number(process.env.ANTHROPIC_REPORT_MAX_TOKENS ?? "2000");
+    const maxTokens = Number(process.env.ANTHROPIC_REPORT_MAX_TOKENS ?? "8192");
     const system = buildSystemPrompt({ section: body.section, pack, computeJob });
 
     const encoder = new TextEncoder();
@@ -258,25 +258,48 @@ export async function POST(req: Request) {
             if (!apiKey) throw new Error("Missing env ANTHROPIC_API_KEY");
             const client = new Anthropic({ apiKey });
             const model = process.env.ANTHROPIC_REPORT_MODEL ?? "claude-sonnet-4-5-20250929";
+            const maxRounds = Math.max(1, Math.min(Number(process.env.REPORT_MAX_CONTINUATIONS ?? "4") + 1, 10));
 
-            const stream = client.messages
-              .stream({
-                model,
-                system,
-                max_tokens: maxTokens,
-                messages,
-              })
-              .on("text", (text) => {
-                assistantText += text;
-                controller.enqueue(encoder.encode(text));
-              });
+            let loopMessages = [...messages];
+            let totalInputTokens = 0;
+            let totalOutputTokens = 0;
 
-            const final = await stream.finalMessage().catch(() => null);
-            const usageRaw = (final as unknown as { usage?: unknown } | null)?.usage as unknown;
-            const u = usageRaw && typeof usageRaw === "object" ? (usageRaw as Record<string, unknown>) : {};
+            for (let round = 0; round < maxRounds; round++) {
+              let roundText = "";
+              const stream = client.messages
+                .stream({
+                  model,
+                  system,
+                  max_tokens: maxTokens,
+                  messages: loopMessages,
+                })
+                .on("text", (text) => {
+                  roundText += text;
+                  assistantText += text;
+                  controller.enqueue(encoder.encode(text));
+                });
+
+              const final = await stream.finalMessage().catch(() => null);
+              const usageRaw = (final as unknown as { usage?: unknown } | null)?.usage as unknown;
+              const u = usageRaw && typeof usageRaw === "object" ? (usageRaw as Record<string, unknown>) : {};
+              totalInputTokens += typeof u["input_tokens"] === "number" ? (u["input_tokens"] as number) : 0;
+              totalOutputTokens += typeof u["output_tokens"] === "number" ? (u["output_tokens"] as number) : 0;
+
+              const stopReason = (final as unknown as { stop_reason?: string } | null)?.stop_reason ?? "end_turn";
+              if (stopReason === "max_tokens" && round < maxRounds - 1) {
+                loopMessages = [
+                  ...loopMessages,
+                  { role: "assistant" as const, content: roundText },
+                  { role: "user" as const, content: "끊긴 부분부터 이어서 작성해줘. 이전 내용을 반복하지 마." },
+                ];
+                continue;
+              }
+              break;
+            }
+
             const usage = {
-              inputTokens: typeof u["input_tokens"] === "number" ? (u["input_tokens"] as number) : undefined,
-              outputTokens: typeof u["output_tokens"] === "number" ? (u["output_tokens"] as number) : undefined,
+              inputTokens: totalInputTokens || undefined,
+              outputTokens: totalOutputTokens || undefined,
             };
 
             if (assistantText.trim()) {
@@ -303,117 +326,136 @@ export async function POST(req: Request) {
           }
 
           // Bedrock streaming (avoids Vercel first-byte timeout).
-          // Send a small prelude first so the client receives bytes immediately; it's trimmed before persistence.
           assistantText += "\n";
           controller.enqueue(encoder.encode("\n"));
 
           const modelId = (process.env.BEDROCK_MODEL_ID ?? "").trim();
           if (!modelId) throw new Error("Missing env BEDROCK_MODEL_ID");
 
-          const client = getBedrockRuntimeClient();
-          const payload = {
-            anthropic_version: "bedrock-2023-05-31",
-            max_tokens: maxTokens,
-            temperature: 0.2,
-            system,
-            messages: messages.map((m) => ({
-              role: m.role,
-              content: [{ type: "text", text: m.content }],
-            })),
-          };
+          const bedrockClient = getBedrockRuntimeClient();
+          const maxRounds = Math.max(1, Math.min(Number(process.env.REPORT_MAX_CONTINUATIONS ?? "4") + 1, 10));
+          let loopMessages = messages.map((m) => ({
+            role: m.role,
+            content: [{ type: "text" as const, text: m.content }],
+          }));
+          let totalInputTokens = 0;
+          let totalOutputTokens = 0;
 
-          const resp = await client.send(
-            new InvokeModelWithResponseStreamCommand({
-              modelId,
-              contentType: "application/json",
-              accept: "application/json",
-              body: encoder.encode(JSON.stringify(payload)),
-            }),
-            { abortSignal: abortController.signal },
-          );
+          for (let round = 0; round < maxRounds; round++) {
+            const payload = {
+              anthropic_version: "bedrock-2023-05-31",
+              max_tokens: maxTokens,
+              temperature: 0.2,
+              system,
+              messages: loopMessages,
+            };
 
-          const stream = resp.body;
-          if (!stream) throw new Error("NO_STREAM");
+            const resp = await bedrockClient.send(
+              new InvokeModelWithResponseStreamCommand({
+                modelId,
+                contentType: "application/json",
+                accept: "application/json",
+                body: encoder.encode(JSON.stringify(payload)),
+              }),
+              { abortSignal: abortController.signal },
+            );
 
-          let inputTokens: number | undefined;
-          let outputTokens: number | undefined;
-          const decoder = new TextDecoder("utf-8");
-          let carry = "";
+            const bedrockStream = resp.body;
+            if (!bedrockStream) throw new Error("NO_STREAM");
 
-          const handleObj = (obj: unknown) => {
-            // Usage appears on message_start / message_delta for Anthropic.
-            if (obj && typeof obj === "object") {
+            const decoder = new TextDecoder("utf-8");
+            let carry = "";
+            let roundText = "";
+            let bedrockStopReason = "end_turn";
+
+            const handleObj = (obj: unknown) => {
+              if (!obj || typeof obj !== "object") return;
               const rec = obj as Record<string, unknown>;
               if (rec["type"] === "message_start") {
                 const msg = rec["message"];
                 const usage = msg && typeof msg === "object" ? (msg as Record<string, unknown>)["usage"] : undefined;
                 const u = usage && typeof usage === "object" ? (usage as Record<string, unknown>) : {};
-                inputTokens = inputTokens ?? toNumberOrUndefined(u["input_tokens"]);
-                outputTokens = outputTokens ?? toNumberOrUndefined(u["output_tokens"]);
+                const it = toNumberOrUndefined(u["input_tokens"]);
+                if (it) totalInputTokens += it;
               } else if (rec["type"] === "message_delta") {
                 const usage = rec["usage"];
                 const u = usage && typeof usage === "object" ? (usage as Record<string, unknown>) : {};
-                outputTokens = toNumberOrUndefined(u["output_tokens"]) ?? outputTokens;
+                const ot = toNumberOrUndefined(u["output_tokens"]);
+                if (ot) totalOutputTokens += ot;
+                const delta = rec["delta"];
+                if (delta && typeof delta === "object") {
+                  const sr = (delta as Record<string, unknown>)["stop_reason"];
+                  if (typeof sr === "string") bedrockStopReason = sr;
+                }
+              }
+              const text = extractAnthropicDeltaText(obj);
+              if (!text) return;
+              roundText += text;
+              assistantText += text;
+              controller.enqueue(encoder.encode(text));
+            };
+
+            for await (const event of bedrockStream as any) {
+              const evt = event as any;
+              const errEvt =
+                evt?.internalServerException ??
+                evt?.modelStreamErrorException ??
+                evt?.throttlingException ??
+                evt?.validationException ??
+                evt?.serviceUnavailableException;
+              if (errEvt) {
+                const msg = typeof errEvt?.message === "string" ? errEvt.message : "Bedrock stream error";
+                throw new Error(msg);
+              }
+
+              const chunk = (event as any)?.chunk;
+              const bytes: Uint8Array | undefined = chunk?.bytes;
+              if (!bytes) continue;
+
+              carry += decoder.decode(bytes, { stream: true });
+
+              while (true) {
+                const nl = carry.indexOf("\n");
+                if (nl === -1) break;
+                const line = carry.slice(0, nl).trim();
+                carry = carry.slice(nl + 1);
+                if (!line) continue;
+                try {
+                  handleObj(JSON.parse(line));
+                } catch {
+                  // Keep going
+                }
+              }
+
+              const maybeJson = carry.trim();
+              if (maybeJson) {
+                try {
+                  handleObj(JSON.parse(maybeJson));
+                  carry = "";
+                } catch {
+                  // Likely partial JSON
+                }
               }
             }
 
-            const text = extractAnthropicDeltaText(obj);
-            if (!text) return;
-            assistantText += text;
-            controller.enqueue(encoder.encode(text));
-          };
-
-          for await (const event of stream as any) {
-            const evt = event as any;
-            const errEvt =
-              evt?.internalServerException ??
-              evt?.modelStreamErrorException ??
-              evt?.throttlingException ??
-              evt?.validationException ??
-              evt?.serviceUnavailableException;
-            if (errEvt) {
-              const msg = typeof errEvt?.message === "string" ? errEvt.message : "Bedrock stream error";
-              throw new Error(msg);
-            }
-
-            const chunk = (event as any)?.chunk;
-            const bytes: Uint8Array | undefined = chunk?.bytes;
-            if (!bytes) continue;
-
-            carry += decoder.decode(bytes, { stream: true });
-
-            while (true) {
-              const nl = carry.indexOf("\n");
-              if (nl === -1) break;
-              const line = carry.slice(0, nl).trim();
-              carry = carry.slice(nl + 1);
-              if (!line) continue;
+            carry += decoder.decode();
+            for (const line of carry.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)) {
               try {
                 handleObj(JSON.parse(line));
               } catch {
-                // Keep going; worst-case we drop one malformed line.
+                // ignore
               }
             }
 
-            const maybeJson = carry.trim();
-            if (maybeJson) {
-              try {
-                handleObj(JSON.parse(maybeJson));
-                carry = "";
-              } catch {
-                // Likely partial JSON; wait for more bytes.
-              }
+            if (bedrockStopReason === "max_tokens" && round < maxRounds - 1) {
+              loopMessages = [
+                ...loopMessages,
+                { role: "assistant" as const, content: [{ type: "text" as const, text: roundText }] },
+                { role: "user" as const, content: [{ type: "text" as const, text: "끊긴 부분부터 이어서 작성해줘. 이전 내용을 반복하지 마." }] },
+              ];
+              continue;
             }
-          }
-
-          // Flush any remaining decoder bytes and try one last parse pass.
-          carry += decoder.decode();
-          for (const line of carry.split(/\r?\n/).map((s) => s.trim()).filter(Boolean)) {
-            try {
-              handleObj(JSON.parse(line));
-            } catch {
-              // ignore
-            }
+            break;
           }
 
           if (assistantText.trim()) {
@@ -430,8 +472,8 @@ export async function POST(req: Request) {
                 llm: {
                   provider: "bedrock",
                   model: modelId,
-                  inputTokens,
-                  outputTokens,
+                  inputTokens: totalInputTokens || undefined,
+                  outputTokens: totalOutputTokens || undefined,
                 },
               },
             });

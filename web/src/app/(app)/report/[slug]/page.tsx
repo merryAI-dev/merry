@@ -3,7 +3,7 @@
 import Link from "next/link";
 import * as React from "react";
 import { useParams } from "next/navigation";
-import { ArrowRight, FileText, RefreshCw, Sparkles } from "lucide-react";
+import { ArrowRight, FileText, PanelRightClose, PanelRightOpen, RefreshCw, Sparkles } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -169,7 +169,9 @@ export default function ReportSessionPage() {
   const [prompt, setPrompt] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [sending, setSending] = React.useState(false);
+  const sendingRef = React.useRef(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [genAllLabel, setGenAllLabel] = React.useState<string | null>(null);
 
   const [stash, setStash] = React.useState<ReportStashItem[]>([]);
   const [stashBusy, setStashBusy] = React.useState(false);
@@ -182,6 +184,20 @@ export default function ReportSessionPage() {
   const [recMsg, setRecMsg] = React.useState<string | null>(null);
   const [autoImportEvidence, setAutoImportEvidence] = React.useState(false);
   const autoImportedJobsRef = React.useRef(new Set<string>());
+  const [panelOpen, setPanelOpen] = React.useState(true);
+
+  React.useEffect(() => {
+    const saved = localStorage.getItem("merry:report-panel");
+    if (saved === "0") setPanelOpen(false);
+  }, []);
+
+  function togglePanel() {
+    setPanelOpen((prev) => {
+      const next = !prev;
+      localStorage.setItem("merry:report-panel", next ? "1" : "0");
+      return next;
+    });
+  }
 
   const loadMeta = React.useCallback(async () => {
     try {
@@ -259,10 +275,11 @@ export default function ReportSessionPage() {
     }
   }, [autoImportEvidence]);
 
-  async function sendMessage(message: string, section?: TocSection) {
+  async function sendMessage(message: string, section?: TocSection): Promise<string> {
     const text = message.trim();
-    if (!text || sending) return;
+    if (!text || sendingRef.current) return "";
 
+    sendingRef.current = true;
     setSending(true);
     setError(null);
 
@@ -285,6 +302,7 @@ export default function ReportSessionPage() {
     setMessages((prev) => [...prev, optimisticUser, optimisticAssistant]);
     setPrompt("");
 
+    let acc = "";
     try {
       const res = await fetch("/api/report/chat", {
         method: "POST",
@@ -301,7 +319,6 @@ export default function ReportSessionPage() {
       if (!reader) throw new Error("NO_STREAM");
 
       const decoder = new TextDecoder("utf-8");
-      let acc = "";
 
       while (true) {
         const { done, value } = await reader.read();
@@ -320,8 +337,32 @@ export default function ReportSessionPage() {
     } catch {
       setError("전송/생성에 실패했습니다. Bedrock/LLM 환경변수와 모델 접근 권한을 확인하세요.");
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
+    return acc;
+  }
+
+  async function generateAll() {
+    if (sendingRef.current) return;
+    for (let i = 0; i < TOC_SECTIONS.length; i++) {
+      const sec = TOC_SECTIONS[i];
+      if (stashSectionKeys.has(sec.key)) continue;
+      setGenAllLabel(`${i + 1}/${TOC_SECTIONS.length}`);
+      const content = await sendMessage(buildSectionPrompt(sec, meta), sec);
+      if (content && content.trim()) {
+        await addToStash(content, {
+          title: `${sec.index}. ${sec.title}`,
+          source: {
+            kind: "assistant_message",
+            sectionKey: sec.key,
+            sectionTitle: sec.title,
+            sectionIndex: sec.index,
+          },
+        });
+      }
+    }
+    setGenAllLabel(null);
   }
 
   const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant" && m.content.trim());
@@ -506,6 +547,9 @@ export default function ReportSessionPage() {
             <RefreshCw className="h-4 w-4" />
             새로고침
           </Button>
+          <Button variant="secondary" onClick={togglePanel} title={panelOpen ? "패널 접기" : "패널 열기"}>
+            {panelOpen ? <PanelRightClose className="h-4 w-4" /> : <PanelRightOpen className="h-4 w-4" />}
+          </Button>
           <Button
             variant="primary"
             onClick={() =>
@@ -584,7 +628,7 @@ export default function ReportSessionPage() {
         </div>
       </Card>
 
-      <div className="grid gap-6 lg:grid-cols-[1.65fr_1fr]">
+      <div className={panelOpen ? "grid gap-6 lg:grid-cols-[2fr_1fr]" : ""}>
         <Card variant="strong" className="p-0" id="step-write">
           <div className="border-b border-[color:var(--line)] px-5 py-4">
             <div className="text-sm font-semibold text-[color:var(--ink)]">대화</div>
@@ -612,10 +656,18 @@ export default function ReportSessionPage() {
                   </Button>
                 );
               })}
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={generateAll}
+                disabled={sending || genAllLabel !== null}
+              >
+                {genAllLabel ? `생성 중 ${genAllLabel}` : "전체 초안 생성"}
+              </Button>
             </div>
           </div>
 
-          <div className="max-h-[720px] space-y-3 overflow-auto px-5 py-5">
+          <div className="max-h-[calc(100vh-22rem)] min-h-[400px] space-y-3 overflow-auto px-5 py-5">
             {messages.length ? (
               messages.map((m, idx) => (
                 <div key={idx} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
@@ -756,7 +808,7 @@ export default function ReportSessionPage() {
           </div>
         </Card>
 
-        <div className="space-y-6">
+        {panelOpen ? <div className="space-y-6">
           <FactsAssumptionsPanel sessionId={sessionId} companyName={meta?.companyName} evidenceJobs={evidenceJobs} />
 
           <Card variant="strong" className="p-5">
@@ -913,7 +965,7 @@ export default function ReportSessionPage() {
               </div>
             </div>
           </Card>
-        </div>
+        </div> : null}
       </div>
     </div>
   );
