@@ -36,27 +36,13 @@ def _safe_json_loads(value: Any, default: Any = None) -> Any:
 def get_supabase_client() -> Optional["Client"]:
     """
     Supabase 클라이언트 생성
-    Streamlit secrets 또는 환경변수에서 설정 로드
+    환경변수에서 설정 로드
     """
     if not SUPABASE_AVAILABLE:
         return None
 
-    url = None
-    key = None
-
-    # Streamlit secrets에서 먼저 시도
-    try:
-        import streamlit as st
-        url = st.secrets.get("supabase", {}).get("url")
-        key = st.secrets.get("supabase", {}).get("key")
-    except Exception:
-        pass
-
-    # 환경변수 fallback
-    if not url:
-        url = os.getenv("SUPABASE_URL")
-    if not key:
-        key = os.getenv("SUPABASE_KEY")
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
 
     if not url or not key:
         return None
