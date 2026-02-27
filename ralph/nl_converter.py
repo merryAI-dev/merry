@@ -59,6 +59,9 @@ def _nl_from_dict(data: dict, doc_type: str) -> str:
             parts.append(f"개업일은 {data['opening_date']}입니다.")
         return " ".join(parts)
 
+    elif doc_type == "financial_stmt":
+        return _nl_financial_stmt(data)
+
     else:
         # 범용 dict 변환
         skip_keys = {"doc_type", "source_file", "extracted_at", "confidence",
@@ -69,6 +72,32 @@ def _nl_from_dict(data: dict, doc_type: str) -> str:
         for k, v in list(fields.items())[:10]:
             parts.append(f"- {k}: {v}")
         return "\n".join(parts)
+
+
+def _nl_financial_stmt(data: dict) -> str:
+    """재무제표 자연어 변환."""
+    corp = data.get("corp_name", "회사")
+    stmt_type = data.get("statement_type", "재무제표")
+    parts = [f"{corp}의 {stmt_type} 추출 결과입니다."]
+
+    for stmt in data.get("statements", []):
+        year = stmt.get("year", "?")
+        parts.append(f"\n{year}년도:")
+        if stmt.get("revenue") is not None:
+            parts.append(f"  매출액 {_fmt_money(stmt['revenue'])}")
+        if stmt.get("operating_income") is not None:
+            parts.append(f"  영업이익 {_fmt_money(stmt['operating_income'])}")
+        if stmt.get("net_income") is not None:
+            parts.append(f"  당기순이익 {_fmt_money(stmt['net_income'])}")
+        if stmt.get("total_assets") is not None:
+            parts.append(f"  자산총계 {_fmt_money(stmt['total_assets'])}")
+        if stmt.get("equity") is not None:
+            parts.append(f"  자본총계 {_fmt_money(stmt['equity'])}")
+
+    if data.get("issue_date"):
+        parts.append(f"\n발급일: {data['issue_date']}")
+
+    return "\n".join(parts)
 
 
 def _nl_generic(result: ExtractionResult) -> str:
