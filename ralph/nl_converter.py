@@ -62,6 +62,9 @@ def _nl_from_dict(data: dict, doc_type: str) -> str:
     elif doc_type == "financial_stmt":
         return _nl_financial_stmt(data)
 
+    elif doc_type == "shareholder":
+        return _nl_shareholder(data)
+
     else:
         # 범용 dict 변환
         skip_keys = {"doc_type", "source_file", "extracted_at", "confidence",
@@ -96,6 +99,28 @@ def _nl_financial_stmt(data: dict) -> str:
 
     if data.get("issue_date"):
         parts.append(f"\n발급일: {data['issue_date']}")
+
+    return "\n".join(parts)
+
+
+def _nl_shareholder(data: dict) -> str:
+    """주주명부 자연어 변환."""
+    corp = data.get("corp_name", "회사")
+    parts = [f"{corp}의 주주명부입니다."]
+
+    if data.get("base_date"):
+        parts.append(f"기준일: {data['base_date']}")
+
+    for sh in data.get("shareholders", []):
+        name = sh.get("name", "?")
+        shares = sh.get("shares", 0)
+        ratio = sh.get("ratio", 0)
+        parts.append(f"  {name}: {shares:,}주 ({ratio:.1f}%)")
+
+    if data.get("total_shares"):
+        parts.append(f"발행주식 총수: {data['total_shares']:,}주")
+    if data.get("capital"):
+        parts.append(f"자본금: {_fmt_money(data['capital'])}")
 
     return "\n".join(parts)
 

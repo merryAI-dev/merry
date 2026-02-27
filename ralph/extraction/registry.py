@@ -4,12 +4,14 @@ from __future__ import annotations
 from .base import BaseExtractor
 from .business_reg_extractor import BusinessRegExtractor
 from .financial_stmt_extractor import FinancialStmtExtractor
+from .shareholder_extractor import ShareholderExtractor
 
 
 # 추출기 레지스트리: doc_type → 추출기 인스턴스
 _EXTRACTORS: dict[str, BaseExtractor] = {
     "business_reg": BusinessRegExtractor(),
     "financial_stmt": FinancialStmtExtractor(),
+    "shareholder": ShareholderExtractor(),
 }
 
 
