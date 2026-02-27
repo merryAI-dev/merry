@@ -81,6 +81,7 @@ class LayoutAnalyzer:
                 total_drawings=total_drawings,
                 total_images=total_images,
                 total_tables=total_tables,
+                source_path=pdf_path,
                 has_charts=has_charts,
                 has_raster_images=has_raster_images,
             )

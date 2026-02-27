@@ -283,6 +283,7 @@ class LayoutResult:
     total_drawings: int
     total_images: int
     total_tables: int
+    source_path: str = ""
     has_charts: bool = False
     has_raster_images: bool = False
 

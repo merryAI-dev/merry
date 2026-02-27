@@ -65,6 +65,9 @@ def _nl_from_dict(data: dict, doc_type: str) -> str:
     elif doc_type == "shareholder":
         return _nl_shareholder(data)
 
+    elif doc_type == "investment_review":
+        return _nl_investment_review(data)
+
     else:
         # 범용 dict 변환
         skip_keys = {"doc_type", "source_file", "extracted_at", "confidence",
@@ -121,6 +124,47 @@ def _nl_shareholder(data: dict) -> str:
         parts.append(f"발행주식 총수: {data['total_shares']:,}주")
     if data.get("capital"):
         parts.append(f"자본금: {_fmt_money(data['capital'])}")
+
+    return "\n".join(parts)
+
+
+def _nl_investment_review(data: dict) -> str:
+    """투자검토자료 자연어 변환."""
+    corp = data.get("corp_name", "회사")
+    parts = [f"{corp} 투자검토자료 요약입니다."]
+
+    if data.get("representative"):
+        parts.append(f"대표자: {data['representative']}")
+    if data.get("product_name"):
+        parts.append(f"제품/서비스: {data['product_name']}")
+    if data.get("founded_date"):
+        parts.append(f"설립일: {data['founded_date']}")
+    if data.get("employee_count"):
+        parts.append(f"직원수: {data['employee_count']}")
+
+    if data.get("cap_table"):
+        parts.append(f"\n주주 {len(data['cap_table'])}명 (Cap Table 추출 완료)")
+
+    hist = data.get("historical_financials", {})
+    if hist.get("income_statement"):
+        years = sorted(hist["income_statement"].keys())
+        for y in years[-2:]:
+            is_data = hist["income_statement"][y]
+            rev = is_data.get("revenue")
+            ni = is_data.get("net_income")
+            if rev is not None:
+                parts.append(f"\n{y}년: 매출 {_fmt_money(rev)}, 순이익 {_fmt_money(ni)}")
+
+    proj = data.get("projected_financials", {})
+    if proj:
+        years = sorted(proj.keys())
+        for y in years[:2]:
+            rev = proj[y].get("revenue")
+            ni = proj[y].get("net_income")
+            if rev is not None:
+                parts.append(f"{y}년(E): 매출 {_fmt_money(rev)}, 순이익 {_fmt_money(ni)}")
+
+    parts.append(f"\n이미지 {data.get('image_count', 0)}개, 섹션 {len(data.get('sections', []))}개")
 
     return "\n".join(parts)
 
