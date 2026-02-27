@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 from .base import BaseExtractor
+from .business_reg_extractor import BusinessRegExtractor
 
 
 # 추출기 레지스트리: doc_type → 추출기 인스턴스
-_EXTRACTORS: dict[str, BaseExtractor] = {}
+_EXTRACTORS: dict[str, BaseExtractor] = {
+    "business_reg": BusinessRegExtractor(),
+}
 
 
 def get_extractor(doc_type: str) -> BaseExtractor | None:

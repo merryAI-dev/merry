@@ -46,15 +46,29 @@ def convert_to_natural_language(result, doc_type: str) -> str:
 
 def _nl_from_dict(data: dict, doc_type: str) -> str:
     """dict 데이터에서 자연어 변환."""
-    # 범용 dict 변환
-    skip_keys = {"doc_type", "source_file", "extracted_at", "confidence",
-                  "raw_fields", "natural_language", "statements"}
-    fields = {k: v for k, v in data.items()
-              if v is not None and k not in skip_keys}
-    parts = [f"[{doc_type}] 추출 결과:"]
-    for k, v in list(fields.items())[:10]:
-        parts.append(f"- {k}: {v}")
-    return "\n".join(parts)
+    if doc_type == "business_reg":
+        corp = data.get("corp_name", "회사")
+        biz_num = data.get("business_number", "미상")
+        rep = data.get("representative", "미상")
+        parts = [f"{corp}의 사업자등록번호는 {biz_num}이며, 대표자는 {rep}입니다."]
+        if data.get("business_type"):
+            parts.append(f"업태는 {data['business_type']}이고 종목은 {data.get('business_item', '미상')}입니다.")
+        if data.get("address"):
+            parts.append(f"사업장 소재지는 {data['address']}입니다.")
+        if data.get("opening_date"):
+            parts.append(f"개업일은 {data['opening_date']}입니다.")
+        return " ".join(parts)
+
+    else:
+        # 범용 dict 변환
+        skip_keys = {"doc_type", "source_file", "extracted_at", "confidence",
+                      "raw_fields", "natural_language", "statements"}
+        fields = {k: v for k, v in data.items()
+                  if v is not None and k not in skip_keys}
+        parts = [f"[{doc_type}] 추출 결과:"]
+        for k, v in list(fields.items())[:10]:
+            parts.append(f"- {k}: {v}")
+        return "\n".join(parts)
 
 
 def _nl_generic(result: ExtractionResult) -> str:
