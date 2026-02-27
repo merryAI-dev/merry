@@ -9,6 +9,7 @@ from .investment_review_extractor import InvestmentReviewExtractor
 from .employee_list_extractor import EmployeeListExtractor
 from .certificate_extractor import CertificateExtractor
 from .startup_cert_extractor import StartupCertExtractor
+from .articles_extractor import ArticlesExtractor
 
 
 # 추출기 레지스트리: doc_type → 추출기 인스턴스
@@ -20,6 +21,7 @@ _EXTRACTORS: dict[str, BaseExtractor] = {
     "employee_list": EmployeeListExtractor(),
     "certificate": CertificateExtractor(),
     "startup_cert": StartupCertExtractor(),
+    "articles": ArticlesExtractor(),
 }
 
 

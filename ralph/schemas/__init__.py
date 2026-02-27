@@ -8,6 +8,7 @@ from .investment_review import InvestmentReview
 from .employee_list import EmployeeList
 from .certificate import CertificateSet
 from .startup_cert import StartupCertificate
+from .articles import Articles
 
 # Document type → Schema class mapping
 SCHEMA_MAP: dict[str, type[ExtractionResult]] = {
@@ -18,6 +19,7 @@ SCHEMA_MAP: dict[str, type[ExtractionResult]] = {
     "employee_list": EmployeeList,
     "certificate": CertificateSet,
     "startup_cert": StartupCertificate,
+    "articles": Articles,
 }
 
 __all__ = [
@@ -29,5 +31,6 @@ __all__ = [
     "EmployeeList",
     "CertificateSet",
     "StartupCertificate",
+    "Articles",
     "SCHEMA_MAP",
 ]

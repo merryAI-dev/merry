@@ -68,6 +68,9 @@ def _nl_from_dict(data: dict, doc_type: str) -> str:
     elif doc_type == "investment_review":
         return _nl_investment_review(data)
 
+    elif doc_type == "articles":
+        return _nl_articles(data)
+
     else:
         # 범용 dict 변환
         skip_keys = {"doc_type", "source_file", "extracted_at", "confidence",
@@ -165,6 +168,56 @@ def _nl_investment_review(data: dict) -> str:
                 parts.append(f"{y}년(E): 매출 {_fmt_money(rev)}, 순이익 {_fmt_money(ni)}")
 
     parts.append(f"\n이미지 {data.get('image_count', 0)}개, 섹션 {len(data.get('sections', []))}개")
+
+    return "\n".join(parts)
+
+
+def _nl_articles(data: dict) -> str:
+    """정관 자연어 변환."""
+    corp = data.get("corp_name", "회사")
+    parts = [f"{corp}의 정관입니다."]
+
+    if data.get("established_date"):
+        parts.append(f"제정일: {data['established_date']}")
+    if data.get("latest_revision_date"):
+        parts.append(f"최신 개정일: {data['latest_revision_date']}")
+    if data.get("revision_history"):
+        parts.append(f"총 {len(data['revision_history'])}회 제정/개정")
+
+    if data.get("total_shares_authorized"):
+        parts.append(f"발행할 주식 총수: {data['total_shares_authorized']:,}주")
+    if data.get("par_value"):
+        parts.append(f"1주 액면금: {data['par_value']:,}원")
+    if data.get("initial_shares"):
+        parts.append(f"설립시 발행 주식: {data['initial_shares']:,}주")
+
+    if data.get("headquarters_location"):
+        parts.append(f"본점 소재지: {data['headquarters_location']}")
+
+    if data.get("business_purposes"):
+        purposes = data["business_purposes"]
+        parts.append(f"사업 목적 {len(purposes)}개: {', '.join(purposes[:5])}")
+        if len(purposes) > 5:
+            parts[-1] += f" 외 {len(purposes) - 5}건"
+
+    if data.get("stock_types"):
+        parts.append(f"주식 종류: {', '.join(data['stock_types'])}")
+
+    flags = []
+    if data.get("has_stock_options"):
+        flags.append("주식매수선택권")
+    if data.get("has_convertible_bonds"):
+        flags.append("전환사채")
+    if flags:
+        parts.append(f"특수 조항: {', '.join(flags)}")
+
+    if data.get("director_term_years"):
+        parts.append(f"이사 임기: {data['director_term_years']}년")
+    if data.get("auditor_term_years"):
+        parts.append(f"감사 임기: {data['auditor_term_years']}년")
+
+    if data.get("chapter_count") and data.get("article_count"):
+        parts.append(f"구성: {data['chapter_count']}장 {data['article_count']}조")
 
     return "\n".join(parts)
 
