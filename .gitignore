@@ -56,6 +56,7 @@ temp/
 # Local sensitive data (do not commit)
 companyData/
 0206.md
+ralph/results/
 
 # Test coverage
 .coverage
