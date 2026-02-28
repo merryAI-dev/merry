@@ -401,12 +401,11 @@ def main() -> None:
         visual_description: dict | None = None
 
         if force_pro and use_vlm:
-            # 사용자 수동 요청: 전체 페이지(최대 10p) Nova Pro OCR
+            # 사용자 수동 요청: nova_hybrid와 동일 방식(1페이지, DPI=150) + Pro 모델
+            # → 다중 이미지 + 단일 이미지 프롬프트 조합은 할루시네이션 유발
             try:
-                page_images = render_pages(pdf_path, max_pages=10, dpi=100)
-                visual_description = call_nova_visual(
-                    page_images, model_pro, region, _PROMPT_OCR, max_tokens=5000,
-                )
+                img_bytes = render_first_page(pdf_path, dpi=150)
+                visual_description = call_nova_visual(img_bytes, model_pro, region, _PROMPT_OCR)
                 method = "nova_pro"
                 text_structure = "image"
             except Exception as e:

@@ -104,11 +104,7 @@ function formatCost(method?: string, pages?: number): string {
     // Nova Lite OCR: 1페이지
     return "~$0.003";
   }
-  if (method === "nova_pro") {
-    // Nova Pro OCR: 전체 페이지
-    const p = pages ?? 1;
-    return `~$${(p * 0.002).toFixed(3)}`;
-  }
+  if (method === "nova_pro") return "~$0.006";  // Pro OCR 1p
   return "$0.00";
 }
 
@@ -199,7 +195,11 @@ export default function PlaygroundPage() {
       <div className="flex min-h-0 flex-1 gap-4">
 
         {/* ── Left: PDF Preview ── */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[#E5E8EB] bg-white">
+        <div
+          className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[#E5E8EB] bg-white"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={handleDrop}
+        >
           {previewUrl ? (
             <>
               {/* 파일명만 — iframe이 자체 PDF 컨트롤을 갖고 있으므로 별도 컨트롤 없음 */}
@@ -216,8 +216,6 @@ export default function PlaygroundPage() {
             <label
               htmlFor="pdf-file-input"
               className="flex flex-1 cursor-pointer select-none flex-col items-center justify-center gap-3 text-center"
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDrop}
             >
               <Upload className="h-10 w-10 text-[#D1D5DC]" />
               <p className="text-sm text-[#8B95A1]">PDF를 여기에 놓거나 클릭하여 업로드하세요</p>
