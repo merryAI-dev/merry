@@ -379,8 +379,10 @@ def main() -> None:
         sys.exit(1)
 
     pdf_path = sys.argv[1]
-    model_id = os.getenv("RALPH_VLM_NOVA_MODEL_ID", "us.amazon.nova-pro-v1:0")
-    region = os.getenv("RALPH_VLM_NOVA_REGION", "us-east-1")
+    # 발표자료(차트/다이어그램) → Nova Pro 필요, 스캔 OCR → Nova Lite로 충분
+    model_pro  = os.getenv("RALPH_VLM_NOVA_MODEL_ID",      "us.amazon.nova-pro-v1:0")
+    model_lite = os.getenv("RALPH_VLM_NOVA_LITE_MODEL_ID", "us.amazon.nova-lite-v1:0")
+    region  = os.getenv("RALPH_VLM_NOVA_REGION", "us-east-1")
     use_vlm = os.getenv("RALPH_USE_VLM", "true").lower() != "false"
 
     try:
@@ -398,10 +400,10 @@ def main() -> None:
         visual_description: dict | None = None
 
         if is_poor and use_vlm:
-            # 스캔/이미지 PDF → Nova OCR
+            # 스캔/이미지 PDF → Nova Lite OCR (텍스트 추출, Pro 불필요)
             try:
                 img_bytes = render_first_page(pdf_path)
-                visual_description = call_nova_visual(img_bytes, model_id, region, _PROMPT_OCR)
+                visual_description = call_nova_visual(img_bytes, model_lite, region, _PROMPT_OCR)
                 method = "nova_hybrid"
                 text_structure = "image"
             except Exception as e:
@@ -416,7 +418,7 @@ def main() -> None:
                 pages_info = analyze_pages(pdf_path, max_pages=10)
                 prompt = build_presentation_prompt(pages_info)
                 visual_description = call_nova_visual(
-                    page_images, model_id, region, prompt,
+                    page_images, model_pro, region, prompt,
                     max_tokens=5000,
                 )
                 method = "nova_presentation"
