@@ -92,8 +92,18 @@ function buildMarkdown(result: ParseResult): string {
 
 /* ── Cost helper ── */
 
-function formatCost(method?: string): string {
-  if (method === "nova_hybrid" || method === "nova_presentation") return "~$0.0001";
+function formatCost(method?: string, pages?: number): string {
+  if (method === "nova_presentation") {
+    // Nova Pro: ~$0.0008/1K input + $0.0032/1K output
+    // 1페이지당 ~$0.002, 기본 7페이지 기준 ~$0.015
+    const p = pages ?? 7;
+    const est = p * 0.002;
+    return `~$${est.toFixed(3)}`;
+  }
+  if (method === "nova_hybrid") {
+    // Nova Pro OCR: 1페이지 ~$0.0025
+    return "~$0.003";
+  }
   return "$0.00";
 }
 
@@ -249,7 +259,7 @@ export default function PlaygroundPage() {
                 {result.confidence !== undefined && result.confidence > 0 && ` · 신뢰도 ${(result.confidence * 100).toFixed(0)}%`}
               </span>
               <span className="text-xs text-[#B0B8C1]">
-                {formatCost(result.method)}
+                {formatCost(result.method, result.pages)}
               </span>
             </div>
           )}
