@@ -33,24 +33,24 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s — %(
 logger = logging.getLogger("clip_bench")
 
 # ------------------------------------------------------------------ #
-# Ground truth (익명화 — 실제 파일명으로 채우세요)
+# Ground truth (실제 파일명으로 채우세요)
 # ------------------------------------------------------------------ #
 COMPANY_DATA_DIR = Path(os.getenv("BENCHMARK_DATA_DIR", str(PROJECT_ROOT / "companyData")))
 
 GROUND_TRUTH: dict[str, str] = {
-    "1. MYSC_투자검토자료_스트레스솔루션_251211.pdf": "investment_review",
-    "10. MYSC_IR 자료.pdf": "investment_review",
-    "2. MYSC_주주명부('25.10.16)_주식회사 스트레스솔루션.pdf": "shareholder",
-    "3. MYSC_임직원 명부 (4대보험가입자 명부).pdf": "employee_list",
-    "4. MYSC_사업자등록증.pdf": "business_reg",
-    "5. MYSC_법인등기부등본 (말소사항포함).pdf": "corp_registry",
-    "6-1. MYSC_2022년 표준재무제표증명.pdf": "financial_stmt",
-    "6-2. MYSC_2023년 표준재무제표증명.pdf": "financial_stmt",
-    "6-3. MYSC_2024년 표준재무제표증명.pdf": "financial_stmt",
-    "6-4. MYSC_2025년 표준재무제표증명.pdf": "financial_stmt",
-    "7. MYSC_정관사본.pdf": "articles",
-    "8. MYSC_인증서(중소기업, 벤처기업, 기업부설연구소, 스피커 전파인증KC).pdf": "certificate",
-    "9. MYSC_창업기업확인서.pdf": "startup_cert",
+    "1. 투자검토자료.pdf": "investment_review",
+    "2. IR자료.pdf": "investment_review",
+    "3. 주주명부.pdf": "shareholder",
+    "4. 임직원명부.pdf": "employee_list",
+    "5. 사업자등록증.pdf": "business_reg",
+    "6. 법인등기부등본.pdf": "corp_registry",
+    "7. 2022년_재무제표증명.pdf": "financial_stmt",
+    "8. 2023년_재무제표증명.pdf": "financial_stmt",
+    "9. 2024년_재무제표증명.pdf": "financial_stmt",
+    "10. 2025년_재무제표증명.pdf": "financial_stmt",
+    "11. 정관사본.pdf": "articles",
+    "12. 인증서.pdf": "certificate",
+    "13. 창업기업확인서.pdf": "startup_cert",
 }
 
 # ------------------------------------------------------------------ #
@@ -244,25 +244,27 @@ def main():
 
     # 기준선: DINOv2 & 텍스트 classifier 결과 하드코딩 (이전 벤치마크)
     # (비교 편의를 위해 포함)
+    # 이전 벤치마크 결과 (텍스트 classifier: 11/13, DINOv2: 3/13)
+    # GROUND_TRUTH 키 기준으로 IR자료, 법인등기부등본이 텍스트 CLS 실패 케이스였음
     all_results["텍스트CLS"] = [
         {"filename": f, "true_type": t, "detected": t if f not in [
-            "10. MYSC_IR 자료.pdf",
-            "5. MYSC_법인등기부등본 (말소사항포함).pdf",
+            "2. IR자료.pdf",
+            "6. 법인등기부등본.pdf",
         ] else "unknown", "correct": f not in [
-            "10. MYSC_IR 자료.pdf",
-            "5. MYSC_법인등기부등본 (말소사항포함).pdf",
+            "2. IR자료.pdf",
+            "6. 법인등기부등본.pdf",
         ], "confidence": 0.9, "strategy": "텍스트CLS"}
         for f, t in GROUND_TRUTH.items()
     ]
     all_results["DINOv2"] = [
         {"filename": f, "true_type": t, "detected": t if f in [
-            "6-1. MYSC_2022년 표준재무제표증명.pdf",
-            "6-2. MYSC_2023년 표준재무제표증명.pdf",
-            "6-3. MYSC_2024년 표준재무제표증명.pdf",
+            "7. 2022년_재무제표증명.pdf",
+            "8. 2023년_재무제표증명.pdf",
+            "9. 2024년_재무제표증명.pdf",
         ] else "wrong", "correct": f in [
-            "6-1. MYSC_2022년 표준재무제표증명.pdf",
-            "6-2. MYSC_2023년 표준재무제표증명.pdf",
-            "6-3. MYSC_2024년 표준재무제표증명.pdf",
+            "7. 2022년_재무제표증명.pdf",
+            "8. 2023년_재무제표증명.pdf",
+            "9. 2024년_재무제표증명.pdf",
         ], "confidence": 0.9, "strategy": "DINOv2"}
         for f, t in GROUND_TRUTH.items()
     ]

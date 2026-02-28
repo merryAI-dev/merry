@@ -36,20 +36,22 @@ logger = logging.getLogger("vlm_router_test")
 COMPANY_DATA_DIR = Path(os.getenv("BENCHMARK_DATA_DIR", str(PROJECT_ROOT / "companyData")))
 TEMP_DIR = PROJECT_ROOT / "temp" / "vlm_router_test"
 
+# 실제 파일명으로 채우세요 (companyData/ 디렉토리에 파일이 있어야 합니다).
+# 예시 구조 (파일명과 문서 타입 매핑):
 GROUND_TRUTH: dict[str, str] = {
-    "1. MYSC_투자검토자료_스트레스솔루션_251211.pdf": "investment_review",
-    "10. MYSC_IR 자료.pdf": "investment_review",
-    "2. MYSC_주주명부('25.10.16)_주식회사 스트레스솔루션.pdf": "shareholder",
-    "3. MYSC_임직원 명부 (4대보험가입자 명부).pdf": "employee_list",
-    "4. MYSC_사업자등록증.pdf": "business_reg",
-    "5. MYSC_법인등기부등본 (말소사항포함).pdf": "corp_registry",
-    "6-1. MYSC_2022년 표준재무제표증명.pdf": "financial_stmt",
-    "6-2. MYSC_2023년 표준재무제표증명.pdf": "financial_stmt",
-    "6-3. MYSC_2024년 표준재무제표증명.pdf": "financial_stmt",
-    "6-4. MYSC_2025년 표준재무제표증명.pdf": "financial_stmt",
-    "7. MYSC_정관사본.pdf": "articles",
-    "8. MYSC_인증서(중소기업, 벤처기업, 기업부설연구소, 스피커 전파인증KC).pdf": "certificate",
-    "9. MYSC_창업기업확인서.pdf": "startup_cert",
+    "1. 투자검토자료.pdf": "investment_review",
+    "2. IR자료.pdf": "investment_review",
+    "3. 주주명부.pdf": "shareholder",
+    "4. 임직원명부.pdf": "employee_list",
+    "5. 사업자등록증.pdf": "business_reg",
+    "6. 법인등기부등본.pdf": "corp_registry",
+    "7. 2022년_재무제표증명.pdf": "financial_stmt",
+    "8. 2023년_재무제표증명.pdf": "financial_stmt",
+    "9. 2024년_재무제표증명.pdf": "financial_stmt",
+    "10. 2025년_재무제표증명.pdf": "financial_stmt",
+    "11. 정관사본.pdf": "articles",
+    "12. 인증서.pdf": "certificate",
+    "13. 창업기업확인서.pdf": "startup_cert",
 }
 
 

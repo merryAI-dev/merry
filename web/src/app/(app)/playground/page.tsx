@@ -77,9 +77,7 @@ function buildMarkdown(result: ParseResult): string {
 
   // 텍스트 추출 결과
   if (result.text?.trim()) {
-    lines.push("```");
     lines.push(result.text.trim());
-    lines.push("```");
   } else if (!vd) {
     lines.push("*추출된 텍스트가 없습니다.*");
   }
