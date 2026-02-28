@@ -24,10 +24,14 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import boto3
+from dotenv import load_dotenv
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 TEMP_ROOT = PROJECT_ROOT / "temp"
+
+# 로컬 개발: web/.env.local을 단일 소스로 사용
+load_dotenv(PROJECT_ROOT / "web" / ".env.local", override=False)
 
 
 def _env(name: str, default: Optional[str] = None, required: bool = False) -> str:
@@ -373,6 +377,79 @@ def _handle_pdf_parse(input_path: Path, params: Dict[str, Any]) -> Tuple[List[Di
     return artifacts, metrics
 
 
+def _handle_document_extraction(
+    input_paths: List[Path],
+    file_rows: List[Dict[str, Any]],
+    params: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """다건 문서 일괄 추출 (HITL 파이프라인)."""
+    from ralph.batch_pipeline import process_batch, BatchDocInput
+
+    # params.typeMap: { file_id: doc_type } — 사용자가 HITL에서 확정한 문서 타입
+    type_map = params.get("typeMap") or {}
+
+    docs: List[BatchDocInput] = []
+    for path, row in zip(input_paths, file_rows):
+        file_id = str(row.get("file_id") or path.stem)
+        filename = str(row.get("original_name") or path.name)
+        doc_type = str(type_map.get(file_id, "unknown"))
+        if doc_type == "unknown":
+            continue
+        docs.append(BatchDocInput(
+            file_id=file_id,
+            filename=filename,
+            pdf_path=str(path),
+            doc_type=doc_type,
+        ))
+
+    if not docs:
+        raise RuntimeError("No documents with valid type mapping")
+
+    output_dir = str(input_paths[0].parent / "extraction_results")
+    batch_result = process_batch(docs, output_dir=output_dir)
+
+    artifacts: List[Dict[str, Any]] = []
+
+    # 개별 JSON 결과
+    for r in batch_result.results:
+        json_file = Path(output_dir) / f"{r.file_id}.json"
+        if json_file.exists():
+            artifacts.append({
+                "artifactId": f"extraction_{r.file_id}",
+                "label": f"{r.filename} 추출 결과",
+                "contentType": "application/json",
+                "localPath": str(json_file),
+            })
+
+    # ZIP 번들
+    if batch_result.zip_path and Path(batch_result.zip_path).exists():
+        artifacts.append({
+            "artifactId": "all_results_zip",
+            "label": "전체 추출 결과 (ZIP)",
+            "contentType": "application/zip",
+            "localPath": batch_result.zip_path,
+        })
+
+    metrics: Dict[str, Any] = {
+        "total": batch_result.total,
+        "success_count": batch_result.success_count,
+        "failed_count": batch_result.failed_count,
+        "total_elapsed_seconds": batch_result.total_elapsed_seconds,
+        "results_summary": [
+            {
+                "file_id": r.file_id,
+                "filename": r.filename,
+                "doc_type": r.doc_type,
+                "success": r.success,
+                "confidence": float(r.confidence),
+                "method": r.method,
+            }
+            for r in batch_result.results
+        ],
+    }
+    return artifacts, metrics
+
+
 def _handle_contract_review_single(input_path: Path) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     raise NotImplementedError("Use _handle_contract_review instead")
 
@@ -516,6 +593,9 @@ def process_job(ctx: AwsCtx, team_id: str, job_id: str) -> None:
         metrics.update(extra)
     elif job_type == "contract_review":
         artifacts, extra = _handle_contract_review(local_inputs[:2], params)
+        metrics.update(extra)
+    elif job_type == "document_extraction":
+        artifacts, extra = _handle_document_extraction(local_inputs, file_rows, params)
         metrics.update(extra)
     else:
         raise RuntimeError(f"Unsupported job type: {job_type}")
