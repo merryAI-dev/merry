@@ -267,26 +267,81 @@ def call_nova_visual(
     )
     raw = resp["output"]["message"]["content"][0]["text"]
 
+    def _sanitize(s: str) -> str:
+        """
+        Nova JSON 응답의 두 가지 문제를 수정:
+        1. 문자열 값 내 리터럴 제어 문자(개행 등) → \\n 이스케이프로 변환
+        2. \\uXXXX 에서 XXXX가 16진수 4자리가 아닌 경우 → \\u 제거
+        """
+        _CTRL = {"\n": "\\n", "\r": "\\r", "\t": "\\t"}
+        out: list[str] = []
+        in_str = False
+        i = 0
+        while i < len(s):
+            c = s[i]
+            if not in_str:
+                out.append(c)
+                if c == '"':
+                    in_str = True
+                i += 1
+            else:
+                if c == "\\" and i + 1 < len(s):
+                    nxt = s[i + 1]
+                    if nxt == "u":
+                        hex4 = s[i + 2 : i + 6]
+                        if len(hex4) == 4 and all(
+                            h in "0123456789abcdefABCDEF" for h in hex4
+                        ):
+                            out.append(s[i : i + 6])
+                            i += 6
+                        else:
+                            i += 2  # 무효한 \u → 제거
+                    else:
+                        out.append(c)
+                        out.append(nxt)
+                        i += 2
+                elif c == '"':
+                    out.append(c)
+                    in_str = False
+                    i += 1
+                elif ord(c) < 32:
+                    out.append(_CTRL.get(c, f"\\u{ord(c):04x}"))
+                    i += 1
+                else:
+                    out.append(c)
+                    i += 1
+        return "".join(out)
+
+    s = _sanitize(raw)
+
     # 1) 순수 JSON 응답
     try:
-        return json.loads(raw.strip())
+        return json.loads(s.strip())
     except json.JSONDecodeError:
         pass
     # 2) 마크다운 코드펜스 안 JSON
     m = re.search(r"```json\s*(.*?)\s*```", raw, re.DOTALL)
     if m:
         try:
-            return json.loads(m.group(1))
+            return json.loads(_sanitize(m.group(1)))
         except json.JSONDecodeError:
             pass
     # 3) 텍스트 내 JSON 블록 추출 (greedy — 가장 큰 {} 블록)
     m = re.search(r"\{.*\}", raw, re.DOTALL)
     if m:
         try:
-            return json.loads(m.group(0))
+            return json.loads(_sanitize(m.group(0)))
         except json.JSONDecodeError:
             pass
-    return {"readable_text": raw.strip()}
+    # 4) 끊긴 응답 처리 (maxTokens 초과로 JSON이 잘린 경우)
+    #    마지막 불완전한 \u 이스케이프 제거 후 닫는 문자열 추가
+    trimmed = re.sub(r"\\u[0-9a-fA-F]{0,3}$", "", s.rstrip())
+    for suffix in ['"}', '"\n}']:
+        try:
+            return json.loads(trimmed + suffix)
+        except json.JSONDecodeError:
+            pass
+    return {"readable_text": trimmed}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -362,7 +417,7 @@ def main() -> None:
                 prompt = build_presentation_prompt(pages_info)
                 visual_description = call_nova_visual(
                     page_images, model_id, region, prompt,
-                    max_tokens=3000,
+                    max_tokens=5000,
                 )
                 method = "nova_presentation"
                 text_structure = "presentation"
