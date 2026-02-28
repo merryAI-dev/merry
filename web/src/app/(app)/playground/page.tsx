@@ -177,18 +177,15 @@ export default function PlaygroundPage() {
               />
             </>
           ) : (
-            <div
+            <label
+              htmlFor="pdf-file-input"
               className="flex flex-1 cursor-pointer select-none flex-col items-center justify-center gap-3 text-center"
               onDragOver={(e) => e.preventDefault()}
               onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => e.key === "Enter" && fileInputRef.current?.click()}
             >
               <Upload className="h-10 w-10 text-[#D1D5DC]" />
               <p className="text-sm text-[#8B95A1]">PDF를 여기에 놓거나 클릭하여 업로드하세요</p>
-            </div>
+            </label>
           )}
         </div>
 
@@ -256,17 +253,17 @@ export default function PlaygroundPage() {
 
       {/* Bottom bar */}
       <div className="flex justify-end">
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className="flex items-center gap-2 rounded-xl bg-[#191F28] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#2D3540]"
+        <label
+          htmlFor="pdf-file-input"
+          className="flex cursor-pointer items-center gap-2 rounded-xl bg-[#191F28] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#2D3540]"
         >
           <Upload className="h-4 w-4" />
           Upload New File
-        </button>
+        </label>
       </div>
 
       <input
+        id="pdf-file-input"
         ref={fileInputRef}
         type="file"
         accept=".pdf"
