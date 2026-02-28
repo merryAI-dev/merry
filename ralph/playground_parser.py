@@ -384,6 +384,7 @@ def main() -> None:
     model_lite = os.getenv("RALPH_VLM_NOVA_LITE_MODEL_ID", "us.amazon.nova-lite-v1:0")
     region  = os.getenv("RALPH_VLM_NOVA_REGION", "us-east-1")
     use_vlm = os.getenv("RALPH_USE_VLM", "true").lower() != "false"
+    force_pro = os.getenv("RALPH_FORCE_PRO", "false").lower() == "true"
 
     try:
         # ── 1. PyMuPDF 텍스트 + 블록 추출
@@ -399,7 +400,21 @@ def main() -> None:
         text_structure = "document"
         visual_description: dict | None = None
 
-        if is_poor and use_vlm:
+        if force_pro and use_vlm:
+            # 사용자 수동 요청: 전체 페이지(최대 10p) Nova Pro OCR
+            try:
+                page_images = render_pages(pdf_path, max_pages=10, dpi=100)
+                visual_description = call_nova_visual(
+                    page_images, model_pro, region, _PROMPT_OCR, max_tokens=5000,
+                )
+                method = "nova_pro"
+                text_structure = "image"
+            except Exception as e:
+                visual_description = {"error": str(e)}
+                method = "nova_error"
+                text_structure = "image"
+
+        elif is_poor and use_vlm:
             # 스캔/이미지 PDF → Nova Lite OCR (텍스트 추출, Pro 불필요)
             try:
                 img_bytes = render_first_page(pdf_path)

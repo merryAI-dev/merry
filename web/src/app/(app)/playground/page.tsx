@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Upload } from "lucide-react";
+import { Loader2, Sparkles, Upload } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -19,7 +19,7 @@ type ParseResult = {
   error?: string;
   text?: string;
   pages?: number;
-  method?: "pymupdf" | "nova_hybrid" | "nova_presentation" | "nova_error";
+  method?: "pymupdf" | "nova_hybrid" | "nova_presentation" | "nova_error" | "nova_pro";
   text_quality?: number;
   is_poor?: boolean;
   is_fragmented?: boolean;
@@ -101,8 +101,13 @@ function formatCost(method?: string, pages?: number): string {
     return `~$${est.toFixed(3)}`;
   }
   if (method === "nova_hybrid") {
-    // Nova Pro OCR: 1페이지 ~$0.0025
+    // Nova Lite OCR: 1페이지
     return "~$0.003";
+  }
+  if (method === "nova_pro") {
+    // Nova Pro OCR: 전체 페이지
+    const p = pages ?? 1;
+    return `~$${(p * 0.002).toFixed(3)}`;
   }
   return "$0.00";
 }
@@ -112,6 +117,7 @@ function formatCost(method?: string, pages?: number): string {
 export default function PlaygroundPage() {
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
   const [filename, setFilename] = React.useState<string>("");
+  const [currentFile, setCurrentFile] = React.useState<File | null>(null);
   const [result, setResult] = React.useState<ParseResult | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [tab, setTab] = React.useState<"markdown" | "raw">("markdown");
@@ -133,6 +139,7 @@ export default function PlaygroundPage() {
     });
 
     setFilename(f.name);
+    setCurrentFile(f);
     setResult(null);
     setBusy(true);
 
@@ -145,6 +152,20 @@ export default function PlaygroundPage() {
       .catch((e: Error) => setResult({ ok: false, error: e.message }))
       .finally(() => setBusy(false));
   }, []);
+
+  const handleForcePro = React.useCallback(() => {
+    if (!currentFile) return;
+    setResult(null);
+    setBusy(true);
+    const form = new FormData();
+    form.append("file", currentFile);
+    form.append("force_pro", "true");
+    fetch("/api/ralph/parse", { method: "POST", body: form })
+      .then((r) => r.json())
+      .then((data: ParseResult) => setResult(data))
+      .catch((e: Error) => setResult({ ok: false, error: e.message }))
+      .finally(() => setBusy(false));
+  }, [currentFile]);
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -250,7 +271,7 @@ export default function PlaygroundPage() {
             )}
           </div>
 
-          {/* Footer — 기술 메타데이터 + 비용 (작게) */}
+          {/* Footer — 기술 메타데이터 + 비용 + Pro 재분석 버튼 */}
           {result?.ok && (
             <div className="flex items-center justify-between border-t border-[#E5E8EB] px-4 py-2">
               <span className="text-xs text-[#B0B8C1]">
@@ -258,9 +279,20 @@ export default function PlaygroundPage() {
                 {result.detection_method && result.detection_method !== "none" && ` · ${result.detection_method}`}
                 {result.confidence !== undefined && result.confidence > 0 && ` · 신뢰도 ${(result.confidence * 100).toFixed(0)}%`}
               </span>
-              <span className="text-xs text-[#B0B8C1]">
-                {formatCost(result.method, result.pages)}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-[#B0B8C1]">
+                  {formatCost(result.method, result.pages)}
+                </span>
+                {result.method !== "nova_presentation" && result.method !== "nova_pro" && currentFile && !busy && (
+                  <button
+                    onClick={handleForcePro}
+                    className="flex items-center gap-1 text-xs text-[#8B95A1] transition-colors hover:text-[#191F28]"
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    Nova Pro로 재분석
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>
