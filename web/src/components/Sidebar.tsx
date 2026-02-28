@@ -6,6 +6,8 @@ import {
   ChevronRight,
   ClipboardList,
   FileText,
+  Files,
+  FlaskConical,
   LayoutDashboard,
   LineChart,
   LogOut,
@@ -21,6 +23,8 @@ import type { WorkspaceSession } from "@/lib/workspace";
 const nav = [
   { href: "/hub",             label: "협업 허브",     icon: LayoutDashboard },
   { href: "/analysis",        label: "분석",          icon: UploadCloud },
+  { href: "/documents",       label: "문서 추출",     icon: Files },
+  { href: "/playground",      label: "플레이그라운드", icon: FlaskConical },
   { href: "/exit-projection", label: "Exit 프로젝션", icon: TrendingUp },
   { href: "/funds",           label: "펀드",          icon: LineChart },
   { href: "/drafts",          label: "드래프트",      icon: FileText },
