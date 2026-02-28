@@ -36,10 +36,15 @@ _MIN_CHARS = 80           # 전체 문자 수 미달 → 이미지 PDF
 _MIN_KOREAN_RATIO = 0.10  # 한글 비율 미달 → 이미지 PDF
 _MAX_AVG_BLOCK_CHARS = 50 # 블록 평균 글자 수 이하 → 슬라이드형
 _MIN_BLOCKS_FOR_FRAG = 8  # 슬라이드 판단 최소 블록 수
+_MIN_PAGES_FOR_FRAG = 5   # 슬라이드 판단 최소 페이지 수 (양식·증명서 오탐 방지)
 _CHART_IMAGE_AREA_RATIO = 0.30  # 이미지 면적 비율 > 30% → 차트/도표 슬라이드
 
 
-def assess_text_quality(text: str, blocks: list[str] | None = None) -> tuple[float, bool, bool]:
+def assess_text_quality(
+    text: str,
+    blocks: list[str] | None = None,
+    page_count: int = 1,
+) -> tuple[float, bool, bool]:
     """
     Returns:
         (quality_score 0–1, is_poor, is_fragmented)
@@ -61,7 +66,8 @@ def assess_text_quality(text: str, blocks: list[str] | None = None) -> tuple[flo
     is_fragmented = False
     if not is_poor and blocks and len(blocks) >= _MIN_BLOCKS_FOR_FRAG:
         avg_chars = sum(len(b) for b in blocks) / len(blocks)
-        is_fragmented = avg_chars < _MAX_AVG_BLOCK_CHARS
+        # 5페이지 미만은 슬라이드로 보지 않음 (사업자등록증·주주명부 등 오탐 방지)
+        is_fragmented = avg_chars < _MAX_AVG_BLOCK_CHARS and page_count >= _MIN_PAGES_FOR_FRAG
 
     return quality, is_poor, is_fragmented
 
@@ -102,12 +108,12 @@ def render_first_page(pdf_path: str, dpi: int = 150) -> bytes:
 
 
 def render_pages(pdf_path: str, max_pages: int = 10, dpi: int = 100) -> list[bytes]:
-    """여러 페이지를 이미지로 렌더링. 발표자료 전체 처리용."""
+    """여러 페이지를 JPEG로 렌더링. PNG 대비 ~50% 절감, 발표자료 전체 처리용."""
     doc = fitz.open(pdf_path)
     try:
         mat = fitz.Matrix(dpi / 72, dpi / 72)
         return [
-            doc[i].get_pixmap(matrix=mat).tobytes("png")
+            doc[i].get_pixmap(matrix=mat).tobytes("jpeg")
             for i in range(min(doc.page_count, max_pages))
         ]
     finally:
@@ -253,8 +259,11 @@ def call_nova_visual(
     if isinstance(images, bytes):
         images = [images]
 
+    def _img_format(b: bytes) -> str:
+        return "jpeg" if b[:2] == b"\xff\xd8" else "png"
+
     content: list[dict] = [
-        {"image": {"format": "png", "source": {"bytes": img}}}
+        {"image": {"format": _img_format(img), "source": {"bytes": img}}}
         for img in images
     ]
     content.append({"text": prompt})
@@ -389,7 +398,7 @@ def main() -> None:
     try:
         # ── 1. PyMuPDF 텍스트 + 블록 추출
         text, pages, blocks = extract_text(pdf_path)
-        quality, is_poor, is_fragmented = assess_text_quality(text, blocks)
+        quality, is_poor, is_fragmented = assess_text_quality(text, blocks, page_count=pages)
 
         # ── 2. 분류 (Nova 없이)
         filename = os.path.basename(pdf_path)
