@@ -19,9 +19,11 @@ type ParseResult = {
   error?: string;
   text?: string;
   pages?: number;
-  method?: "pymupdf" | "nova_hybrid" | "nova_error";
+  method?: "pymupdf" | "nova_hybrid" | "nova_presentation" | "nova_error";
   text_quality?: number;
   is_poor?: boolean;
+  is_fragmented?: boolean;
+  text_structure?: "document" | "presentation" | "image";
   doc_type?: string | null;
   confidence?: number;
   detection_method?: string;
@@ -63,22 +65,25 @@ function buildMarkdown(result: ParseResult): string {
 
   lines.push("");
 
-  // Nova 시각 인식 결과 (이미지 문서인 경우)
+  // Nova 시각 인식 결과 (스캔 또는 슬라이드 문서)
   const vd = result.visual_description;
   if (vd && !vd.error) {
+    if (vd.structure_notes?.trim()) {
+      lines.push(`*${vd.structure_notes.trim()}*\n`);
+    }
     if (vd.readable_text?.trim()) {
       lines.push(vd.readable_text.trim());
     }
-    if (vd.structure_notes?.trim()) {
-      lines.push(`\n${vd.structure_notes.trim()}`);
-    }
     lines.push("");
-  }
-
-  // 텍스트 추출 결과
-  if (result.text?.trim()) {
+    // 발표자료는 Nova 구조화 결과 우선, PyMuPDF 원문은 하단에 추가 참고
+    if (result.text_structure === "presentation" && result.text?.trim()) {
+      lines.push("\n---\n");
+      lines.push("**원문 텍스트 (PyMuPDF)**\n");
+      lines.push(result.text.trim());
+    }
+  } else if (result.text?.trim()) {
     lines.push(result.text.trim());
-  } else if (!vd) {
+  } else {
     lines.push("*추출된 텍스트가 없습니다.*");
   }
 
@@ -88,7 +93,7 @@ function buildMarkdown(result: ParseResult): string {
 /* ── Cost helper ── */
 
 function formatCost(method?: string): string {
-  if (method === "nova_hybrid") return "~$0.0001";
+  if (method === "nova_hybrid" || method === "nova_presentation") return "~$0.0001";
   return "$0.00";
 }
 
@@ -240,8 +245,8 @@ export default function PlaygroundPage() {
             <div className="flex items-center justify-between border-t border-[#E5E8EB] px-4 py-2">
               <span className="text-xs text-[#B0B8C1]">
                 {result.pages}p
-                {result.detection_method && ` · ${result.detection_method}`}
-                {result.confidence !== undefined && ` · 신뢰도 ${(result.confidence * 100).toFixed(0)}%`}
+                {result.detection_method && result.detection_method !== "none" && ` · ${result.detection_method}`}
+                {result.confidence !== undefined && result.confidence > 0 && ` · 신뢰도 ${(result.confidence * 100).toFixed(0)}%`}
               </span>
               <span className="text-xs text-[#B0B8C1]">
                 {formatCost(result.method)}
