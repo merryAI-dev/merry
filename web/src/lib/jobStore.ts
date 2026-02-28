@@ -21,7 +21,7 @@ export type UploadFileRecord = {
   etag?: string;
 };
 
-export type JobType = "exit_projection" | "diagnosis_analysis" | "pdf_evidence" | "pdf_parse" | "contract_review";
+export type JobType = "exit_projection" | "diagnosis_analysis" | "pdf_evidence" | "pdf_parse" | "contract_review" | "document_extraction";
 
 export type JobStatus = "queued" | "running" | "succeeded" | "failed";
 
@@ -248,7 +248,8 @@ export async function getJob(teamId: string, jobId: string): Promise<JobRecord |
     typeRaw === "pdf_evidence" ||
     typeRaw === "pdf_parse" ||
     typeRaw === "contract_review" ||
-    typeRaw === "exit_projection"
+    typeRaw === "exit_projection" ||
+    typeRaw === "document_extraction"
       ? typeRaw
       : "pdf_evidence";
   const statusRaw = row["status"];

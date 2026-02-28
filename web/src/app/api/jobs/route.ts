@@ -10,9 +10,9 @@ import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 export const runtime = "nodejs";
 
 const CreateSchema = z.object({
-  jobType: z.enum(["exit_projection", "diagnosis_analysis", "pdf_evidence", "pdf_parse", "contract_review"]),
+  jobType: z.enum(["exit_projection", "diagnosis_analysis", "pdf_evidence", "pdf_parse", "contract_review", "document_extraction"]),
   title: z.string().optional(),
-  fileIds: z.array(z.string().min(6)).min(1).max(8),
+  fileIds: z.array(z.string().min(6)).min(1).max(20),
   params: z.record(z.string(), z.unknown()).optional(),
 });
 
@@ -33,7 +33,11 @@ export async function POST(req: Request) {
     const body = CreateSchema.parse(await req.json());
 
     // Enforce job-type specific arity to keep worker behavior predictable.
-    if (body.jobType === "contract_review") {
+    if (body.jobType === "document_extraction") {
+      if (body.fileIds.length > 20) {
+        return NextResponse.json({ ok: false, error: "TOO_MANY_FILES" }, { status: 400 });
+      }
+    } else if (body.jobType === "contract_review") {
       if (body.fileIds.length > 2) {
         return NextResponse.json({ ok: false, error: "TOO_MANY_FILES" }, { status: 400 });
       }
@@ -61,6 +65,7 @@ export async function POST(req: Request) {
       pdf_evidence: "PDF 근거 추출",
       pdf_parse: "PDF 파싱",
       contract_review: "계약서 검토",
+      document_extraction: "문서 일괄 추출",
     }[type]);
 
     await createJob({
