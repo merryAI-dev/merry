@@ -36,6 +36,7 @@ _MIN_CHARS = 80           # 전체 문자 수 미달 → 이미지 PDF
 _MIN_KOREAN_RATIO = 0.10  # 한글 비율 미달 → 이미지 PDF
 _MAX_AVG_BLOCK_CHARS = 50 # 블록 평균 글자 수 이하 → 슬라이드형
 _MIN_BLOCKS_FOR_FRAG = 8  # 슬라이드 판단 최소 블록 수
+_CHART_IMAGE_AREA_RATIO = 0.30  # 이미지 면적 비율 > 30% → 차트/도표 슬라이드
 
 
 def assess_text_quality(text: str, blocks: list[str] | None = None) -> tuple[float, bool, bool]:
@@ -114,6 +115,67 @@ def render_pages(pdf_path: str, max_pages: int = 10, dpi: int = 100) -> list[byt
 
 
 # ─────────────────────────────────────────────────────────────
+# 경로2: 페이지별 위치 기반 텍스트 추출 + 차트 슬라이드 감지
+# ─────────────────────────────────────────────────────────────
+
+def _page_text_sorted(page) -> str:
+    """
+    get_text("dict")로 텍스트 블록을 y→x 좌표 순으로 정렬.
+    슬라이드 읽기 순서(상→하, 좌→우)로 복원.
+    """
+    blocks = page.get_text("dict")["blocks"]
+    items: list[tuple[float, float, str]] = []
+    for block in blocks:
+        if block.get("type") != 0:
+            continue
+        y0, x0 = block["bbox"][1], block["bbox"][0]
+        lines = [
+            "".join(s["text"] for s in line.get("spans", []))
+            for line in block.get("lines", [])
+        ]
+        text = "\n".join(l for l in lines if l.strip())
+        if text:
+            items.append((y0, x0, text))
+    items.sort(key=lambda t: (t[0], t[1]))
+    return "\n".join(t[2] for t in items)
+
+
+def _is_chart_heavy(page, threshold: float = _CHART_IMAGE_AREA_RATIO) -> bool:
+    """이미지 면적 비율 > threshold → 차트/도표 중심 슬라이드."""
+    rect = page.rect
+    page_area = rect.width * rect.height
+    if page_area <= 0:
+        return False
+    image_area = sum(
+        (b["bbox"][2] - b["bbox"][0]) * (b["bbox"][3] - b["bbox"][1])
+        for b in page.get_text("dict")["blocks"]
+        if b.get("type") == 1
+    )
+    return (image_area / page_area) > threshold
+
+
+def analyze_pages(pdf_path: str, max_pages: int = 10) -> list[dict]:
+    """
+    페이지별 분석:
+      - text: y→x 위치 기반 정렬된 텍스트
+      - is_chart: 차트/도표 중심 여부
+    """
+    doc = fitz.open(pdf_path)
+    try:
+        result = []
+        for i in range(min(doc.page_count, max_pages)):
+            page = doc[i]
+            result.append({
+                "page": i + 1,
+                "text": _page_text_sorted(page),
+                "is_chart": _is_chart_heavy(page),
+            })
+        return result
+    finally:
+        doc.close()
+
+
+# ─────────────────────────────────────────────────────────────
 # Nova 시각 추출 — 프롬프트 분리
 # ─────────────────────────────────────────────────────────────
 
@@ -133,31 +195,49 @@ JSON으로 응답:
   "structure_notes": "표/레이아웃 설명 (선택)"
 }"""
 
-def build_presentation_prompt(raw_text: str) -> str:
+def build_presentation_prompt(pages_info: list[dict]) -> str:
     """
-    Grounded 프롬프트: PyMuPDF 텍스트를 앵커로 제공하여 할루시네이션 방지.
-    Nova는 구조·순서만 잡고, 새 내용을 생성하지 않음.
+    경로1+2 통합 프롬프트.
+    - 텍스트 슬라이드: y→x 위치 기반 정렬 텍스트를 앵커로 제공 (할루시네이션 방지)
+    - 차트/도표 슬라이드: 시각 관계 서술 요청 (화살표·박스·계층·흐름)
     """
-    # PyMuPDF 페이지 구분자(---)를 중립적 태그로 교체해 프롬프트 구조 오염 방지
-    snippet = raw_text.replace("\n\n---\n\n", "\n[PAGE]\n").strip()[:2000]
-    return f"""\
-아래 슬라이드 이미지들을 보면서, 이미 추출된 텍스트 조각들을 올바른 흐름으로 재구성해주세요.
+    sections: list[str] = []
+    for p in pages_info:
+        pg = p["page"]
+        text = p["text"].strip()[:400]  # 슬라이드당 최대 400자
+        if p["is_chart"]:
+            block = f"[슬라이드 {pg}: 차트/도표 중심]"
+            if text:
+                block += f"\n추출 키워드: {text}"
+            block += "\n→ 이미지에서 화살표·박스·계층·흐름 관계를 서술하세요"
+        else:
+            block = f"[슬라이드 {pg}]"
+            if text:
+                block += f"\n{text}"
+            else:
+                block += "\n(텍스트 없음)"
+        sections.append(block)
 
-<<< 추출된 텍스트 조각 (순서·구조 무작위) >>>
-{snippet}
+    pages_block = "\n\n".join(sections)
+
+    return f"""\
+슬라이드 이미지들을 보면서 각 슬라이드의 내용을 서술해주세요.
+
+<<< 페이지별 추출 정보 >>>
+{pages_block}
 <<< 끝 >>>
 
 규칙 (반드시 준수):
-1. 슬라이드 이미지를 보며 각 슬라이드의 제목과 내용 위치를 파악하세요
-2. 위 텍스트 조각들을 슬라이드 순서에 맞게 재조합하세요
-3. 위 텍스트에 없는 내용은 절대 추가하지 마세요
-4. 차트/도표는 이미지에서 직접 읽히는 키워드만 간단히 기술하세요
+1. 각 [슬라이드 N]에 대응하는 이미지를 확인하세요
+2. 텍스트 슬라이드: 추출 텍스트를 기반으로 내용을 정리하고 추출 텍스트에 없는 내용은 추가하지 마세요
+3. 차트/도표 슬라이드: 이미지에서 보이는 화살표, 박스, 계층, 흐름 관계를 구체적으로 서술하세요
+4. 각 슬라이드를 "### 슬라이드 N" 헤더로 구분하세요
 
 아래 JSON 형식으로만 응답하세요:
 {{
   "document_type": "발표자료 종류 (예: 정부업무보고, IR자료, 연구발표 등)",
-  "readable_text": "텍스트 조각을 슬라이드 순서로 재구성한 전체 내용",
-  "structure_notes": "슬라이드 구조 요약 (예: 제목 → 현황 → 계획 → 결론)"
+  "readable_text": "슬라이드별 내용 (### 슬라이드 N 헤더로 구분)",
+  "structure_notes": "전체 흐름 요약 (예: 제목 → 현황 → 계획 → 결론)"
 }}"""
 
 
@@ -275,13 +355,14 @@ def main() -> None:
                 text_structure = "image"
 
         elif is_fragmented and use_vlm:
-            # 슬라이드/발표자료 → Nova 구조화 (전체 페이지 + grounded 프롬프트)
+            # 슬라이드/발표자료 → Nova 구조화 (경로1+2: 위치 기반 + 차트 감지)
             try:
                 page_images = render_pages(pdf_path, max_pages=10, dpi=100)
-                prompt = build_presentation_prompt(text)
+                pages_info = analyze_pages(pdf_path, max_pages=10)
+                prompt = build_presentation_prompt(pages_info)
                 visual_description = call_nova_visual(
                     page_images, model_id, region, prompt,
-                    max_tokens=2000,
+                    max_tokens=3000,
                 )
                 method = "nova_presentation"
                 text_structure = "presentation"
