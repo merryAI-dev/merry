@@ -138,24 +138,87 @@ Nova Lite Hybrid VLM 폴백
   - 시각: Nova Lite (visual-only prompt)
 ```
 
-### 라우터 개선 포인트 (우선순위 순)
+### 채택된 최종 라우터 파이프라인
 
-1. **텍스트 Classifier 키워드 보완** (빠름): `등기사항전부증명서` 등 추가 → 11→12/13
-2. **DINOv2 이진 분류기로 재설계**: "슬라이드형 vs 공문서형" 2-class 분류기로 한정하여 IR 자료 등 시각 자료 감지에만 사용
-3. **VLM 라우터 역할**: 텍스트 없는 스캔 문서는 Nova Lite Hybrid로 직접 처리
-
-### 모델 로드 성능
-
-| 모델 | 최초 로드 | 추론 (1 page) | 장치 |
-|------|-----------|---------------|------|
-| DINOv2-base | ~33초 | 0.03~0.10초 | MPS |
-| GroundingDINO-tiny | ~50초 | ~50초/page | CPU |
-
-GroundingDINO는 속도 문제로 탈락. DINOv2는 추론 속도는 우수하나 공문서 종류 간 판별력 부족.
+```
+1. 파일명 키워드 매칭     (conf 0.9,  0 API 비용)
+2. 텍스트 Classifier     (PyMuPDF,   0 API 비용)
+3. VLM OCR 2단계         (Nova Lite, ~$0.0001/문서)
+   ├─ Step 1: VLM이 문서 제목만 읽기
+   ├─ Step 2: Python 키워드 매칭 (결정적, 환각 차단)
+   └─ Step 3: 미매칭 → unknown + 문서 설명 (HITL 에스컬레이션)
+4. none                  (HITL 수동 지정)
+```
 
 ---
 
-## 5. 관련 파일
+## 5. CLIP 벤치마크 결과 (추가 실험)
+
+### 테스트 전략 4종
+
+| 전략 | 정확도 | 비고 |
+|------|--------|------|
+| English CLIP 전체 페이지 | **1/13 (7.7%)** | startup_cert 편향 |
+| English CLIP 헤더크롭 25% | **3/13 (23.1%)** | DINOv2와 동률 |
+| Multilingual CLIP 한국어 | 측정 불가 | 모델 다운로드 타임아웃 |
+
+### CLIP 실패 원인
+
+- 영어 CLIP은 한국 행정 문서를 학습한 적 없음
+- Contrastive Learning 효과가 없는 OOD(Out-of-Distribution) 도메인
+- 헤더크롭 시 약간 개선되나 여전히 한계
+- **결론**: CLIP은 이 도메인에서 DINOv2와 마찬가지로 실용성 없음
+
+### 시각 분류 한계 공통 원인
+
+시각적 접근(DINOv2, CLIP)이 실패하는 이유는 동일:
+- 한국 행정 공문서의 판별 신호가 **이미지 패턴이 아닌 텍스트**에 있음
+- 모든 문서가 A4 흰 배경 한국 행정 서식 → 시각적으로 동질
+
+---
+
+## 6. VLM OCR 라우터 최종 벤치마크
+
+### 알려진 문서 (UUID 마스킹 기준)
+
+| 방법 | 정확도 | 미지 문서 처리 | API 비용 |
+|------|--------|----------------|---------|
+| 파일명 기반 | 100% (13/13) | — | 0 |
+| 텍스트 Classifier | 85% (11/13) | ✗ 강제분류 | 0 |
+| DINOv2 | 23% (3/13) | ✗ 강제분류 | 0 |
+| English CLIP | 8% (1/13) | ✗ 강제분류 | 0 |
+| **VLM OCR 2단계** | **85% (11/13)** | **✓ unknown+설명** | ~$0.0001 |
+
+### 미지 문서 테스트 (영수증)
+
+```
+입력:  간이 영수증 PDF (아메리카노 2잔, 합계 23,650원)
+결과:  ✓ unknown — "금액 결제 및 승인을 기록한 상업 또는 금융 문서"
+처리:  HITL 에스컬레이션 (사람이 최종 확인)
+```
+
+### 수치 동일한 이유 (85% = 11/13)
+
+VLM OCR이 텍스트 Classifier와 같은 85%이지만 의미가 다름:
+- 텍스트 Classifier 실패 케이스: IR 자료(스캔), 법인등기부등본(스캔)
+- VLM OCR가 맞게 잡은 케이스: IR 자료 (1단계에서 처음 성공, 2단계에서 다시 실패)
+- **핵심 차이**: 오분류(높은 conf 오답) vs HITL 에스컬레이션(올바른 불확실성 표현)
+
+### 2단계 VLM OCR 설계 원칙
+
+**VLM에 판단을 맡기지 않는다 → 환각 억제**
+
+```
+1단계 시도 (1-step classify):  12/13 정확, BUT 영수증 오분류 (conf 0.95로 틀림)
+2단계 설계 (2-step OCR+KW):    11/13 정확, BUT 영수증 ✓, 오분류 방지
+```
+
+오분류와 HITL 에스컬레이션 중 프로덕션에서는 **HITL이 항상 안전**.
+VLM의 "알 수 없음"이 "투자검토자료"로 잘못 분류되는 것보다 훨씬 낫다.
+
+---
+
+## 7. 관련 파일
 
 ```
 ralph/
@@ -163,10 +226,14 @@ ralph/
 │   ├── __init__.py          # 백엔드 팩토리 (RALPH_VLM_BACKEND 환경변수)
 │   ├── base.py              # BaseVLMCaller, VLMResult
 │   ├── bedrock_caller.py    # Claude Haiku (Bedrock, 문서별 프롬프트)
-│   └── nova_caller.py       # Nova Lite Hybrid (텍스트=PyMuPDF, 시각=Nova)
-├── dino_classifier.py       # DINOv2 시각 분류기
-├── router.py                # 파일명 → 텍스트 → DINOv2 → none
+│   ├── nova_caller.py       # Nova Lite Hybrid (텍스트=PyMuPDF, 시각=Nova)
+│   └── doc_classifier.py    # VLM OCR 2단계 문서 분류기 (미지 문서 대응)
+├── classifier.py            # 텍스트 키워드 분류기 (0 API, 빠른 경로)
+├── dino_classifier.py       # DINOv2 시각 분류기 (벤치마크용, 기본 off)
+├── router.py                # 4단계 폴백 라우터 (파일명→텍스트→VLM→none)
 └── batch_pipeline.py        # 다건 배치 처리 (규칙 → VLM 폴백)
 scripts/
-└── benchmark_router.py      # 라우팅 방법 비교 벤치마크
+├── benchmark_router.py      # DINOv2 vs 텍스트 vs 파일명 비교
+├── benchmark_clip.py        # CLIP 4전략 비교
+└── test_vlm_router.py       # VLM OCR 통합 테스트 (영수증 포함)
 ```
