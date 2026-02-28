@@ -379,7 +379,7 @@ def main() -> None:
         sys.exit(1)
 
     pdf_path = sys.argv[1]
-    model_id = os.getenv("RALPH_VLM_NOVA_MODEL_ID", "us.amazon.nova-lite-v1:0")
+    model_id = os.getenv("RALPH_VLM_NOVA_MODEL_ID", "us.amazon.nova-pro-v1:0")
     region = os.getenv("RALPH_VLM_NOVA_REGION", "us-east-1")
     use_vlm = os.getenv("RALPH_USE_VLM", "true").lower() != "false"
 
