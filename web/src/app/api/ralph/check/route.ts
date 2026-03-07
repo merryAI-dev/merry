@@ -66,8 +66,13 @@ export async function POST(req: Request) {
   try {
     await requireWorkspaceFromCookies();
     const formData = await req.formData();
-    const text = formData.get("text") as string | null;
-    const conditions = formData.getAll("conditions") as string[];
+    const textValue = formData.get("text");
+    const text = typeof textValue === "string" ? textValue.trim() : "";
+    const conditions = formData
+      .getAll("conditions")
+      .map((value) => (typeof value === "string" ? value.trim() : ""))
+      .filter(Boolean)
+      .slice(0, 10);
 
     if (!text) {
       return NextResponse.json({ ok: false, error: "TEXT_REQUIRED" }, { status: 400 });

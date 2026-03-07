@@ -42,6 +42,8 @@ type CheckResult = {
   error?: string;
   company_name?: string | null;
   conditions?: ConditionCheck[];
+  parse_warning?: string;
+  raw_response?: string;
 };
 
 /* ── Constants ── */
@@ -375,6 +377,23 @@ export default function PlaygroundPage() {
                   <div className="flex flex-col gap-3">
                     {checkResult.ok ? (
                       <>
+                        {checkResult.parse_warning && (
+                          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
+                            <p className="text-sm font-medium text-amber-900">
+                              모델 응답을 완전히 JSON으로 읽지 못해 복구된 결과를 표시하고 있습니다.
+                            </p>
+                            {checkResult.raw_response && (
+                              <details className="mt-2">
+                                <summary className="cursor-pointer text-xs text-amber-800">
+                                  원본 응답 일부 보기
+                                </summary>
+                                <pre className="mt-2 whitespace-pre-wrap break-all rounded-lg bg-white/70 p-3 text-[11px] text-amber-950">
+                                  {checkResult.raw_response}
+                                </pre>
+                              </details>
+                            )}
+                          </div>
+                        )}
                         {checkResult.company_name && (
                           <div className="rounded-xl bg-[#F8F9FA] px-4 py-3">
                             <span className="text-xs text-[#8B95A1]">기업명</span>
