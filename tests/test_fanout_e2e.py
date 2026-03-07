@@ -293,6 +293,15 @@ def setup_fanout_job(
 ) -> None:
     """Set up a complete fan-out job: JOB + FILE + TASK records + S3 PDFs."""
     ctx.ddb.put({
+        "pk": f"TEAM#{team_id}#JOBS", "sk": f"CREATED#2026-03-01T00:00:00Z#JOB#{job_id}",
+        "entity": "job_index", "job_id": job_id, "team_id": team_id,
+        "type": "condition_check", "status": "running",
+        "fanout": True, "fanout_status": "running",
+        "title": "테스트", "created_at": "2026-03-01T00:00:00Z",
+        "created_by": "tester",
+    })
+
+    ctx.ddb.put({
         "pk": _pk(team_id), "sk": f"JOB#{job_id}",
         "entity": "job", "job_id": job_id, "team_id": team_id,
         "type": "condition_check", "status": "running",
@@ -395,6 +404,9 @@ class TestFanoutHappyPath:
         assert j["fanout_status"] == "succeeded"
         assert int(j.get("processed_count", 0)) == 3
         assert int(j.get("failed_count", 0)) == 0
+        job_index = ctx.ddb.items[(f"TEAM#{team}#JOBS", f"CREATED#2026-03-01T00:00:00Z#JOB#{job}")]
+        assert job_index["status"] == "succeeded"
+        assert job_index["fanout_status"] == "succeeded"
 
         # Artifacts: XLSX + CSV + JSON.
         arts = j.get("artifacts", [])

@@ -109,6 +109,72 @@ function skCreated(createdAt: string, type: "FILE" | "JOB", id: string) {
   return `CREATED#${createdAt}#${type}#${id}`;
 }
 
+async function getJobCreatedAt(teamId: string, jobId: string): Promise<string | null> {
+  const ddb = getDdbDocClient();
+  const TableName = getDdbTableName();
+  const res = await ddb.send(
+    new GetCommand({
+      TableName,
+      Key: { pk: pkTeam(teamId), sk: skJob(jobId) },
+      ProjectionExpression: "created_at",
+    }),
+  );
+  const createdAt = res.Item?.created_at;
+  return typeof createdAt === "string" && createdAt ? createdAt : null;
+}
+
+async function updateJobIndexState(
+  teamId: string,
+  jobId: string,
+  updates: {
+    status?: JobStatus;
+    fanout?: boolean;
+    fanoutStatus?: FanoutStatus;
+  },
+): Promise<void> {
+  if (updates.status == null && updates.fanout == null && updates.fanoutStatus == null) {
+    return;
+  }
+
+  const createdAt = await getJobCreatedAt(teamId, jobId);
+  if (!createdAt) return;
+
+  const ddb = getDdbDocClient();
+  const TableName = getDdbTableName();
+  const exprs = ["updated_at = :updated_at"];
+  const names: Record<string, string> = {};
+  const values: Record<string, unknown> = {
+    ":updated_at": new Date().toISOString(),
+  };
+
+  if (updates.status != null) {
+    names["#status"] = "status";
+    values[":status"] = updates.status;
+    exprs.push("#status = :status");
+  }
+  if (updates.fanout != null) {
+    names["#fanout"] = "fanout";
+    values[":fanout"] = updates.fanout;
+    exprs.push("#fanout = :fanout");
+  }
+  if (updates.fanoutStatus != null) {
+    names["#fanout_status"] = "fanout_status";
+    values[":fanout_status"] = updates.fanoutStatus;
+    exprs.push("#fanout_status = :fanout_status");
+  }
+
+  await ddb.send(
+    new UpdateCommand({
+      TableName,
+      Key: { pk: pkTeamJobs(teamId), sk: skCreated(createdAt, "JOB", jobId) },
+      UpdateExpression: `SET ${exprs.join(", ")}`,
+      ...(Object.keys(names).length > 0 ? { ExpressionAttributeNames: names } : {}),
+      ExpressionAttributeValues: values,
+      ConditionExpression: "attribute_exists(pk) AND attribute_exists(sk)",
+    }),
+  );
+}
+
 function skTask(jobId: string, taskId: string) {
   return `TASK#${jobId}#${taskId}`;
 }
@@ -295,18 +361,27 @@ export async function createJob(record: JobRecord) {
   await ddb.send(
     new PutCommand({
       TableName,
-      Item: {
+      Item: (() => {
+        const jobIndexItem: Record<string, unknown> = {
         pk: pkTeamJobs(record.teamId),
         sk: skCreated(record.createdAt, "JOB", record.jobId),
         entity: "job_index",
         job_id: record.jobId,
         team_id: record.teamId,
         type: record.type,
+        status: record.status,
+        fanout: Boolean(record.fanout),
         title: record.title,
         created_at: record.createdAt,
+        updated_at: record.updatedAt ?? record.createdAt,
         created_by: record.createdBy,
         ttl: ttlEpoch(90),
-      },
+        };
+        if (record.fanout) {
+          jobIndexItem.fanout_status = record.fanoutStatus ?? "splitting";
+        }
+        return jobIndexItem;
+      })(),
     }),
   );
 }
@@ -518,6 +593,12 @@ export async function updateJobFanoutStatus(
       ExpressionAttributeValues: values,
     }),
   );
+
+  await updateJobIndexState(teamId, jobId, {
+    status: jobStatus,
+    fanout: true,
+    fanoutStatus,
+  });
 }
 
 function deserializeTask(row: Record<string, unknown>, teamId: string): TaskRecord {
@@ -650,6 +731,11 @@ export async function cancelJob(
         },
       }),
     );
+    await updateJobIndexState(teamId, jobId, {
+      status: "failed",
+      fanout: true,
+      fanoutStatus: "failed",
+    });
     return true;
   } catch {
     // ConditionalCheckFailedException or other — job not in running state.
@@ -659,35 +745,38 @@ export async function cancelJob(
 
 /**
  * Count currently running fan-out jobs for a team.
- * Used for rate limiting — we scan recent jobs and count those with status "running".
+ * Used for rate limiting — query the job index directly to avoid N+1 JOB reads.
  */
 export async function countRunningFanoutJobs(teamId: string): Promise<number> {
   const ddb = getDdbDocClient();
   const TableName = getDdbTableName();
-
-  // Query the most recent 20 job index records (sufficient for concurrency check).
-  const res = await ddb.send(
-    new QueryCommand({
-      TableName,
-      KeyConditionExpression: "pk = :pk",
-      ExpressionAttributeValues: { ":pk": pkTeamJobs(teamId) },
-      Limit: 20,
-      ScanIndexForward: false,
-    }),
-  );
-
-  const ids = (res.Items ?? [])
-    .map((it) => (it ?? {}) as Record<string, unknown>)
-    .map((it) => (typeof it["job_id"] === "string" ? it["job_id"] : ""))
-    .filter(Boolean);
-
   let running = 0;
-  for (const id of ids) {
-    const job = await getJob(teamId, id);
-    if (job && job.fanout && (job.status === "running" || job.status === "queued")) {
-      running++;
-    }
-  }
+  let lastKey: Record<string, unknown> | undefined;
+
+  do {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName,
+        KeyConditionExpression: "pk = :pk",
+        FilterExpression: "#fanout = :fanout AND (#status = :queued OR #status = :running)",
+        ExpressionAttributeNames: {
+          "#fanout": "fanout",
+          "#status": "status",
+        },
+        ExpressionAttributeValues: {
+          ":pk": pkTeamJobs(teamId),
+          ":fanout": true,
+          ":queued": "queued",
+          ":running": "running",
+        },
+        Select: "COUNT",
+        ...(lastKey ? { ExclusiveStartKey: lastKey } : {}),
+      }),
+    );
+    running += res.Count ?? 0;
+    lastKey = res.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (lastKey);
+
   return running;
 }
 

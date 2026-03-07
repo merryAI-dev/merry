@@ -352,8 +352,16 @@ def _pk_team(team_id: str) -> str:
     return f"TEAM#{team_id}"
 
 
+def _pk_team_jobs(team_id: str) -> str:
+    return f"TEAM#{team_id}#JOBS"
+
+
 def _sk_job(job_id: str) -> str:
     return f"JOB#{job_id}"
+
+
+def _sk_created_job(created_at: str, job_id: str) -> str:
+    return f"CREATED#{created_at}#JOB#{job_id}"
 
 
 def _sk_file(file_id: str) -> str:
@@ -557,6 +565,60 @@ def ddb_update_job(
         ExpressionAttributeValues=values,
         max_retries=2, base_delay=1.0,
     )
+    if status is not None:
+        ddb_update_job_index_state(ctx, team_id, job_id, status=status)
+
+
+def _ddb_get_job_created_at(ctx: AwsCtx, team_id: str, job_id: str) -> str:
+    item = ddb_get_item(ctx, _pk_team(team_id), _sk_job(job_id)) or {}
+    return str(item.get("created_at") or "")
+
+
+def ddb_update_job_index_state(
+    ctx: AwsCtx,
+    team_id: str,
+    job_id: str,
+    *,
+    status: Optional[str] = None,
+    fanout: Optional[bool] = None,
+    fanout_status: Optional[str] = None,
+) -> None:
+    if status is None and fanout is None and fanout_status is None:
+        return
+
+    created_at = _ddb_get_job_created_at(ctx, team_id, job_id)
+    if not created_at:
+        return
+
+    exprs = ["updated_at = :updated_at"]
+    names: Dict[str, str] = {}
+    values: Dict[str, Any] = {":updated_at": _now_iso()}
+
+    if status is not None:
+        names["#status"] = "status"
+        values[":status"] = status
+        exprs.append("#status = :status")
+    if fanout is not None:
+        names["#fanout"] = "fanout"
+        values[":fanout"] = fanout
+        exprs.append("#fanout = :fanout")
+    if fanout_status is not None:
+        names["#fanout_status"] = "fanout_status"
+        values[":fanout_status"] = fanout_status
+        exprs.append("#fanout_status = :fanout_status")
+
+    try:
+        _call_with_backoff(
+            ctx.ddb.update_item,
+            Key={"pk": _pk_team_jobs(team_id), "sk": _sk_created_job(created_at, job_id)},
+            UpdateExpression="SET " + ", ".join(exprs),
+            ExpressionAttributeNames=names,
+            ExpressionAttributeValues=_ddb_sanitize(values),
+            ConditionExpression="attribute_exists(pk) AND attribute_exists(sk)",
+            max_retries=2, base_delay=1.0,
+        )
+    except ctx.ddb.meta.client.exceptions.ConditionalCheckFailedException:
+        return
 
 
 def ddb_mark_file_deleted(ctx: AwsCtx, team_id: str, file_id: str) -> None:
@@ -920,6 +982,7 @@ def ddb_try_claim_assembly(ctx: AwsCtx, team_id: str, job_id: str) -> bool:
             },
             max_retries=2, base_delay=1.0,
         )
+        ddb_update_job_index_state(ctx, team_id, job_id, fanout=True, fanout_status="assembling")
         return True
     except ctx.ddb.meta.client.exceptions.ConditionalCheckFailedException:
         return False
@@ -984,6 +1047,7 @@ def _check_circuit_breaker(ctx: AwsCtx, team_id: str, job_id: str) -> bool:
             },
             max_retries=2, base_delay=1.0,
         )
+        ddb_update_job_index_state(ctx, team_id, job_id, status="failed", fanout=True, fanout_status="failed")
         log.info("Job %s cancelled by circuit breaker", job_id)
         _send_webhook(
             job_id, f"Job {job_id}", "failed",
@@ -1091,6 +1155,7 @@ def _job_timeout_watchdog(ctx: AwsCtx) -> None:
                     },
                     max_retries=2, base_delay=1.0,
                 )
+                ddb_update_job_index_state(ctx, team_id, job_id, status="failed", fanout=True, fanout_status="failed")
                 log.info("Job %s force-failed by timeout watchdog", job_id)
                 _send_webhook(
                     job_id, title, "failed",
@@ -2062,6 +2127,7 @@ def _check_and_maybe_assemble(
             ExpressionAttributeNames={"#fs": "fanout_status"},
             ExpressionAttributeValues={":failed": "failed"},
         )
+        ddb_update_job_index_state(ctx, team_id, job_id, fanout=True, fanout_status="failed")
 
 
 def _assemble_fanout_results(
@@ -2249,6 +2315,7 @@ def _assemble_fanout_inner(
         ExpressionAttributeNames={"#fs": "fanout_status"},
         ExpressionAttributeValues={":status": "succeeded"},
     )
+    ddb_update_job_index_state(ctx, team_id, job_id, fanout=True, fanout_status="succeeded")
 
     log.info(
         "Assembly complete: job=%s artifacts=%d success=%d failed=%d",
