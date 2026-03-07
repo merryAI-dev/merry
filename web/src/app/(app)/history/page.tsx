@@ -72,6 +72,8 @@ type TaskResult = {
   pages?: number;
   elapsed_s?: number;
   conditions?: ConditionResult[];
+  parse_warning?: string;
+  raw_response?: string;
   error?: string;
   [key: string]: unknown;
 };
@@ -157,6 +159,39 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
+
+function readMetricNumber(metrics: Record<string, unknown> | undefined, key: string): number {
+  if (!metrics) return 0;
+  const value = metrics[key];
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function formatMetricValue(key: string, value: unknown): string {
+  if (key === "artifacts_bytes" && typeof value === "number") {
+    return formatBytes(value);
+  }
+  if (key === "ended_at" && typeof value === "string") {
+    return new Date(value).toLocaleString("ko-KR");
+  }
+  if (typeof value === "number") {
+    return value.toLocaleString();
+  }
+  return String(value ?? "-");
+}
+
+const METRIC_LABELS: Record<string, string> = {
+  total: "총 파일",
+  success_count: "성공 파일",
+  failed_count: "실패 파일",
+  warning_count: "복구 경고",
+  artifacts_bytes: "결과물 크기",
+  ended_at: "종료 시각",
+};
 
 /** Estimate Bedrock Nova Pro cost from token counts. */
 function estimateCost(tokenUsage: { input_tokens?: number; output_tokens?: number }): string {
@@ -516,6 +551,10 @@ export default function HistoryPage() {
           const isExpanded = expandedJobId === job.jobId;
           const jobTasks = tasks[job.jobId];
           const isLoadingTasks = loadingTasks[job.jobId];
+          const metrics = job.metrics && typeof job.metrics === "object"
+            ? job.metrics as Record<string, unknown>
+            : undefined;
+          const warningCount = readMetricNumber(metrics, "warning_count");
           const pct = job.fanout && job.totalTasks
             ? Math.round(((job.processedCount ?? 0) / job.totalTasks) * 100)
             : null;
@@ -568,6 +607,9 @@ export default function HistoryPage() {
                     {job.fanout && job.totalTasks != null && (
                       <span className="ml-2">
                         ({job.processedCount ?? 0}/{job.totalTasks} 파일
+                        {warningCount > 0 && (
+                          <span className="text-amber-600"> | 경고 {warningCount}</span>
+                        )}
                         {(job.failedCount ?? 0) > 0 && (
                           <span className="text-rose-500"> | 실패 {job.failedCount}</span>
                         )}
@@ -642,10 +684,10 @@ export default function HistoryPage() {
                   )}
 
                   {/* Token Usage / Cost */}
-                  {job.metrics && typeof job.metrics === "object" &&
-                    typeof (job.metrics as Record<string, unknown>).token_usage === "object" &&
-                    (job.metrics as Record<string, unknown>).token_usage !== null && (() => {
-                    const tu = (job.metrics as Record<string, unknown>).token_usage as {
+                  {metrics &&
+                    typeof metrics.token_usage === "object" &&
+                    metrics.token_usage !== null && (() => {
+                    const tu = metrics.token_usage as {
                       input_tokens?: number; output_tokens?: number; total_tokens?: number;
                     };
                     return (tu.total_tokens ?? 0) > 0;
@@ -653,7 +695,7 @@ export default function HistoryPage() {
                     <div>
                       <p className="text-xs font-medium text-[#8B95A1] mb-1">API 사용량</p>
                       {(() => {
-                        const tu = (job.metrics as Record<string, unknown>).token_usage as {
+                        const tu = metrics.token_usage as {
                           input_tokens?: number; output_tokens?: number; total_tokens?: number;
                         };
                         return (
@@ -681,17 +723,22 @@ export default function HistoryPage() {
                   )}
 
                   {/* Metrics */}
-                  {job.metrics && Object.keys(job.metrics).length > 0 && (
+                  {metrics && Object.keys(metrics).length > 0 && (
                     <div>
                       <p className="text-xs font-medium text-[#8B95A1] mb-1">메트릭</p>
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                        {Object.entries(job.metrics)
-                          .filter(([k]) => k !== "token_usage" && k !== "deleted_inputs" && k !== "conditions")
+                        {Object.entries(metrics)
+                          .filter(([k, v]) => (
+                            k !== "token_usage" &&
+                            k !== "deleted_inputs" &&
+                            k !== "conditions" &&
+                            (typeof v !== "object" || v === null)
+                          ))
                           .map(([k, v]) => (
                           <div key={k} className="rounded bg-white px-2.5 py-1.5 border border-[#E5E8EB]">
-                            <span className="text-[#8B95A1]">{k}</span>
+                            <span className="text-[#8B95A1]">{METRIC_LABELS[k] || k}</span>
                             <p className="font-mono text-[#191F28]">
-                              {typeof v === "number" ? v.toLocaleString() : String(v ?? "-")}
+                              {formatMetricValue(k, v)}
                             </p>
                           </div>
                         ))}
@@ -819,6 +866,12 @@ function TaskDetailPanel({
           {tasks.map((t) => {
             const isOpen = expandedTaskId === t.taskId;
             const hasResult = t.result && typeof t.result === "object";
+            const parseWarning = typeof t.result?.parse_warning === "string"
+              ? t.result.parse_warning
+              : "";
+            const rawResponse = typeof t.result?.raw_response === "string"
+              ? t.result.raw_response
+              : "";
             return (
               <div key={t.taskId}>
                 {/* Task row */}
@@ -843,6 +896,11 @@ function TaskDetailPanel({
                   </span>
                   {t.result?.elapsed_s != null && (
                     <span className="text-[#B0B8C1] tabular-nums shrink-0">{t.result.elapsed_s}s</span>
+                  )}
+                  {parseWarning && (
+                    <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                      복구 응답
+                    </span>
                   )}
                   {t.startedAt && t.endedAt && (
                     <span className="text-[#B0B8C1] shrink-0 hidden sm:inline">
@@ -881,6 +939,28 @@ function TaskDetailPanel({
                         <p className="text-[11px] text-rose-700 font-mono break-all">
                           {t.error || t.result?.error}
                         </p>
+                      </div>
+                    )}
+
+                    {parseWarning && (
+                      <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2">
+                        <p className="text-[11px] font-medium text-amber-800">
+                          모델 응답을 복구해서 결과를 생성했습니다.
+                        </p>
+                        <p className="mt-1 text-[11px] text-amber-700 leading-relaxed">
+                          {parseWarning}
+                        </p>
+                        {rawResponse && (
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-[11px] font-medium text-amber-800">
+                              원본 응답 일부 보기
+                            </summary>
+                            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-all rounded border border-amber-200 bg-white/80 p-2 font-mono text-[10px] text-amber-900">
+                              {rawResponse.slice(0, 2000)}
+                              {rawResponse.length > 2000 ? "\n..." : ""}
+                            </pre>
+                          </details>
+                        )}
                       </div>
                     )}
 
