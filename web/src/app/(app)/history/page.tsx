@@ -23,6 +23,7 @@ import { Badge, type BadgeProps } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
+import { useToast } from "@/components/ui/Toast";
 import { cn } from "@/lib/cn";
 
 /* ── Types (mirror server types) ── */
@@ -99,6 +100,7 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   contract_review: "계약서 검토",
   document_extraction: "문서 일괄 추출",
   condition_check: "조건 검사",
+  financial_extraction: "재무 데이터 추출",
 };
 
 function statusTone(s: JobStatus): BadgeProps["tone"] {
@@ -186,6 +188,7 @@ const PAGE_SIZE = 20;
 /* ── Page ── */
 
 export default function HistoryPage() {
+  const { toast } = useToast();
   const [jobs, setJobs] = React.useState<JobRecord[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -274,20 +277,39 @@ export default function HistoryPage() {
     if (selected.size === 0) return;
     setBulkRetrying(true);
     try {
-      const data = await apiFetch<{ ok: boolean }>("/api/jobs/bulk-retry", {
+      const data = await apiFetch<{
+        ok: boolean;
+        totalRetried: number;
+        failedJobs: number;
+        results: Array<{ jobId: string; ok: boolean; retriedCount?: number; error?: string }>;
+      }>("/api/jobs/bulk-retry", {
         method: "POST",
         body: JSON.stringify({ jobIds: Array.from(selected) }),
       });
-      if (data.ok) {
+
+      if (data.totalRetried > 0) {
         setSelected(new Set());
         await fetchJobs();
       }
+
+      if (data.failedJobs === 0) {
+        toast(`선택한 작업 ${data.results.length}건을 재시도했습니다`, "success");
+        return;
+      }
+
+      const firstError = data.results.find((result) => !result.ok)?.error;
+      if (data.totalRetried > 0) {
+        toast(`일부만 재시도했습니다. 실패 ${data.failedJobs}건${firstError ? ` (${firstError})` : ""}`, "info", 5000);
+        return;
+      }
+
+      toast(`재시도에 실패했습니다${firstError ? `: ${firstError}` : ""}`, "error", 6000);
     } catch {
-      // silent
+      toast("일괄 재시도 요청에 실패했습니다", "error", 6000);
     } finally {
       setBulkRetrying(false);
     }
-  }, [selected, fetchJobs]);
+  }, [selected, fetchJobs, toast]);
 
   // Keyboard shortcuts.
   React.useEffect(() => {

@@ -69,6 +69,7 @@ const JOB_TYPE_LABELS: Record<string, string> = {
   contract_review: "계약서 검토",
   document_extraction: "문서 일괄 추출",
   condition_check: "조건 검사",
+  financial_extraction: "재무 데이터 추출",
 };
 
 function fanoutStatusLabel(s: string | null): string {
