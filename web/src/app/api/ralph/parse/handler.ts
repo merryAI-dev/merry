@@ -1,42 +1,42 @@
+import { randomUUID } from "crypto";
 import { spawn } from "child_process";
 import { writeFile, unlink } from "fs/promises";
-import { join } from "path";
 import { tmpdir } from "os";
-import { randomUUID } from "crypto";
+import { join } from "path";
 
 const PROJECT_ROOT = join(process.cwd(), "..");
-export const MAX_TEXT_CHARS = 120_000;
-export const CHECK_TIMEOUT_MS = 45_000;
-const MAX_STDOUT_BYTES = 128 * 1024;
+export const MAX_PDF_BYTES = 50 * 1024 * 1024;
+export const PARSE_TIMEOUT_MS = 45_000;
+const MAX_STDOUT_BYTES = 256 * 1024;
 const MAX_STDERR_BYTES = 64 * 1024;
 const KILL_GRACE_MS = 1_000;
 
-export type CheckerErrorCode =
-  | "CHECK_TIMEOUT"
-  | "CHECK_STDOUT_LIMIT"
-  | "CHECK_STDERR_LIMIT"
-  | "CHECK_EMPTY_OUTPUT"
-  | "CHECK_OUTPUT_INVALID"
-  | "CHECKER_EXITED"
-  | "CHECKER_SPAWN_FAILED";
+export type ParserErrorCode =
+  | "PARSE_TIMEOUT"
+  | "PARSE_STDOUT_LIMIT"
+  | "PARSE_STDERR_LIMIT"
+  | "PARSE_EMPTY_OUTPUT"
+  | "PARSE_OUTPUT_INVALID"
+  | "PARSER_EXITED"
+  | "PARSER_SPAWN_FAILED";
 
-export type CheckerRunner = (
-  textPath: string,
-  conditions: string[],
+export type ParserRunner = (
+  pdfPath: string,
+  forcePro: boolean,
 ) => Promise<Record<string, unknown>>;
 
-type CheckerError = Error & { detail?: string };
+type ParserError = Error & { detail?: string };
 
-type HandleCheckDeps = {
+type HandleParseDeps = {
   requireWorkspace: () => Promise<unknown>;
-  runChecker: CheckerRunner;
+  runParser: ParserRunner;
   createTempPath?: () => string;
-  writeTextFile?: (path: string, text: string) => Promise<void>;
-  removeTextFile?: (path: string) => Promise<void>;
+  writePdfFile?: (path: string, bytes: Buffer) => Promise<void>;
+  removePdfFile?: (path: string) => Promise<void>;
 };
 
-export function checkerError(code: CheckerErrorCode, detail?: string) {
-  const err = new Error(code) as CheckerError;
+export function parserError(code: ParserErrorCode, detail?: string) {
+  const err = new Error(code) as ParserError;
   err.detail = detail;
   return err;
 }
@@ -67,10 +67,10 @@ function pushCappedChunk(
   return { bytes: maxBytes, overflow: true };
 }
 
-export function parseCheckerOutput(stdout: string): Record<string, unknown> {
+export function parseParserOutput(stdout: string): Record<string, unknown> {
   const trimmed = stdout.trim();
   if (!trimmed) {
-    throw checkerError("CHECK_EMPTY_OUTPUT");
+    throw parserError("PARSE_EMPTY_OUTPUT");
   }
 
   const candidates = [
@@ -98,22 +98,21 @@ export function parseCheckerOutput(stdout: string): Record<string, unknown> {
     }
   }
 
-  throw checkerError("CHECK_OUTPUT_INVALID", trimmed.slice(0, 200));
+  throw parserError("PARSE_OUTPUT_INVALID", trimmed.slice(0, 200));
 }
 
-export async function runChecker(
-  textPath: string,
-  conditions: string[],
+export async function runParser(
+  pdfPath: string,
+  forcePro = false,
 ): Promise<Record<string, unknown>> {
   return await new Promise((resolve, reject) => {
-    const scriptPath = join(PROJECT_ROOT, "ralph", "condition_checker.py");
-
-    const proc = spawn("python3", [scriptPath, textPath], {
+    const scriptPath = join(PROJECT_ROOT, "ralph", "playground_parser.py");
+    const proc = spawn("python3", [scriptPath, pdfPath], {
       cwd: PROJECT_ROOT,
       env: {
         ...process.env,
         PYTHONPATH: PROJECT_ROOT,
-        RALPH_CONDITIONS: JSON.stringify(conditions),
+        ...(forcePro ? { RALPH_FORCE_PRO: "true" } : {}),
       },
     });
 
@@ -148,15 +147,15 @@ export async function runChecker(
     };
 
     const timeoutId = setTimeout(() => {
-      terminate(checkerError("CHECK_TIMEOUT"));
-    }, CHECK_TIMEOUT_MS);
+      terminate(parserError("PARSE_TIMEOUT"));
+    }, PARSE_TIMEOUT_MS);
     timeoutId.unref();
 
     proc.stdout.on("data", (chunk: Buffer) => {
       const next = pushCappedChunk(stdoutChunks, chunk, stdoutBytes, MAX_STDOUT_BYTES);
       stdoutBytes = next.bytes;
       if (next.overflow) {
-        terminate(checkerError("CHECK_STDOUT_LIMIT"));
+        terminate(parserError("PARSE_STDOUT_LIMIT"));
       }
     });
 
@@ -164,7 +163,7 @@ export async function runChecker(
       const next = pushCappedChunk(stderrChunks, chunk, stderrBytes, MAX_STDERR_BYTES);
       stderrBytes = next.bytes;
       if (next.overflow) {
-        terminate(checkerError("CHECK_STDERR_LIMIT"));
+        terminate(parserError("PARSE_STDERR_LIMIT"));
       }
     });
 
@@ -173,83 +172,82 @@ export async function runChecker(
       const stdout = Buffer.concat(stdoutChunks).toString("utf8");
       const stderr = Buffer.concat(stderrChunks).toString("utf8");
       if (code !== 0) {
-        settleReject(checkerError("CHECKER_EXITED", `${code ?? signal ?? "unknown"}:${stderr.slice(0, 300)}`));
+        settleReject(parserError("PARSER_EXITED", `${code ?? signal ?? "unknown"}:${stderr.slice(0, 300)}`));
         return;
       }
       try {
-        settleResolve(parseCheckerOutput(stdout));
+        settleResolve(parseParserOutput(stdout));
       } catch (err) {
-        settleReject(err instanceof Error ? err : checkerError("CHECK_OUTPUT_INVALID"));
+        settleReject(err instanceof Error ? err : parserError("PARSE_OUTPUT_INVALID"));
       }
     });
 
     proc.on("error", (err) => {
-      settleReject(checkerError("CHECKER_SPAWN_FAILED", err.message));
+      settleReject(parserError("PARSER_SPAWN_FAILED", err.message));
     });
   });
 }
 
 function defaultTempPath() {
-  return join(tmpdir(), `ralph_check_${randomUUID()}.txt`);
+  return join(tmpdir(), `ralph_pg_${randomUUID()}.pdf`);
 }
 
-function defaultWriteTextFile(path: string, text: string) {
-  return writeFile(path, text, "utf-8");
+function defaultWritePdfFile(path: string, bytes: Buffer) {
+  return writeFile(path, bytes);
 }
 
-function defaultRemoveTextFile(path: string) {
+function defaultRemovePdfFile(path: string) {
   return unlink(path).catch(() => {});
 }
 
-export async function handleCheckFormData(
+export async function handleParseFormData(
   formData: FormData,
-  deps: HandleCheckDeps,
+  deps: HandleParseDeps,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-  let textPath: string | null = null;
+  let pdfPath: string | null = null;
   const createTempPath = deps.createTempPath ?? defaultTempPath;
-  const writeTextFile = deps.writeTextFile ?? defaultWriteTextFile;
-  const removeTextFile = deps.removeTextFile ?? defaultRemoveTextFile;
+  const writePdfFile = deps.writePdfFile ?? defaultWritePdfFile;
+  const removePdfFile = deps.removePdfFile ?? defaultRemovePdfFile;
 
   try {
     await deps.requireWorkspace();
-    const textValue = formData.get("text");
-    const text = typeof textValue === "string" ? textValue.trim() : "";
-    const conditions = formData
-      .getAll("conditions")
-      .map((value) => (typeof value === "string" ? value.trim() : ""))
-      .filter(Boolean)
-      .slice(0, 10);
+    const fileValue = formData.get("file");
+    const file = fileValue instanceof File ? fileValue : null;
 
-    if (!text) {
-      return { status: 400, body: { ok: false, error: "TEXT_REQUIRED" } };
+    if (!file) {
+      return { status: 400, body: { ok: false, error: "FILE_REQUIRED" } };
     }
-    if (!conditions.length) {
-      return { status: 400, body: { ok: false, error: "CONDITIONS_REQUIRED" } };
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      return { status: 400, body: { ok: false, error: "PDF_ONLY" } };
     }
-    if (text.length > MAX_TEXT_CHARS) {
-      return { status: 413, body: { ok: false, error: "TEXT_TOO_LARGE" } };
+    if (file.size > MAX_PDF_BYTES) {
+      return { status: 413, body: { ok: false, error: "FILE_TOO_LARGE" } };
     }
 
-    textPath = createTempPath();
-    await writeTextFile(textPath, text);
-    const result = await deps.runChecker(textPath, conditions);
+    pdfPath = createTempPath();
+    await writePdfFile(pdfPath, Buffer.from(await file.arrayBuffer()));
+    const forcePro = formData.get("force_pro") === "true";
+    const result = await deps.runParser(pdfPath, forcePro);
     return { status: 200, body: result };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "CHECK_FAILED";
+    const message = err instanceof Error ? err.message : "PARSE_FAILED";
     const status =
-      isUnauthorizedError(msg)
+      isUnauthorizedError(message)
         ? 401
-        : msg === "TEXT_TOO_LARGE"
+        : message === "FILE_TOO_LARGE"
           ? 413
-          : msg === "CHECK_TIMEOUT"
+          : message === "PARSE_TIMEOUT"
             ? 504
-            : msg === "CHECK_STDOUT_LIMIT" || msg === "CHECK_STDERR_LIMIT" || msg === "CHECK_EMPTY_OUTPUT" || msg === "CHECK_OUTPUT_INVALID"
+            : message === "PARSE_STDOUT_LIMIT" ||
+                message === "PARSE_STDERR_LIMIT" ||
+                message === "PARSE_EMPTY_OUTPUT" ||
+                message === "PARSE_OUTPUT_INVALID"
               ? 502
               : 500;
-    return { status, body: { ok: false, error: msg } };
+    return { status, body: { ok: false, error: message } };
   } finally {
-    if (textPath) {
-      await removeTextFile(textPath);
+    if (pdfPath) {
+      await removePdfFile(pdfPath);
     }
   }
 }

@@ -87,6 +87,26 @@ test("handleCheckFormData returns 401 when workspace auth fails", async () => {
   assert.equal(called, false);
 });
 
+test("handleCheckFormData treats detailed auth failures as 401", async () => {
+  let called = false;
+  const result = await handleCheckFormData(
+    buildFormData("sample", ["조건1"]),
+    {
+      requireWorkspace: async () => {
+        throw new Error("UNAUTHORIZED:NO_SESSION");
+      },
+      runChecker: async () => {
+        called = true;
+        return {};
+      },
+    },
+  );
+
+  assert.equal(result.status, 401);
+  assert.deepEqual(result.body, { ok: false, error: "UNAUTHORIZED:NO_SESSION" });
+  assert.equal(called, false);
+});
+
 test("handleCheckFormData rejects oversized text before running the checker", async () => {
   let called = false;
   const result = await handleCheckFormData(
