@@ -419,6 +419,29 @@ def _mock_check_nova_summary(text: str, conditions: list, model_id: str, region:
     }
 
 
+def _mock_check_nova_grouping(text: str, conditions: list, model_id: str, region: str, facts=None) -> dict:
+    company_name = (facts or {}).get("company_name")
+    company_group_name = (facts or {}).get("company_group_name")
+    company_group_key = (facts or {}).get("company_group_key")
+    return {
+        "company_name": company_name,
+        "company_group_name": company_group_name,
+        "company_group_key": company_group_key,
+        "conditions": [
+            {"condition": c, "result": True, "evidence": f"group: {c}", "source": "rule"}
+            for c in conditions
+        ],
+        "condition_summary": {
+            "total": len(conditions),
+            "rule_count": len(conditions),
+            "llm_count": 0,
+            "llm_skipped": True,
+        },
+        "detected_facts": facts or {},
+        "_usage": {"input_tokens": 0, "output_tokens": 0},
+    }
+
+
 # ── Tests ──
 
 @pytest.fixture(autouse=True)
@@ -692,6 +715,64 @@ class TestFanoutRuleSummaryMetrics:
         )))
         assert csv_rows[0]["rule_conditions"] == "1"
         assert csv_rows[0]["llm_conditions"] == "1"
+
+        cleanup(team, job)
+
+
+class TestFanoutCompanyGrouping:
+    """Recognized company variants should be grouped in metrics and JSON artifacts."""
+
+    def test_company_groups_are_aggregated(self):
+        team, job = "t_grouping", "j_grouping"
+        ctx = FakeCtx()
+        setup_fanout_job(
+            ctx,
+            team,
+            job,
+            ["ga", "gb", "gc"],
+            ["업력 3년 미만"],
+            pdf_texts={
+                "ga": "법인명: 주식회사 테스트랩\n개업연월일: 2024년 03월 01일\n",
+                "gb": "회사명: ㈜ 테스트랩\n개업연월일: 2024년 03월 01일\n",
+                "gc": "문서 본문에 회사명이 없습니다.\n",
+            },
+        )
+
+        text_map = {
+            "ga": "법인명: 주식회사 테스트랩\n개업연월일: 2024년 03월 01일\n",
+            "gb": "회사명: ㈜ 테스트랩\n개업연월일: 2024년 03월 01일\n",
+            "gc": "문서 본문에 회사명이 없습니다.\n",
+        }
+
+        def _fake_extract_text(pdf_path: str):
+            key = Path(pdf_path).stem
+            return text_map.get(key, ""), 1, []
+
+        with patch("ralph.condition_checker.check_conditions_nova", _mock_check_nova_grouping), \
+             patch("ralph.playground_parser.extract_text", side_effect=_fake_extract_text), \
+             patch("ralph.playground_parser.assess_text_quality", return_value=(0.0, False, False)):
+            process_fanout_task(ctx, team, job, "000", "ga")
+            process_fanout_task(ctx, team, job, "001", "gb")
+            process_fanout_task(ctx, team, job, "002", "gc")
+
+        j = get_job(ctx, team, job)
+        assert int(j["metrics"]["company_group_count"]) == 1
+        assert int(j["metrics"]["recognized_company_files"]) == 2
+        assert int(j["metrics"]["unrecognized_company_files"]) == 1
+
+        csv_art = next(a for a in j["artifacts"] if a["artifactId"] == "condition_check_csv")
+        csv_rows = list(csv.DictReader(io.StringIO(
+            ctx.s3.objects[(ctx.bucket, csv_art["s3Key"])].decode("utf-8-sig"),
+        )))
+        assert csv_rows[0]["company_group"] == "테스트랩"
+        assert csv_rows[1]["company_group"] == "테스트랩"
+        assert csv_rows[2]["company_group"] == ""
+
+        json_art = next(a for a in j["artifacts"] if a["artifactId"] == "condition_check_json")
+        data = json.loads(ctx.s3.objects[(ctx.bucket, json_art["s3Key"])].decode("utf-8"))
+        assert len(data["company_groups"]) == 1
+        assert data["company_groups"][0]["company_group_name"] == "테스트랩"
+        assert data["company_groups"][0]["file_count"] == 2
 
         cleanup(team, job)
 

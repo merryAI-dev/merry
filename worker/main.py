@@ -20,6 +20,7 @@ import logging
 import math
 import os
 import random
+import re
 import shutil
 import threading
 import time
@@ -2028,6 +2029,8 @@ def _process_single_condition_check(
         "method": method,
         "pages": pages,
         "company_name": check.get("company_name"),
+        "company_group_name": check.get("company_group_name"),
+        "company_group_key": check.get("company_group_key"),
         "conditions": check.get("conditions", []),
         "condition_summary": check.get("condition_summary", {}),
         "detected_facts": check.get("detected_facts") if isinstance(check.get("detected_facts"), dict) else detected_facts,
@@ -2283,7 +2286,7 @@ def _assemble_fanout_inner(
     xlsx_path: Optional[Path] = None
     companies: List[Dict[str, Any]] = []
     if job_type == "condition_check" and conditions:
-        csv_path, json_path = _build_condition_check_csv(assembly_dir, rows, conditions)
+        csv_path, json_path, companies = _build_condition_check_csv(assembly_dir, rows, conditions)
         try:
             xlsx_path = _build_condition_check_xlsx(assembly_dir, rows, conditions)
         except Exception as e:
@@ -2407,11 +2410,20 @@ def _assemble_fanout_inner(
 
         total_text_chars += int(r.get("text_chars", 0))
 
+    recognized_company_files = (
+        sum(int(company.get("file_count", 0)) for company in companies)
+        if job_type == "condition_check"
+        else 0
+    )
+
     metrics: Dict[str, Any] = {
         "total": len(rows),
         "success_count": success_count,
         "failed_count": len(rows) - success_count,
         "warning_count": warning_count,
+        "company_group_count": len(companies) if job_type == "condition_check" else 0,
+        "recognized_company_files": recognized_company_files,
+        "unrecognized_company_files": len(rows) - recognized_company_files if job_type == "condition_check" else 0,
         "result_cache_hits": result_cache_hits,
         "parse_cache_hits": parse_cache_hits,
         "rule_condition_count": rule_condition_count,
@@ -2472,7 +2484,7 @@ def _build_condition_check_csv(
     output_dir: Path,
     rows: List[Dict[str, Any]],
     conditions: List[str],
-) -> Tuple[Path, Path]:
+) -> Tuple[Path, Path, List[Dict[str, Any]]]:
     """Build CSV and JSON files from condition check results (same format as legacy)."""
     def _cache_label(row: Dict[str, Any]) -> str:
         cache = row.get("cache") if isinstance(row.get("cache"), dict) else {}
@@ -2482,10 +2494,29 @@ def _build_condition_check_csv(
             return "parse"
         return ""
 
+    def _company_identity(row: Dict[str, Any]) -> Tuple[str, str, str]:
+        facts = row.get("detected_facts") if isinstance(row.get("detected_facts"), dict) else {}
+        company_name = str(row.get("company_name") or facts.get("company_name") or "").strip()
+        company_group_name = str(row.get("company_group_name") or facts.get("company_group_name") or "").strip()
+        company_group_key = str(row.get("company_group_key") or facts.get("company_group_key") or "").strip().lower()
+        if not company_group_name and company_name:
+            company_group_name = company_name
+            company_group_name = company_group_name.replace("㈜", "")
+            company_group_name = re.sub(r"\(\s*주\s*\)|（\s*주\s*）", "", company_group_name)
+            company_group_name = re.sub(r"\(\s*유\s*\)|（\s*유\s*）", "", company_group_name)
+            company_group_name = re.sub(r"^(주식회사|유한회사)\s+", "", company_group_name)
+            company_group_name = re.sub(r"\s+(주식회사|유한회사)$", "", company_group_name)
+            company_group_name = re.sub(r"\s+", " ", company_group_name).strip(" -_.,:;")
+        if not company_group_key and company_group_name:
+            company_group_key = re.sub(r"[^0-9A-Za-z가-힣]+", "", company_group_name).lower()
+        return company_name, company_group_name, company_group_key
+
     buf = io.StringIO()
+    company_groups: Dict[str, Dict[str, Any]] = {}
     fieldnames = [
         "filename",
         "company_name",
+        "company_group",
         "method",
         "pages",
         "elapsed_s",
@@ -2501,9 +2532,11 @@ def _build_condition_check_csv(
     writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
     writer.writeheader()
     for r in rows:
+        company_name, company_group_name, company_group_key = _company_identity(r)
         row: Dict[str, Any] = {
             "filename": r.get("filename", ""),
-            "company_name": r.get("company_name", ""),
+            "company_name": company_name,
+            "company_group": company_group_name,
             "method": r.get("method", ""),
             "pages": r.get("pages", ""),
             "elapsed_s": r.get("elapsed_s", ""),
@@ -2529,18 +2562,49 @@ def _build_condition_check_csv(
                 row[f"{short}_evidence"] = ""
         writer.writerow(row)
 
+        if company_group_key:
+            group = company_groups.setdefault(company_group_key, {
+                "company_group_key": company_group_key,
+                "company_group_name": company_group_name or company_name,
+                "representative_company_name": company_name or company_group_name,
+                "file_count": 0,
+                "success_count": 0,
+                "failed_count": 0,
+                "warning_count": 0,
+                "result_cache_hits": 0,
+                "parse_cache_hits": 0,
+                "rule_condition_count": 0,
+                "llm_condition_count": 0,
+            })
+            group["file_count"] += 1
+            group["success_count"] += 0 if r.get("error") else 1
+            group["failed_count"] += 1 if r.get("error") else 0
+            group["warning_count"] += 1 if r.get("parse_warning") else 0
+            group["result_cache_hits"] += 1 if isinstance(r.get("cache"), dict) and r["cache"].get("result_hit") else 0
+            group["parse_cache_hits"] += 1 if isinstance(r.get("cache"), dict) and r["cache"].get("parse_hit") else 0
+            if company_name and len(company_name) > len(str(group.get("representative_company_name") or "")):
+                group["representative_company_name"] = company_name
+            summary = r.get("condition_summary") if isinstance(r.get("condition_summary"), dict) else {}
+            group["rule_condition_count"] += int(summary.get("rule_count", 0))
+            group["llm_condition_count"] += int(summary.get("llm_count", 0))
+
     csv_path = output_dir / "condition_check_results.csv"
     csv_path.write_text(buf.getvalue(), encoding="utf-8-sig")
 
     json_path = output_dir / "condition_check_results.json"
     warning_count = sum(1 for r in rows if r.get("parse_warning"))
+    company_group_rows = sorted(
+        company_groups.values(),
+        key=lambda item: (-int(item["file_count"]), str(item["company_group_name"] or item["company_group_key"])),
+    )
     _write_json(json_path, {
         "conditions": conditions,
         "total": len(rows),
         "warning_count": warning_count,
+        "company_groups": company_group_rows,
         "results": rows,
     })
-    return csv_path, json_path
+    return csv_path, json_path, company_group_rows
 
 
 def _build_condition_check_xlsx(
@@ -2585,7 +2649,7 @@ def _build_condition_check_xlsx(
     cache_font = Font(name="맑은 고딕", color="1D4ED8", size=9)
 
     # ── Headers ──
-    base_headers = ["파일명", "회사명", "추출 방식", "페이지 수", "처리 시간(초)", "캐시", "규칙 판정", "LLM 판정", "경고", "에러"]
+    base_headers = ["파일명", "회사명", "그룹명", "추출 방식", "페이지 수", "처리 시간(초)", "캐시", "규칙 판정", "LLM 판정", "경고", "에러"]
     headers = list(base_headers)
     for c in conditions:
         short = c[:40]
@@ -2606,6 +2670,14 @@ def _build_condition_check_xlsx(
         base_values = [
             r.get("filename", ""),
             r.get("company_name", ""),
+            (
+                r.get("company_group_name")
+                or (
+                    (r.get("detected_facts") or {}).get("company_group_name")
+                    if isinstance(r.get("detected_facts"), dict)
+                    else ""
+                )
+            ),
             r.get("method", ""),
             r.get("pages", ""),
             r.get("elapsed_s", ""),
@@ -2625,11 +2697,11 @@ def _build_condition_check_xlsx(
 
         for col_idx, val in enumerate(base_values, 1):
             cell = ws.cell(row=row_idx, column=col_idx, value=str(val) if val else "")
-            if col_idx == 6 and val:
+            if col_idx == 7 and val:
                 cell.font = cache_font
-            elif col_idx == 9 and val:
-                cell.font = warning_font
             elif col_idx == 10 and val:
+                cell.font = warning_font
+            elif col_idx == 11 and val:
                 cell.font = error_font
             else:
                 cell.font = body_font
@@ -2698,6 +2770,28 @@ def _build_condition_check_xlsx(
         for r in rows
         if isinstance(r.get("condition_summary"), dict)
     )
+    company_groups: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        facts = r.get("detected_facts") if isinstance(r.get("detected_facts"), dict) else {}
+        group_name = str(r.get("company_group_name") or facts.get("company_group_name") or "").strip()
+        if not group_name:
+            group_name = str(r.get("company_name") or facts.get("company_name") or "").strip()
+            group_name = group_name.replace("㈜", "")
+            group_name = re.sub(r"\(\s*주\s*\)|（\s*주\s*）", "", group_name)
+            group_name = re.sub(r"\(\s*유\s*\)|（\s*유\s*）", "", group_name)
+            group_name = re.sub(r"^(주식회사|유한회사)\s+", "", group_name)
+            group_name = re.sub(r"\s+(주식회사|유한회사)$", "", group_name)
+            group_name = re.sub(r"\s+", " ", group_name).strip(" -_.,:;")
+        group_key = str(r.get("company_group_key") or facts.get("company_group_key") or "").strip().lower()
+        if not group_key and group_name:
+            group_key = re.sub(r"[^0-9A-Za-z가-힣]+", "", group_name).lower()
+        if not group_key:
+            continue
+        group = company_groups.setdefault(group_key, {
+            "name": group_name or str(r.get("company_name") or ""),
+            "file_count": 0,
+        })
+        group["file_count"] += 1
     ws2.cell(row=1, column=1, value="총 파일 수").font = Font(bold=True)
     ws2.cell(row=1, column=2, value=total)
     ws2.cell(row=2, column=1, value="경고 파일 수").font = Font(bold=True)
@@ -2714,6 +2808,23 @@ def _build_condition_check_xlsx(
     ws2.cell(row=7, column=2, value=rule_conditions)
     ws2.cell(row=8, column=1, value="LLM 판정 조건 수").font = Font(bold=True)
     ws2.cell(row=8, column=2, value=llm_conditions)
+    ws2.cell(row=9, column=1, value="인식된 기업 그룹 수").font = Font(bold=True)
+    ws2.cell(row=9, column=2, value=len(company_groups))
+    ws2.cell(row=10, column=1, value="기업명 인식 파일 수").font = Font(bold=True)
+    ws2.cell(row=10, column=2, value=sum(int(group["file_count"]) for group in company_groups.values()))
+
+    condition_summary_start_row = 12
+    if company_groups:
+        start_row = 12
+        ws2.cell(row=start_row, column=1, value="기업 그룹").font = Font(bold=True)
+        ws2.cell(row=start_row, column=2, value="파일 수").font = Font(bold=True)
+        for index, group in enumerate(
+            sorted(company_groups.values(), key=lambda item: (-int(item["file_count"]), str(item["name"]))),
+            start=1,
+        ):
+            ws2.cell(row=start_row + index, column=1, value=group["name"])
+            ws2.cell(row=start_row + index, column=2, value=group["file_count"])
+        condition_summary_start_row = start_row + len(company_groups) + 2
 
     for i, c in enumerate(conditions):
         pass_count = 0
@@ -2725,9 +2836,9 @@ def _build_condition_check_xlsx(
                     pass_count += 1
                 else:
                     fail_count += 1
-        ws2.cell(row=10 + i, column=1, value=c[:60]).font = body_font
-        ws2.cell(row=10 + i, column=2, value=f"✓ {pass_count}").font = pass_font
-        ws2.cell(row=10 + i, column=3, value=f"✗ {fail_count}").font = fail_font
+        ws2.cell(row=condition_summary_start_row + i, column=1, value=c[:60]).font = body_font
+        ws2.cell(row=condition_summary_start_row + i, column=2, value=f"✓ {pass_count}").font = pass_font
+        ws2.cell(row=condition_summary_start_row + i, column=3, value=f"✗ {fail_count}").font = fail_font
 
     ws2.column_dimensions["A"].width = 50
     ws2.column_dimensions["B"].width = 12

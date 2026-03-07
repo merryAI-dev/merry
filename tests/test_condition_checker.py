@@ -87,10 +87,28 @@ def test_extract_condition_facts_parses_establishment_and_revenue_candidates():
     facts = extract_condition_facts(text, reference_date=date(2026, 3, 7))
 
     assert facts["company_name"] == "테스트 주식회사"
+    assert facts["company_group_name"] == "테스트"
+    assert facts["company_group_key"] == "테스트"
     assert facts["establishment_date"] == "2024-03-01"
     assert facts["business_age_years"] is not None
     assert facts["business_age_years"] < 3
     assert facts["revenue_candidates"][0]["amount"] == 800_000_000
+
+
+def test_extract_condition_facts_groups_company_name_variants():
+    facts = extract_condition_facts("회사명: ㈜ 테스트랩", reference_date=date(2026, 3, 7))
+
+    assert facts["company_name"] == "㈜ 테스트랩"
+    assert facts["company_group_name"] == "테스트랩"
+    assert facts["company_group_key"] == "테스트랩"
+
+
+def test_extract_condition_facts_ignores_missing_company_markers():
+    facts = extract_condition_facts("문서 본문에 회사명이 없습니다.", reference_date=date(2026, 3, 7))
+
+    assert facts["company_name"] is None
+    assert facts["company_group_name"] is None
+    assert facts["company_group_key"] is None
 
 
 def test_evaluate_rule_conditions_resolves_business_age_and_revenue_rules():
@@ -131,6 +149,8 @@ def test_check_conditions_nova_skips_bedrock_when_rules_cover_all_conditions():
         )
 
     assert result["company_name"] == "테스트 주식회사"
+    assert result["company_group_name"] == "테스트"
+    assert result["company_group_key"] == "테스트"
     assert result["condition_summary"]["rule_count"] == 2
     assert result["condition_summary"]["llm_count"] == 0
     assert result["_usage"]["input_tokens"] == 0
@@ -177,6 +197,8 @@ def test_check_conditions_nova_merges_rule_and_llm_results_in_original_order():
         )
 
     assert result["company_name"] == "하이브리드 기업"
+    assert result["company_group_name"] == "하이브리드 기업"
+    assert result["company_group_key"] == "하이브리드기업"
     assert [item["condition"] for item in result["conditions"]] == ["창업 3년 미만", "매출 성장률 10% 이상"]
     assert result["conditions"][0]["source"] == "rule"
     assert result["conditions"][1]["source"] == "llm"

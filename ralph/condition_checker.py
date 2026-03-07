@@ -36,6 +36,18 @@ _COMPANY_KEYWORDS = ("법인명", "회사명", "기업명", "상호", "상호명
 _ESTABLISHMENT_KEYWORDS = ("개업연월일", "설립일", "설립연월일", "창업일", "창업연월일", "법인설립일")
 _REVENUE_KEYWORDS = ("매출액", "매출")
 _AMOUNT_UNITS = ("천만원", "백만원", "만원", "억원", "억", "원")
+_COMPANY_PREFIXES = (
+    "주식회사",
+    "유한회사",
+    "합자회사",
+    "합명회사",
+    "재단법인",
+    "사단법인",
+    "농업회사법인",
+    "영농조합법인",
+    "사회적협동조합",
+    "협동조합",
+)
 _COMPARATORS = {
     "미만": "lt",
     "이하": "lte",
@@ -57,6 +69,7 @@ _AMOUNT_MULTIPLIERS = {
     "억": 100_000_000,
     "억원": 100_000_000,
 }
+_COMPANY_NEGATIVE_TOKENS = ("없음", "없습니다", "미기재", "해당 없음", "해당없음", "unknown", "n/a")
 
 
 def _normalize_requested_conditions(raw: object) -> list[str]:
@@ -146,10 +159,56 @@ def _coerce_bool(value: object) -> bool:
 def _normalize_company_name(value: object) -> str | None:
     if value is None:
         return None
-    name = str(value).strip()
+    name = normalize_text(str(value))
+    name = re.sub(r"\s+", " ", name).strip().strip(":：")
+    name = name.strip("\"'“”‘’[](){}<>")
     if not name or name.lower() == "null":
         return None
     return name
+
+
+def _company_group_name(value: object) -> str | None:
+    name = _normalize_company_name(value)
+    if not name:
+        return None
+
+    display = name
+    display = display.replace("㈜", "")
+    display = re.sub(r"\(\s*주\s*\)", "", display)
+    display = re.sub(r"\(\s*유\s*\)", "", display)
+    display = re.sub(r"（\s*주\s*）", "", display)
+    display = re.sub(r"（\s*유\s*）", "", display)
+    for prefix in _COMPANY_PREFIXES:
+        display = re.sub(rf"^{re.escape(prefix)}\s+", "", display)
+        display = re.sub(rf"\s+{re.escape(prefix)}$", "", display)
+    display = re.sub(r"\s+", " ", display).strip(" -_.,:;")
+    return display or name
+
+
+def _company_group_key(value: object) -> str | None:
+    group_name = _company_group_name(value)
+    if not group_name:
+        return None
+    key = re.sub(r"[^0-9A-Za-z가-힣]+", "", group_name).lower()
+    return key or None
+
+
+def _apply_company_identity(facts: dict, company_name: object | None = None) -> dict:
+    merged = dict(facts or {})
+    effective_name = _normalize_company_name(company_name) or _normalize_company_name(merged.get("company_name"))
+    merged["company_name"] = effective_name
+    merged["company_group_name"] = _company_group_name(effective_name) if effective_name else None
+    merged["company_group_key"] = _company_group_key(effective_name) if effective_name else None
+    return merged
+
+
+def _is_missing_company_marker(value: object) -> bool:
+    name = _normalize_company_name(value)
+    if not name:
+        return True
+    lowered = name.lower()
+    compact = re.sub(r"\s+", "", lowered)
+    return any(token in lowered or token.replace(" ", "") in compact for token in _COMPANY_NEGATIVE_TOKENS)
 
 
 def _parse_amount_value(number_text: str, unit: str | None) -> int | None:
@@ -191,7 +250,24 @@ def _extract_company_name_from_text(text: str) -> str | None:
         candidate = match.group(1).strip()
         candidate = re.split(r"\s{2,}|[|/]", candidate)[0].strip()
         candidate = candidate.rstrip(":：")
-        if candidate and len(candidate) <= 80:
+        candidate = _normalize_company_name(candidate)
+        if candidate and len(candidate) <= 80 and not _is_missing_company_marker(candidate):
+            return candidate
+
+    legal_form_pattern = re.compile(
+        r"((?:주식회사|유한회사)\s*[A-Za-z0-9가-힣][A-Za-z0-9가-힣&.,·ㆍ\-\s]{1,40}|"
+        r"[A-Za-z0-9가-힣][A-Za-z0-9가-힣&.,·ㆍ\-\s]{1,40}\s*(?:주식회사|유한회사)|"
+        r"(?:㈜|\(\s*주\s*\)|（\s*주\s*）)\s*[A-Za-z0-9가-힣][A-Za-z0-9가-힣&.,·ㆍ\-\s]{1,40})"
+    )
+    for line in text.splitlines()[:20]:
+        normalized_line = normalize_text(line).strip()
+        if not normalized_line:
+            continue
+        match = legal_form_pattern.search(normalized_line)
+        if not match:
+            continue
+        candidate = _normalize_company_name(match.group(1))
+        if candidate and not _is_missing_company_marker(candidate) and _company_group_key(candidate):
             return candidate
     return None
 
@@ -262,6 +338,8 @@ def extract_condition_facts(
     facts = {
         "reference_date": ref.isoformat(),
         "company_name": _extract_company_name_from_text(normalized),
+        "company_group_name": None,
+        "company_group_key": None,
         "establishment_date": None,
         "business_age_years": None,
         "revenue_candidates": _extract_revenue_candidates(normalized),
@@ -276,7 +354,7 @@ def extract_condition_facts(
         except ValueError:
             facts["establishment_date"] = None
             facts["business_age_years"] = None
-    return facts
+    return _apply_company_identity(facts)
 
 
 def _compare_numeric(observed: float, threshold: float, operator: str) -> bool:
@@ -476,6 +554,8 @@ def _parse_model_output(raw: str, requested_conditions: list[str]) -> dict:
         return result
 
     result["company_name"] = _normalize_company_name(payload.get("company_name"))
+    result["company_group_name"] = _company_group_name(result["company_name"])
+    result["company_group_key"] = _company_group_key(result["company_name"])
     result["conditions"] = _normalize_conditions_output(requested_conditions, payload.get("conditions"))
     if "raw_response" in payload:
         result["raw_response"] = payload["raw_response"]
@@ -550,11 +630,14 @@ def check_conditions_nova(
             "llm_skipped": len(unresolved_pairs) == 0,
         }
         company_name = llm_company_name or extracted_facts.get("company_name")
+        enriched_facts = _apply_company_identity(extracted_facts, company_name)
         result = {
-            "company_name": company_name,
+            "company_name": enriched_facts.get("company_name"),
+            "company_group_name": enriched_facts.get("company_group_name"),
+            "company_group_key": enriched_facts.get("company_group_key"),
             "conditions": merged_conditions,
             "condition_summary": summary,
-            "detected_facts": extracted_facts,
+            "detected_facts": enriched_facts,
         }
         if parse_warning:
             result["parse_warning"] = parse_warning
