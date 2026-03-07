@@ -1938,7 +1938,7 @@ def _process_single_condition_check(
                 **(reused.get("cache") if isinstance(reused.get("cache"), dict) else {}),
                 "file_signature": file_digest[:8],
                 "result_hit": True,
-                "parse_hit": True,
+                "parse_hit": False,
                 "saved_input_tokens": int(original_usage.get("input_tokens", 0)),
                 "saved_output_tokens": int(original_usage.get("output_tokens", 0)),
             }

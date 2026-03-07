@@ -694,3 +694,61 @@ class TestFanoutRuleSummaryMetrics:
         assert csv_rows[0]["llm_conditions"] == "1"
 
         cleanup(team, job)
+
+
+class TestFanoutScale:
+    """Large fan-out batches should finish with visible cache savings."""
+
+    def test_800_files_complete_with_result_cache_observability(self):
+        team, job = "t_scale", "j_scale_800"
+        ctx = FakeCtx()
+        conditions = ["업력 3년 미만", "매출 10억 미만"]
+        unique_docs = 8
+        repeats_per_doc = 100
+        total_files = unique_docs * repeats_per_doc
+        file_ids = [f"scale_{i:03d}" for i in range(total_files)]
+        pdf_texts = {
+            fid: (
+                f"개업연월일 2024년 03월 01일\n"
+                f"2025년 매출액 {((i % unique_docs) + 1)}억원\n"
+                f"GROUP {i % unique_docs}\n"
+            )
+            for i, fid in enumerate(file_ids)
+        }
+
+        original_make_pdf_bytes = make_pdf_bytes
+        pdf_cache: Dict[str, bytes] = {}
+
+        def cached_make_pdf_bytes(text: str) -> bytes:
+            if text not in pdf_cache:
+                pdf_cache[text] = original_make_pdf_bytes(text)
+            return pdf_cache[text]
+
+        with patch(f"{__name__}.make_pdf_bytes", cached_make_pdf_bytes):
+            setup_fanout_job(ctx, team, job, file_ids, conditions, pdf_texts=pdf_texts)
+
+        with patch("ralph.condition_checker.check_conditions_nova", _mock_check_nova_summary):
+            for i, fid in enumerate(file_ids):
+                process_fanout_task(ctx, team, job, f"{i:03d}", fid)
+
+        j = get_job(ctx, team, job)
+        metrics = j.get("metrics", {})
+        assert j["status"] == "succeeded"
+        assert j["fanout_status"] == "succeeded"
+        assert int(j.get("processed_count", 0)) == total_files
+        assert int(j.get("failed_count", 0)) == 0
+        assert int(metrics["result_cache_hits"]) == total_files - unique_docs
+        assert int(metrics["parse_cache_hits"]) == 0
+        assert int(metrics["saved_total_tokens"]) > 0
+        assert int(metrics["rule_condition_count"]) == total_files
+        assert int(metrics["llm_condition_count"]) == total_files
+
+        csv_art = next(a for a in j["artifacts"] if a["artifactId"] == "condition_check_csv")
+        csv_rows = list(csv.DictReader(io.StringIO(
+            ctx.s3.objects[(ctx.bucket, csv_art["s3Key"])].decode("utf-8-sig"),
+        )))
+        assert len(csv_rows) == total_files
+        assert sum(1 for row in csv_rows if row["cache"] == "result") == total_files - unique_docs
+        assert sum(1 for row in csv_rows if row["cache"] == "") == unique_docs
+
+        cleanup(team, job)
