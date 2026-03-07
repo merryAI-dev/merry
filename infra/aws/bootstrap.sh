@@ -45,6 +45,36 @@ fi
 
 TABLE_ARN="$(aws dynamodb describe-table --table-name "$MERRY_DDB_TABLE" --region "$AWS_REGION" --query 'Table.TableArn' --output text)"
 
+echo "[bootstrap] ensuring DynamoDB Streams enabled on: $MERRY_DDB_TABLE"
+STREAM_STATUS="$(aws dynamodb describe-table --table-name "$MERRY_DDB_TABLE" --region "$AWS_REGION" --query 'Table.StreamSpecification.StreamEnabled' --output text 2>/dev/null || echo "None")"
+if [[ "$STREAM_STATUS" == "True" ]]; then
+  echo "  - streams already enabled"
+else
+  aws dynamodb update-table \
+    --region "$AWS_REGION" \
+    --table-name "$MERRY_DDB_TABLE" \
+    --stream-specification StreamEnabled=true,StreamViewType=NEW_AND_OLD_IMAGES \
+    >/dev/null
+  echo "  - enabled (NEW_AND_OLD_IMAGES)"
+  echo "  - waiting for table to become ACTIVE..."
+  aws dynamodb wait table-exists --table-name "$MERRY_DDB_TABLE" --region "$AWS_REGION"
+fi
+
+STREAM_ARN="$(aws dynamodb describe-table --table-name "$MERRY_DDB_TABLE" --region "$AWS_REGION" --query 'Table.LatestStreamArn' --output text)"
+
+echo "[bootstrap] ensuring DynamoDB TTL enabled on: $MERRY_DDB_TABLE"
+TTL_STATUS="$(aws dynamodb describe-time-to-live --table-name "$MERRY_DDB_TABLE" --region "$AWS_REGION" --query 'TimeToLiveDescription.TimeToLiveStatus' --output text 2>/dev/null || echo "DISABLED")"
+if [[ "$TTL_STATUS" == "ENABLED" ]]; then
+  echo "  - TTL already enabled"
+else
+  aws dynamodb update-time-to-live \
+    --region "$AWS_REGION" \
+    --table-name "$MERRY_DDB_TABLE" \
+    --time-to-live-specification Enabled=true,AttributeName=ttl \
+    >/dev/null 2>&1 || true
+  echo "  - enabled (attribute=ttl)"
+fi
+
 echo "[bootstrap] ensuring SQS DLQ: $MERRY_SQS_DLQ_NAME"
 DLQ_URL="$(aws sqs get-queue-url --queue-name "$MERRY_SQS_DLQ_NAME" --region "$AWS_REGION" --query 'QueueUrl' --output text 2>/dev/null || true)"
 if [[ -z "$DLQ_URL" || "$DLQ_URL" == "None" ]]; then
@@ -62,7 +92,7 @@ if [[ -z "$QUEUE_URL" || "$QUEUE_URL" == "None" ]]; then
   # Use JSON syntax for --attributes because RedrivePolicy contains commas.
   ATTRS_JSON="$(python3 - <<PY
 import json
-redrive=json.dumps({"deadLetterTargetArn": "${DLQ_ARN}", "maxReceiveCount": "5"}, separators=(",", ":"))
+redrive=json.dumps({"deadLetterTargetArn": "${DLQ_ARN}", "maxReceiveCount": "3"}, separators=(",", ":"))
 print(json.dumps({
   "VisibilityTimeout": "900",
   "ReceiveMessageWaitTimeSeconds": "20",
@@ -77,7 +107,14 @@ PY
     --query 'QueueUrl' --output text)"
   echo "  - created"
 else
-  echo "  - exists"
+  echo "  - exists (updating attributes)"
+  # Ensure redrive policy is current on existing queues.
+  REDRIVE_JSON="$(python3 -c "import json; print(json.dumps({'deadLetterTargetArn': '${DLQ_ARN}', 'maxReceiveCount': '3'}, separators=(',',':')))")"
+  aws sqs set-queue-attributes \
+    --queue-url "$QUEUE_URL" \
+    --region "$AWS_REGION" \
+    --attributes "{\"RedrivePolicy\": $(python3 -c "import json; print(json.dumps('$REDRIVE_JSON'))")}" \
+    >/dev/null 2>&1 || true
 fi
 
 echo "[bootstrap] configuring S3 bucket (guardrails): $MERRY_S3_BUCKET"
@@ -116,16 +153,37 @@ PY
 )"
 aws s3api put-bucket-cors --region "$AWS_REGION" --bucket "$MERRY_S3_BUCKET" --cors-configuration "$CORS_JSON" >/dev/null
 
-# Lifecycle: expire uploads/ after 1 day (safety net)
+# Lifecycle rules:
+# - uploads/: expire after 7 days (buffer for delayed processing / retries)
+# - artifacts/: expire after 90 days (completed job results)
+#   + transition to Infrequent Access after 30 days for cost savings
+# - Incomplete multipart uploads: abort after 3 days (prevent orphan cost)
 LIFECYCLE_JSON="$(python3 - <<PY
 import json
 print(json.dumps({
-  "Rules": [{
-    "ID": "ExpireUploads",
-    "Status": "Enabled",
-    "Filter": {"Prefix": "uploads/"},
-    "Expiration": {"Days": 1}
-  }]
+  "Rules": [
+    {
+      "ID": "ExpireUploads",
+      "Status": "Enabled",
+      "Filter": {"Prefix": "uploads/"},
+      "Expiration": {"Days": 7}
+    },
+    {
+      "ID": "ExpireArtifacts",
+      "Status": "Enabled",
+      "Filter": {"Prefix": "artifacts/"},
+      "Transitions": [
+        {"Days": 30, "StorageClass": "STANDARD_IA"}
+      ],
+      "Expiration": {"Days": 90}
+    },
+    {
+      "ID": "AbortIncompleteMultipart",
+      "Status": "Enabled",
+      "Filter": {"Prefix": ""},
+      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 3}
+    },
+  ]
 }))
 PY
 )"
@@ -157,5 +215,6 @@ echo "MERRY_S3_BUCKET=$MERRY_S3_BUCKET"
 echo "MERRY_DDB_TABLE=$MERRY_DDB_TABLE"
 echo "MERRY_SQS_QUEUE_URL=$QUEUE_URL"
 echo "DDB_TABLE_ARN=$TABLE_ARN"
+echo "DDB_STREAM_ARN=$STREAM_ARN"
 echo
 echo "[bootstrap] done"

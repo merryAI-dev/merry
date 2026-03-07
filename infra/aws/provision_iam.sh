@@ -148,7 +148,12 @@ print(json.dumps({
     {
       "Sid": "DynamoDbReadUpdate",
       "Effect": "Allow",
-      "Action": ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:Query",
+        "dynamodb:BatchWriteItem",
+      ],
       "Resource": os.environ["DDB_TABLE_ARN"],
     },
     {
@@ -195,11 +200,107 @@ aws iam attach-role-policy \
 TASK_ROLE_ARN="$(aws iam get-role --role-name "$MERRY_WORKER_TASK_ROLE_NAME" --query Role.Arn --output text)"
 EXEC_ROLE_ARN="$(aws iam get-role --role-name "$MERRY_WORKER_EXEC_ROLE_NAME" --query Role.Arn --output text)"
 
+# ── Lambda Roles ──
+
+MERRY_LAMBDA_ROLE_NAME="${MERRY_LAMBDA_ROLE_NAME:-merry-lambda-role}"
+MERRY_LAMBDA_INLINE_POLICY_NAME="${MERRY_LAMBDA_INLINE_POLICY_NAME:-merry-lambda-inline}"
+SQS_DLQ_ARN="arn:aws:sqs:${AWS_REGION}:${ACCOUNT_ID}:${MERRY_SQS_QUEUE_NAME}-dlq"
+DDB_STREAM_ARN_PATTERN="arn:aws:dynamodb:${AWS_REGION}:${ACCOUNT_ID}:table/${MERRY_DDB_TABLE}/stream/*"
+export SQS_DLQ_ARN DDB_STREAM_ARN_PATTERN
+
+LAMBDA_TRUST_JSON="$(cat <<'JSON'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": { "Service": "lambda.amazonaws.com" },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+JSON
+)"
+
+echo "[iam] ensuring Lambda role: $MERRY_LAMBDA_ROLE_NAME"
+if aws iam get-role --role-name "$MERRY_LAMBDA_ROLE_NAME" >/dev/null 2>&1; then
+  echo "  - exists"
+else
+  aws iam create-role --role-name "$MERRY_LAMBDA_ROLE_NAME" --assume-role-policy-document "$LAMBDA_TRUST_JSON" >/dev/null
+  echo "  - created"
+fi
+
+echo "[iam] attaching AWSLambdaBasicExecutionRole to Lambda role (CloudWatch Logs)"
+aws iam attach-role-policy \
+  --role-name "$MERRY_LAMBDA_ROLE_NAME" \
+  --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole \
+  >/dev/null || true
+
+echo "[iam] putting inline policy for Lambda role: $MERRY_LAMBDA_INLINE_POLICY_NAME"
+LAMBDA_POLICY_JSON="$(python3 - <<PY
+import json, os
+print(json.dumps({
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DynamoDbFullAccess",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:Query",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:DescribeStream",
+        "dynamodb:GetRecords",
+        "dynamodb:GetShardIterator",
+        "dynamodb:ListStreams",
+      ],
+      "Resource": [
+        os.environ["DDB_TABLE_ARN"],
+        os.environ["DDB_STREAM_ARN_PATTERN"],
+      ],
+    },
+    {
+      "Sid": "S3Artifacts",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": [os.environ["S3_UPLOADS_ARN"], os.environ["S3_ARTIFACTS_ARN"]],
+    },
+    {
+      "Sid": "SqsDlqConsume",
+      "Effect": "Allow",
+      "Action": [
+        "sqs:ReceiveMessage",
+        "sqs:DeleteMessage",
+        "sqs:GetQueueAttributes",
+      ],
+      "Resource": os.environ["SQS_DLQ_ARN"],
+    },
+    {
+      "Sid": "LambdaInvoke",
+      "Effect": "Allow",
+      "Action": ["lambda:InvokeFunction"],
+      "Resource": f"arn:aws:lambda:{os.environ.get('AWS_REGION','ap-northeast-2')}:*:function:merry-*",
+    },
+  ],
+}))
+PY
+)"
+aws iam put-role-policy \
+  --role-name "$MERRY_LAMBDA_ROLE_NAME" \
+  --policy-name "$MERRY_LAMBDA_INLINE_POLICY_NAME" \
+  --policy-document "$LAMBDA_POLICY_JSON" \
+  >/dev/null
+
+LAMBDA_ROLE_ARN="$(aws iam get-role --role-name "$MERRY_LAMBDA_ROLE_NAME" --query Role.Arn --output text)"
+
 echo
 echo "[iam] outputs:"
 echo "AWS_ACCOUNT_ID=$ACCOUNT_ID"
 echo "MERRY_VERCEL_USER_NAME=$MERRY_VERCEL_USER_NAME"
 echo "MERRY_WORKER_TASK_ROLE_ARN=$TASK_ROLE_ARN"
 echo "MERRY_WORKER_EXEC_ROLE_ARN=$EXEC_ROLE_ARN"
+echo "MERRY_LAMBDA_ROLE_ARN=$LAMBDA_ROLE_ARN"
 echo
 echo "[iam] done"

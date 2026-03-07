@@ -30,3 +30,11 @@ export function getSqsQueueUrl(): string {
   return url;
 }
 
+/** Derive DLQ URL from main queue URL (convention: {queue-name}-dlq). */
+export function getSqsDlqUrl(): string {
+  const explicit = process.env.MERRY_SQS_DLQ_URL;
+  if (explicit) return explicit;
+  const mainUrl = getSqsQueueUrl();
+  return `${mainUrl}-dlq`;
+}
+

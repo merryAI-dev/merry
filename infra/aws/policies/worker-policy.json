@@ -4,16 +4,21 @@
     {
       "Sid": "S3ReadWriteAndDelete",
       "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:HeadObject"],
       "Resource": [
         "arn:aws:s3:::merry-private-apne2/uploads/*",
         "arn:aws:s3:::merry-private-apne2/artifacts/*"
       ]
     },
     {
-      "Sid": "DynamoDbReadUpdate",
+      "Sid": "DynamoDbReadUpdateQuery",
       "Effect": "Allow",
-      "Action": ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:Query",
+        "dynamodb:BatchWriteItem"
+      ],
       "Resource": "arn:aws:dynamodb:ap-northeast-2:*:table/merry-main"
     },
     {
@@ -35,4 +40,3 @@
     }
   ]
 }
-

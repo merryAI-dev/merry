@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 
+import { handleApiError } from "@/lib/apiError";
+import { withCache } from "@/lib/cache";
 import { getJob } from "@/lib/jobStore";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
@@ -14,10 +16,9 @@ export async function GET(
     const { jobId } = await ctx.params;
     const job = await getJob(ws.teamId, jobId);
     if (!job) return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
-    return NextResponse.json({ ok: true, job });
+    return withCache(NextResponse.json({ ok: true, job }), 3, 5);
   } catch (err) {
-    const status = err instanceof Error && err.message === "UNAUTHORIZED" ? 401 : 500;
-    return NextResponse.json({ ok: false, error: "FAILED" }, { status });
+    return handleApiError(err, "GET /api/jobs/[jobId]");
   }
 }
 
