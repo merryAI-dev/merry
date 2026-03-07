@@ -126,6 +126,30 @@ function formatCost(method?: string, pages?: number): string {
   return "$0.00";
 }
 
+function formatCheckError(error?: string): string {
+  switch (error) {
+    case "TEXT_REQUIRED":
+      return "검사할 문서 텍스트가 없습니다.";
+    case "CONDITIONS_REQUIRED":
+      return "검사 조건을 하나 이상 입력하세요.";
+    case "TEXT_TOO_LARGE":
+      return "추출 텍스트가 너무 깁니다. 페이지 수를 줄이거나 문서를 나눠서 다시 시도하세요.";
+    case "CHECK_TIMEOUT":
+      return "조건 검사 시간이 초과되었습니다. 조건 수를 줄이거나 문서를 나눠서 다시 시도하세요.";
+    case "CHECK_STDOUT_LIMIT":
+    case "CHECK_STDERR_LIMIT":
+      return "조건 검사 출력이 비정상적으로 커져 중단되었습니다.";
+    case "CHECK_EMPTY_OUTPUT":
+    case "CHECK_OUTPUT_INVALID":
+      return "조건 검사 결과를 읽지 못했습니다. 잠시 후 다시 시도하세요.";
+    case "CHECKER_EXITED":
+    case "CHECKER_SPAWN_FAILED":
+      return "조건 검사 프로세스 실행에 실패했습니다.";
+    default:
+      return error ?? "알 수 없는 오류";
+  }
+}
+
 /* ── Component ── */
 
 export default function PlaygroundPage() {
@@ -429,7 +453,7 @@ export default function PlaygroundPage() {
                       </>
                     ) : (
                       <p className="text-sm text-[#DC2626]">
-                        오류: {checkResult.error ?? "알 수 없는 오류"}
+                        오류: {formatCheckError(checkResult.error)}
                       </p>
                     )}
                   </div>
