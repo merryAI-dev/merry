@@ -270,15 +270,6 @@ export default function HistoryPage() {
     });
   }, []);
 
-  const toggleSelectAll = React.useCallback(() => {
-    const failedJobs = jobs.filter((j) => j.status === "failed" && j.fanout);
-    if (selected.size === failedJobs.length && failedJobs.length > 0) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(failedJobs.map((j) => j.jobId)));
-    }
-  }, [jobs, selected.size]);
-
   const handleBulkRetry = React.useCallback(async () => {
     if (selected.size === 0) return;
     setBulkRetrying(true);

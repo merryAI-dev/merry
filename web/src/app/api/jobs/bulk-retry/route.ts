@@ -17,7 +17,7 @@ const BulkRetrySchema = z.object({
  */
 export async function POST(req: Request) {
   try {
-    const ws = await requireWorkspaceFromCookies();
+    await requireWorkspaceFromCookies();
     const body = BulkRetrySchema.parse(await req.json());
 
     const results: Array<{ jobId: string; ok: boolean; retriedCount?: number; error?: string }> = [];

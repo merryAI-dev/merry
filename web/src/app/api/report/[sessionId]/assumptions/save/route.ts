@@ -18,12 +18,6 @@ const BodySchema = z.object({
   }).passthrough(),
 });
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  if (!value || typeof value !== "object") return null;
-  if (Array.isArray(value)) return null;
-  return value as Record<string, unknown>;
-}
-
 function asString(value: unknown): string {
   return typeof value === "string" ? value : value == null ? "" : String(value);
 }
@@ -125,4 +119,3 @@ export async function POST(req: Request, ctx: { params: Promise<{ sessionId: str
     return NextResponse.json({ ok: false, error: unauthorized ? "UNAUTHORIZED" : "BAD_REQUEST" }, { status });
   }
 }
-

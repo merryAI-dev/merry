@@ -6,7 +6,6 @@ import { CheckCircle2, Download, FileText, Loader2, UploadCloud, XCircle } from 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { cn } from "@/lib/cn";
 import { apiFetch } from "@/lib/apiClient";
 
 /* ── Types ── */

@@ -484,7 +484,7 @@ export default function CheckPage() {
       progressRef.current = null;
       setEta(null);
     };
-  }, [jobId, phase]);
+  }, [jobId, phase, toast]);
 
   /* ── Download artifact ── */
   const handleDownload = React.useCallback(
