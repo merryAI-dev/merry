@@ -1415,45 +1415,15 @@ def _handle_condition_check(
                 "pages": pages,
                 "company_name": check.get("company_name"),
                 "conditions": check.get("conditions", []),
+                "parse_warning": check.get("parse_warning"),
+                "raw_response": check.get("raw_response"),
                 "elapsed_s": round(_time.time() - t0, 1),
             })
         except Exception as exc:
             entry.update({"error": str(exc), "elapsed_s": round(_time.time() - t0, 1)})
         rows.append(entry)
 
-    # CSV 생성
-    import csv, io
-    buf = io.StringIO()
-    fieldnames = ["filename", "company_name", "method", "pages", "elapsed_s", "error"]
-    for c in conditions:
-        short = c[:30].replace(" ", "_")
-        fieldnames += [f"{short}_result", f"{short}_evidence"]
-    writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
-    writer.writeheader()
-    for r in rows:
-        row: Dict[str, Any] = {k: r.get(k, "") for k in ["filename", "company_name", "method", "pages", "elapsed_s", "error"]}
-        cond_results = r.get("conditions") or []
-        for j, c in enumerate(conditions):
-            short = c[:30].replace(" ", "_")
-            if j < len(cond_results):
-                cr = cond_results[j]
-                row[f"{short}_result"] = "✓" if cr.get("result") else "✗"
-                row[f"{short}_evidence"] = cr.get("evidence", "")
-            else:
-                row[f"{short}_result"] = ""
-                row[f"{short}_evidence"] = ""
-        writer.writerow(row)
-
-    csv_path = input_paths[0].parent / "condition_check_results.csv"
-    csv_path.write_text(buf.getvalue(), encoding="utf-8-sig")
-
-    # JSON 요약도 저장
-    json_path = input_paths[0].parent / "condition_check_results.json"
-    _write_json(json_path, {
-        "conditions": conditions,
-        "total": len(rows),
-        "results": rows,
-    })
+    csv_path, json_path = _build_condition_check_csv(input_paths[0].parent, rows, conditions)
 
     artifacts: List[Dict[str, Any]] = []
 
@@ -1484,10 +1454,12 @@ def _handle_condition_check(
         },
     ])
     success = sum(1 for r in rows if "error" not in r)
+    warning_count = sum(1 for r in rows if r.get("parse_warning"))
     metrics: Dict[str, Any] = {
         "total": len(rows),
         "success_count": success,
         "failed_count": len(rows) - success,
+        "warning_count": warning_count,
         "conditions": conditions,
     }
     return artifacts, metrics
@@ -1943,6 +1915,8 @@ def _process_single_condition_check(
         "pages": pages,
         "company_name": check.get("company_name"),
         "conditions": check.get("conditions", []),
+        "parse_warning": check.get("parse_warning"),
+        "raw_response": check.get("raw_response"),
         "elapsed_s": round(time.time() - t0, 1),
         "token_usage": {
             "input_tokens": total_input_tokens,
@@ -2274,6 +2248,7 @@ def _assemble_fanout_inner(
                 pass  # Best-effort; lifecycle rule handles leftovers.
 
     success_count = sum(1 for r in rows if "error" not in r)
+    warning_count = sum(1 for r in rows if r.get("parse_warning"))
 
     # Aggregate token usage across all tasks.
     total_input_tokens = 0
@@ -2287,6 +2262,7 @@ def _assemble_fanout_inner(
         "total": len(rows),
         "success_count": success_count,
         "failed_count": len(rows) - success_count,
+        "warning_count": warning_count,
         "conditions": conditions,
         "companies": companies,
         "artifacts_bytes": total_bytes,
@@ -2341,14 +2317,22 @@ def _build_condition_check_csv(
 ) -> Tuple[Path, Path]:
     """Build CSV and JSON files from condition check results (same format as legacy)."""
     buf = io.StringIO()
-    fieldnames = ["filename", "company_name", "method", "pages", "elapsed_s", "error"]
+    fieldnames = ["filename", "company_name", "method", "pages", "elapsed_s", "warning", "error"]
     for c in conditions:
         short = c[:30].replace(" ", "_")
         fieldnames += [f"{short}_result", f"{short}_evidence"]
     writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
     writer.writeheader()
     for r in rows:
-        row: Dict[str, Any] = {k: r.get(k, "") for k in ["filename", "company_name", "method", "pages", "elapsed_s", "error"]}
+        row: Dict[str, Any] = {
+            "filename": r.get("filename", ""),
+            "company_name": r.get("company_name", ""),
+            "method": r.get("method", ""),
+            "pages": r.get("pages", ""),
+            "elapsed_s": r.get("elapsed_s", ""),
+            "warning": r.get("parse_warning", ""),
+            "error": r.get("error", ""),
+        }
         cond_results = r.get("conditions") or []
         for j, c in enumerate(conditions):
             short = c[:30].replace(" ", "_")
@@ -2365,9 +2349,11 @@ def _build_condition_check_csv(
     csv_path.write_text(buf.getvalue(), encoding="utf-8-sig")
 
     json_path = output_dir / "condition_check_results.json"
+    warning_count = sum(1 for r in rows if r.get("parse_warning"))
     _write_json(json_path, {
         "conditions": conditions,
         "total": len(rows),
+        "warning_count": warning_count,
         "results": rows,
     })
     return csv_path, json_path
@@ -2410,10 +2396,11 @@ def _build_condition_check_xlsx(
     body_font = Font(name="맑은 고딕", size=9)
     body_align = Alignment(vertical="top", wrap_text=False)
     evidence_align = Alignment(vertical="top", wrap_text=True)
+    warning_font = Font(name="맑은 고딕", color="B45309", size=9)
     error_font = Font(name="맑은 고딕", color="DC2626", size=9)
 
     # ── Headers ──
-    base_headers = ["파일명", "회사명", "추출 방식", "페이지 수", "처리 시간(초)", "에러"]
+    base_headers = ["파일명", "회사명", "추출 방식", "페이지 수", "처리 시간(초)", "경고", "에러"]
     headers = list(base_headers)
     for c in conditions:
         short = c[:40]
@@ -2437,13 +2424,19 @@ def _build_condition_check_xlsx(
             r.get("method", ""),
             r.get("pages", ""),
             r.get("elapsed_s", ""),
+            r.get("parse_warning", ""),
             r.get("error", ""),
         ]
         cond_results = r.get("conditions") or []
 
         for col_idx, val in enumerate(base_values, 1):
             cell = ws.cell(row=row_idx, column=col_idx, value=str(val) if val else "")
-            cell.font = error_font if col_idx == 6 and val else body_font
+            if col_idx == 6 and val:
+                cell.font = warning_font
+            elif col_idx == 7 and val:
+                cell.font = error_font
+            else:
+                cell.font = body_font
             cell.alignment = body_align
             cell.border = thin_border
 
@@ -2487,13 +2480,16 @@ def _build_condition_check_xlsx(
     # ── Summary sheet ──
     ws2 = wb.create_sheet("요약")
     total = len(rows)
+    warnings = sum(1 for r in rows if r.get("parse_warning"))
     errors = sum(1 for r in rows if r.get("error"))
     ws2.cell(row=1, column=1, value="총 파일 수").font = Font(bold=True)
     ws2.cell(row=1, column=2, value=total)
-    ws2.cell(row=2, column=1, value="에러 파일 수").font = Font(bold=True)
-    ws2.cell(row=2, column=2, value=errors)
-    ws2.cell(row=3, column=1, value="검사 조건 수").font = Font(bold=True)
-    ws2.cell(row=3, column=2, value=len(conditions))
+    ws2.cell(row=2, column=1, value="경고 파일 수").font = Font(bold=True)
+    ws2.cell(row=2, column=2, value=warnings)
+    ws2.cell(row=3, column=1, value="에러 파일 수").font = Font(bold=True)
+    ws2.cell(row=3, column=2, value=errors)
+    ws2.cell(row=4, column=1, value="검사 조건 수").font = Font(bold=True)
+    ws2.cell(row=4, column=2, value=len(conditions))
 
     for i, c in enumerate(conditions):
         pass_count = 0
@@ -2505,9 +2501,9 @@ def _build_condition_check_xlsx(
                     pass_count += 1
                 else:
                     fail_count += 1
-        ws2.cell(row=5 + i, column=1, value=c[:60]).font = body_font
-        ws2.cell(row=5 + i, column=2, value=f"✓ {pass_count}").font = pass_font
-        ws2.cell(row=5 + i, column=3, value=f"✗ {fail_count}").font = fail_font
+        ws2.cell(row=6 + i, column=1, value=c[:60]).font = body_font
+        ws2.cell(row=6 + i, column=2, value=f"✓ {pass_count}").font = pass_font
+        ws2.cell(row=6 + i, column=3, value=f"✗ {fail_count}").font = fail_font
 
     ws2.column_dimensions["A"].width = 50
     ws2.column_dimensions["B"].width = 12

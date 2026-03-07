@@ -16,6 +16,7 @@ def _make_rows():
             "method": "pymupdf",
             "pages": 5,
             "elapsed_s": 2.3,
+            "parse_warning": "JSON 응답 일부를 복구했습니다.",
             "conditions": [
                 {"result": True, "evidence": "매출 증가 추세"},
                 {"result": False, "evidence": "영업이익 부족"},
@@ -87,8 +88,8 @@ def test_xlsx_correct_column_count(tmp_path):
 
     wb = load_workbook(str(xlsx_path))
     ws = wb["조건 검사 결과"]
-    # 6 base + 2 conditions * 2 (result+evidence) = 10
-    assert ws.max_column == 10
+    # 7 base + 2 conditions * 2 (result+evidence) = 11
+    assert ws.max_column == 11
 
 
 def test_xlsx_pass_fail_values(tmp_path):
@@ -100,10 +101,11 @@ def test_xlsx_pass_fail_values(tmp_path):
 
     wb = load_workbook(str(xlsx_path))
     ws = wb["조건 검사 결과"]
-    # Row 2 (first data row), col 7 (first result column)
-    assert ws.cell(row=2, column=7).value == "✓ 충족"
-    assert ws.cell(row=2, column=8).value == "매출 증가 추세"
-    assert ws.cell(row=2, column=9).value == "✗ 미충족"
+    assert ws.cell(row=2, column=6).value == "JSON 응답 일부를 복구했습니다."
+    # Row 2 (first data row), col 8 (first result column)
+    assert ws.cell(row=2, column=8).value == "✓ 충족"
+    assert ws.cell(row=2, column=9).value == "매출 증가 추세"
+    assert ws.cell(row=2, column=10).value == "✗ 미충족"
 
 
 def test_xlsx_summary_sheet(tmp_path):
@@ -116,8 +118,9 @@ def test_xlsx_summary_sheet(tmp_path):
     wb = load_workbook(str(xlsx_path))
     ws = wb["요약"]
     assert ws.cell(row=1, column=2).value == 3  # total files
-    assert ws.cell(row=2, column=2).value == 1  # error files
-    assert ws.cell(row=3, column=2).value == 2  # conditions count
+    assert ws.cell(row=2, column=2).value == 1  # warning files
+    assert ws.cell(row=3, column=2).value == 1  # error files
+    assert ws.cell(row=4, column=2).value == 2  # conditions count
 
 
 def test_xlsx_empty_rows(tmp_path):

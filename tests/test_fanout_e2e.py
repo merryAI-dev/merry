@@ -374,6 +374,19 @@ def _mock_call_nova_visual(images, model_id, region, prompt, max_tokens=1200) ->
     }
 
 
+def _mock_check_nova_warning(text: str, conditions: list, model_id: str, region: str) -> dict:
+    return {
+        "company_name": "경고기업",
+        "conditions": [
+            {"condition": c, "result": True, "evidence": f"warning: {c}"}
+            for c in conditions
+        ],
+        "parse_warning": "JSON 응답 일부를 복구했습니다.",
+        "raw_response": "{bad json",
+        "_usage": {"input_tokens": 500, "output_tokens": 200},
+    }
+
+
 # ── Tests ──
 
 @pytest.fixture(autouse=True)
@@ -505,6 +518,36 @@ class TestFanoutTokenAggregation:
         assert total == int(tu["input_tokens"]) + int(tu["output_tokens"])
         # With 2 tasks, total should be at least 2 * (500+200) = 1400.
         assert total >= 1400
+
+        cleanup(team, job)
+
+
+class TestFanoutParseWarnings:
+    """Recovered checker responses should remain visible in artifacts and metrics."""
+
+    def test_warning_propagates_to_artifacts_and_metrics(self):
+        team, job = "t_warning", "j_warning"
+        ctx = FakeCtx()
+        setup_fanout_job(ctx, team, job, ["warn"], ["조건A"])
+
+        with patch("ralph.condition_checker.check_conditions_nova", _mock_check_nova_warning):
+            process_fanout_task(ctx, team, job, "000", "warn")
+
+        j = get_job(ctx, team, job)
+        assert int(j.get("metrics", {}).get("warning_count", 0)) == 1
+
+        arts = j.get("artifacts", [])
+        csv_art = next(a for a in arts if a["artifactId"] == "condition_check_csv")
+        csv_rows = list(csv.DictReader(io.StringIO(
+            ctx.s3.objects[(ctx.bucket, csv_art["s3Key"])].decode("utf-8-sig"),
+        )))
+        assert csv_rows[0]["warning"] == "JSON 응답 일부를 복구했습니다."
+
+        json_art = next(a for a in arts if a["artifactId"] == "condition_check_json")
+        data = json.loads(ctx.s3.objects[(ctx.bucket, json_art["s3Key"])].decode("utf-8"))
+        assert data["warning_count"] == 1
+        assert data["results"][0]["parse_warning"] == "JSON 응답 일부를 복구했습니다."
+        assert data["results"][0]["raw_response"] == "{bad json"
 
         cleanup(team, job)
 
