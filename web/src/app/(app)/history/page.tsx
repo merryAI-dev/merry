@@ -68,6 +68,8 @@ type ConditionResult = {
 type TaskResult = {
   filename?: string;
   company_name?: string;
+  company_group_name?: string;
+  company_group_key?: string;
   method?: string;
   pages?: number;
   elapsed_s?: number;
@@ -188,11 +190,92 @@ function formatMetricValue(key: string, value: unknown): string {
   return String(value ?? "-");
 }
 
+type CompanyGroupSummary = {
+  key: string;
+  name: string;
+  fileCount: number;
+  successCount: number;
+  failedCount: number;
+  warningCount: number;
+  resultCacheHits: number;
+  parseCacheHits: number;
+  ruleConditionCount: number;
+  llmConditionCount: number;
+  variants: string[];
+};
+
+function buildConditionCompanyGroups(tasks: TaskRecord[] | undefined): CompanyGroupSummary[] {
+  if (!tasks?.length) return [];
+
+  const groups = new Map<string, CompanyGroupSummary>();
+  for (const task of tasks) {
+    const result = task.result;
+    if (!result || typeof result !== "object") continue;
+
+    const detectedFacts = result.detected_facts && typeof result.detected_facts === "object"
+      ? result.detected_facts as Record<string, unknown>
+      : undefined;
+    const companyName = typeof result.company_name === "string" ? result.company_name.trim() : "";
+    const companyGroupName = typeof result.company_group_name === "string"
+      ? result.company_group_name.trim()
+      : typeof detectedFacts?.company_group_name === "string"
+        ? String(detectedFacts.company_group_name).trim()
+        : "";
+    const companyGroupKey = typeof result.company_group_key === "string"
+      ? result.company_group_key.trim().toLowerCase()
+      : typeof detectedFacts?.company_group_key === "string"
+        ? String(detectedFacts.company_group_key).trim().toLowerCase()
+        : "";
+    if (!companyGroupKey || !companyGroupName) continue;
+
+    const cacheInfo = result.cache && typeof result.cache === "object"
+      ? result.cache as Record<string, unknown>
+      : undefined;
+    const summary = result.condition_summary && typeof result.condition_summary === "object"
+      ? result.condition_summary as Record<string, unknown>
+      : undefined;
+    const existing = groups.get(companyGroupKey) ?? {
+      key: companyGroupKey,
+      name: companyGroupName,
+      fileCount: 0,
+      successCount: 0,
+      failedCount: 0,
+      warningCount: 0,
+      resultCacheHits: 0,
+      parseCacheHits: 0,
+      ruleConditionCount: 0,
+      llmConditionCount: 0,
+      variants: [],
+    };
+
+    existing.fileCount += 1;
+    existing.successCount += task.status === "succeeded" ? 1 : 0;
+    existing.failedCount += task.status === "failed" ? 1 : 0;
+    existing.warningCount += typeof result.parse_warning === "string" && result.parse_warning ? 1 : 0;
+    existing.resultCacheHits += cacheInfo?.result_hit === true ? 1 : 0;
+    existing.parseCacheHits += cacheInfo?.parse_hit === true ? 1 : 0;
+    existing.ruleConditionCount += readMetricNumber(summary, "rule_count");
+    existing.llmConditionCount += readMetricNumber(summary, "llm_count");
+    if (companyName && !existing.variants.includes(companyName)) {
+      existing.variants.push(companyName);
+    }
+    groups.set(companyGroupKey, existing);
+  }
+
+  return Array.from(groups.values()).sort((a, b) => {
+    if (b.fileCount !== a.fileCount) return b.fileCount - a.fileCount;
+    return a.name.localeCompare(b.name, "ko-KR");
+  });
+}
+
 const METRIC_LABELS: Record<string, string> = {
   total: "총 파일",
   success_count: "성공 파일",
   failed_count: "실패 파일",
   warning_count: "복구 경고",
+  company_group_count: "기업 그룹",
+  recognized_company_files: "기업명 인식 파일",
+  unrecognized_company_files: "기업명 미인식 파일",
   result_cache_hits: "결과 캐시 적중",
   parse_cache_hits: "파싱 캐시 적중",
   rule_condition_count: "규칙 판정 조건",
@@ -801,6 +884,10 @@ export default function HistoryPage() {
                     </div>
                   )}
 
+                  {job.type === "condition_check" && (
+                    <ConditionCompanyGroupPanel tasks={jobTasks} />
+                  )}
+
                   {/* Fan-out Tasks */}
                   {job.fanout && (
                     <TaskDetailPanel
@@ -850,6 +937,49 @@ export default function HistoryPage() {
 
 
 /* ── Task Detail Panel (accordion) ── */
+
+function ConditionCompanyGroupPanel({ tasks }: { tasks?: TaskRecord[] }) {
+  const groups = React.useMemo(() => buildConditionCompanyGroups(tasks), [tasks]);
+  if (groups.length === 0) return null;
+
+  return (
+    <div>
+      <p className="text-xs font-medium text-[#8B95A1] mb-2">
+        기업 그룹 ({groups.length}개)
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {groups.slice(0, 6).map((group) => (
+          <div key={group.key} className="rounded border border-[#E5E8EB] bg-white px-3 py-2.5">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-[#191F28]">{group.name}</p>
+                {group.variants.length > 1 && (
+                  <p className="mt-0.5 text-[11px] text-[#8B95A1]">
+                    표기 {group.variants.slice(0, 2).join(" · ")}
+                    {group.variants.length > 2 && ` 외 ${group.variants.length - 2}개`}
+                  </p>
+                )}
+              </div>
+              <span className="rounded-full bg-[#F2F4F6] px-2 py-0.5 text-[11px] font-medium text-[#4E5968]">
+                {group.fileCount}건
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[#4E5968]">
+              <span>성공 {group.successCount}</span>
+              {group.failedCount > 0 && <span className="text-rose-600">실패 {group.failedCount}</span>}
+              {group.warningCount > 0 && <span className="text-amber-700">경고 {group.warningCount}</span>}
+              {group.resultCacheHits > 0 && <span className="text-blue-700">결과 캐시 {group.resultCacheHits}</span>}
+              {group.parseCacheHits > 0 && <span className="text-sky-700">파싱 캐시 {group.parseCacheHits}</span>}
+            </div>
+            <div className="mt-2 text-[11px] text-[#8B95A1]">
+              규칙 {group.ruleConditionCount} · LLM {group.llmConditionCount}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function TaskDetailPanel({
   tasks,
