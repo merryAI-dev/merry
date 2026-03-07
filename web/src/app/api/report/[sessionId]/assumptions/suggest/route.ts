@@ -15,7 +15,7 @@ const BodySchema = z.object({
   mode: z.enum(["exit_projection", "report_base"]),
 });
 
-function extractJsonObject(text: string): any | null {
+function extractJsonObject(text: string): Record<string, unknown> | null {
   const s = (text ?? "").trim();
   if (!s) return null;
   const start = s.indexOf("{");
@@ -37,13 +37,14 @@ function ensureThreeScenarios(raw: unknown): Scenario[] {
     if (!it || typeof it !== "object") continue;
     const r = it as Record<string, unknown>;
     const k = typeof r["key"] === "string" ? r["key"].trim() : "";
-    const key: Scenario["key"] = k === "bull" || k === "bear" ? (k as any) : "base";
+    const key: Scenario["key"] = k === "bull" || k === "bear" ? k : "base";
     if (seen.has(key)) continue;
     seen.add(key);
+    const overridesRaw = r["overrides"];
     out.push({
       key,
       title: typeof r["title"] === "string" && r["title"].trim() ? r["title"].trim() : key.toUpperCase(),
-      overrides: Array.isArray(r["overrides"]) ? (r["overrides"] as any) : [],
+      overrides: Array.isArray(overridesRaw) ? (overridesRaw as Scenario["overrides"]) : [],
     });
   }
   const need = (k: Scenario["key"], title: string) => ({ key: k, title, overrides: [] });
@@ -159,7 +160,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ sessionId: str
 
     const parsed = extractJsonObject(llm.text) ?? {};
     const assumptionsRaw = Array.isArray(parsed.assumptions) ? parsed.assumptions : [];
-    const assumptions = upsertRequiredAssumptions(assumptionsRaw as any);
+    const assumptions = upsertRequiredAssumptions(assumptionsRaw as Assumption[]);
     const scenarios = ensureThreeScenarios(parsed.scenarios);
 
     const now = new Date().toISOString();

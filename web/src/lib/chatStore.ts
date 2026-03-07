@@ -221,11 +221,29 @@ export async function addMessage(args: {
   await ddb.send(new PutCommand({ TableName, Item: activity }));
 }
 
-export async function getMessages(teamId: string, sessionId: string): Promise<ChatMessageRow[]> {
+export async function getMessages(teamId: string, sessionId: string, maxMessages?: number): Promise<ChatMessageRow[]> {
   const ddb = getDdbDocClient();
   const TableName = getDdbTableName();
 
   const pk = pkTeamSessionMessages(teamId, sessionId);
+
+  // When caller only needs the last N messages, query in reverse and stop early.
+  if (maxMessages && maxMessages > 0) {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName,
+        KeyConditionExpression: "pk = :pk",
+        ExpressionAttributeValues: { ":pk": pk },
+        ScanIndexForward: false,
+        Limit: maxMessages,
+      }),
+    );
+    return (res.Items ?? [])
+      .map(coerceChatMessageRow)
+      .filter((m) => typeof m.role === "string" && m.session_id === sessionId && m.user_id === teamId)
+      .sort((a, b) => (a.created_at ?? "").localeCompare(b.created_at ?? ""));
+  }
+
   let lastKey: Record<string, unknown> | undefined;
   const out: ChatMessageRow[] = [];
 

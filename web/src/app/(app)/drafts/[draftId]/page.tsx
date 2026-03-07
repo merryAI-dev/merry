@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
+import { apiFetch } from "@/lib/apiClient";
 import { cn } from "@/lib/cn";
 
 type DraftVersion = {
@@ -46,12 +47,6 @@ type DraftThread = {
   replies: DraftComment[];
 };
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { cache: "no-store", ...init });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || "FAILED");
-  return json as T;
-}
 
 function badgeForStatus(status: DraftComment["status"]) {
   if (status === "accepted") return <Badge tone="success">반영</Badge>;
@@ -193,7 +188,7 @@ export default function DraftDetailPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetchJson<DraftDetailResponse>(`/api/drafts/${draftId}`);
+      const res = await apiFetch<DraftDetailResponse>(`/api/drafts/${draftId}`);
       setVersions(res.versions || []);
       setComments(res.comments || []);
       const latest = (res.versions || []).at(-1)?.versionId || null;
@@ -334,7 +329,7 @@ export default function DraftDetailPage() {
     if (!activeVersion) return;
     if (!commentDraft.anchor || !commentDraft.text.trim()) return;
     try {
-      const res = await fetchJson<{ commentId: string; threadId: string }>(`/api/drafts/${draftId}/comment`, {
+      const res = await apiFetch<{ commentId: string; threadId: string }>(`/api/drafts/${draftId}/comment`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -358,7 +353,7 @@ export default function DraftDetailPage() {
     if (replyDraft.threadId !== thread.threadId) return;
     if (!replyDraft.text.trim()) return;
     try {
-      await fetchJson(`/api/drafts/${draftId}/comment`, {
+      await apiFetch(`/api/drafts/${draftId}/comment`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -379,7 +374,7 @@ export default function DraftDetailPage() {
 
   async function setStatus(commentId: string, status: DraftComment["status"]) {
     try {
-      await fetchJson(`/api/drafts/${draftId}/comment-status`, {
+      await apiFetch(`/api/drafts/${draftId}/comment-status`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ commentId, status }),
@@ -395,7 +390,7 @@ export default function DraftDetailPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetchJson<{ versionId: string }>(`/api/drafts/${draftId}/apply`, {
+      const res = await apiFetch<{ versionId: string }>(`/api/drafts/${draftId}/apply`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ baseVersionId: activeVersion.versionId }),
@@ -421,7 +416,7 @@ export default function DraftDetailPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetchJson<{ versionId: string }>(`/api/drafts/${draftId}`, {
+      const res = await apiFetch<{ versionId: string }>(`/api/drafts/${draftId}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ title: editTitle, content: editContent }),

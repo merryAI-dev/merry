@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { handleApiError } from "@/lib/apiError";
+import { paginate } from "@/lib/pagination";
 import { createReportSession, listReportSessions } from "@/lib/reportChat";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
@@ -17,21 +19,21 @@ const CreateSchema = z.object({
   author: z.string().optional(),
 });
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const ws = await requireWorkspaceFromCookies();
-    const sessions = await listReportSessions(ws.teamId, 30);
-    return NextResponse.json({ ok: true, sessions });
+    const all = await listReportSessions(ws.teamId, 100);
+    const { items, total, offset, hasMore } = paginate(all, new URL(req.url));
+    return NextResponse.json({ ok: true, sessions: items, total, offset, hasMore });
   } catch (err) {
-    const status = err instanceof Error && err.message === "UNAUTHORIZED" ? 401 : 500;
-    return NextResponse.json({ ok: false, error: "FAILED" }, { status });
+    return handleApiError(err, "GET /api/report/sessions");
   }
 }
 
 export async function POST(req: Request) {
   try {
     const ws = await requireWorkspaceFromCookies();
-    const body = CreateSchema.parse(await req.json().catch(() => ({})));
+    const body = CreateSchema.parse(await req.json());
     const created = await createReportSession({
       teamId: ws.teamId,
       memberName: ws.memberName,

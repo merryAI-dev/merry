@@ -5,7 +5,8 @@ import * as React from "react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import type { AssumptionPack, ComputeSnapshot, FactPack } from "@/lib/reportPacks";
+import type { Assumption, AssumptionPack, ComputeSnapshot, FactPack } from "@/lib/reportPacks";
+import { apiFetch } from "@/lib/apiClient";
 
 type JobStatus = "queued" | "running" | "succeeded" | "failed";
 
@@ -35,12 +36,6 @@ type CheckResult = {
   message: string;
 };
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { cache: "no-store", ...init });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || "FAILED");
-  return json as T;
-}
 
 function toNumberInput(raw: string): number | undefined {
   const s = (raw ?? "").trim().replaceAll(",", "");
@@ -92,16 +87,16 @@ function upsertAssumptionNumber(pack: AssumptionPack, key: string, value: number
   const unit = cur?.unit;
   const required = Boolean(cur?.required);
   const val = typeof value === "number" && Number.isFinite(value) ? value : undefined;
-  const updated = {
+  const updated: Assumption = {
     key,
-    valueType: "number" as const,
+    valueType: "number",
     numberValue: val,
     unit,
     required,
     evidence,
   };
   if (idx >= 0) assumptions[idx] = { ...cur, ...updated };
-  else assumptions.push(updated as any);
+  else assumptions.push(updated);
   next.assumptions = assumptions;
   return next;
 }
@@ -114,16 +109,16 @@ function upsertAssumptionNumberArray(pack: AssumptionPack, key: string, value: n
   const evidence = cur?.evidence?.length ? cur.evidence : [{ note: "확인 필요" }];
   const unit = cur?.unit;
   const required = Boolean(cur?.required);
-  const updated = {
+  const updated: Assumption = {
     key,
-    valueType: "number_array" as const,
+    valueType: "number_array",
     numberArrayValue: value,
     unit,
     required,
     evidence,
   };
   if (idx >= 0) assumptions[idx] = { ...cur, ...updated };
-  else assumptions.push(updated as any);
+  else assumptions.push(updated);
   next.assumptions = assumptions;
   return next;
 }
@@ -162,9 +157,9 @@ export function FactsAssumptionsPanel(props: {
     setMsg(null);
     try {
       const [facts, assumps, compute] = await Promise.all([
-        fetchJson<{ factPack: FactPack | null }>(`/api/report/${sessionId}/facts/latest`).catch(() => ({ factPack: null })),
-        fetchJson<{ pack: AssumptionPack | null }>(`/api/report/${sessionId}/assumptions/latest`).catch(() => ({ pack: null })),
-        fetchJson<{ snapshot: ComputeSnapshot | null; job: JobRecord | null }>(`/api/report/${sessionId}/compute/latest`).catch(() => ({ snapshot: null, job: null })),
+        apiFetch<{ factPack: FactPack | null }>(`/api/report/${sessionId}/facts/latest`).catch(() => ({ factPack: null })),
+        apiFetch<{ pack: AssumptionPack | null }>(`/api/report/${sessionId}/assumptions/latest`).catch(() => ({ pack: null })),
+        apiFetch<{ snapshot: ComputeSnapshot | null; job: JobRecord | null }>(`/api/report/${sessionId}/compute/latest`).catch(() => ({ snapshot: null, job: null })),
       ]);
 
       setFactPack(facts.factPack ?? null);
@@ -190,7 +185,7 @@ export function FactsAssumptionsPanel(props: {
   React.useEffect(() => {
     if (!assumptionPack) return;
 
-    const byKey = new Map<string, any>();
+    const byKey = new Map<string, Assumption>();
     for (const a of assumptionPack.assumptions || []) byKey.set(a.key, a);
 
     const n = (k: string) => {
@@ -225,7 +220,7 @@ export function FactsAssumptionsPanel(props: {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await fetchJson<{ factPackId: string; warnings: string[] }>(`/api/report/${sessionId}/facts/build`, {
+      const res = await apiFetch<{ factPackId: string; warnings: string[] }>(`/api/report/${sessionId}/facts/build`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ sourceJobIds: [jobId] }),
@@ -244,7 +239,7 @@ export function FactsAssumptionsPanel(props: {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await fetchJson<{ pack: AssumptionPack }>(`/api/report/${sessionId}/assumptions/suggest`, {
+      const res = await apiFetch<{ pack: AssumptionPack }>(`/api/report/${sessionId}/assumptions/suggest`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ factPackId: factPack?.factPackId, mode: "exit_projection" }),
@@ -265,7 +260,7 @@ export function FactsAssumptionsPanel(props: {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await fetchJson<{ pack: AssumptionPack }>(`/api/report/${sessionId}/assumptions/save`, {
+      const res = await apiFetch<{ pack: AssumptionPack }>(`/api/report/${sessionId}/assumptions/save`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ pack: assumptionPack }),
@@ -286,7 +281,7 @@ export function FactsAssumptionsPanel(props: {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await fetchJson<{ status: ValidationStatus; checks: CheckResult[]; pack?: AssumptionPack }>(
+      const res = await apiFetch<{ status: ValidationStatus; checks: CheckResult[]; pack?: AssumptionPack }>(
         `/api/report/${sessionId}/assumptions/validate`,
         {
           method: "POST",
@@ -310,7 +305,7 @@ export function FactsAssumptionsPanel(props: {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await fetchJson<{ pack: AssumptionPack }>(`/api/report/${sessionId}/assumptions/lock`, {
+      const res = await apiFetch<{ pack: AssumptionPack }>(`/api/report/${sessionId}/assumptions/lock`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ packId: assumptionPack.packId }),
@@ -356,7 +351,7 @@ export function FactsAssumptionsPanel(props: {
     setBusy(true);
     setMsg(null);
     try {
-      const presign = await fetchJson<{
+      const presign = await apiFetch<{
         file: { fileId: string; contentType: string };
         upload: { url: string; headers: Record<string, string> };
       }>("/api/uploads/presign", {
@@ -376,13 +371,13 @@ export function FactsAssumptionsPanel(props: {
       });
       if (!putRes.ok) throw new Error("UPLOAD_FAILED");
 
-      await fetchJson("/api/uploads/complete", {
+      await apiFetch("/api/uploads/complete", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ fileId: presign.file.fileId }),
       });
 
-      const started = await fetchJson<{ jobId: string }>(`/api/report/${sessionId}/compute/exit-projection`, {
+      const started = await apiFetch<{ jobId: string }>(`/api/report/${sessionId}/compute/exit-projection`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ packId: assumptionPack.packId, fileId: presign.file.fileId }),
@@ -408,7 +403,7 @@ export function FactsAssumptionsPanel(props: {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await fetchJson<{ url: string }>(`/api/jobs/${jobId}/artifact?artifactId=${artifactId}`);
+      const res = await apiFetch<{ url: string }>(`/api/jobs/${jobId}/artifact?artifactId=${artifactId}`);
       window.open(res.url, "_blank", "noopener,noreferrer");
     } catch {
       setMsg("다운로드 URL 발급에 실패했습니다.");

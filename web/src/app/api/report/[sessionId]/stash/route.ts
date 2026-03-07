@@ -7,8 +7,8 @@ import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 export const runtime = "nodejs";
 
 const CreateSchema = z.object({
-  content: z.string().min(1),
-  title: z.string().optional(),
+  content: z.string().min(1).max(50_000),
+  title: z.string().max(500).optional(),
   // Zod v4 requires explicit key+value schemas for record parsing.
   source: z.record(z.string(), z.unknown()).optional(),
 });

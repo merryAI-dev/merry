@@ -1,5 +1,5 @@
 import { addMessage, getMessages } from "@/lib/chatStore";
-import type { AssumptionPack, ComputeSnapshot, CheckResult, ValidationStatus } from "@/lib/reportPacks";
+import type { Assumption, AssumptionPack, ComputeSnapshot, CheckResult, Scenario, ValidationStatus } from "@/lib/reportPacks";
 
 const ROLE_ASSUMPTION_PACK = "report_assumption_pack";
 const ROLE_COMPUTE_SNAPSHOT = "report_compute_snapshot";
@@ -30,8 +30,8 @@ function coerceAssumptionPack(obj: unknown): AssumptionPack | null {
   const factPackId = asString(r.factPackId) || undefined;
   const assumptionsRaw = (r.assumptions as unknown) ?? [];
   const scenariosRaw = (r.scenarios as unknown) ?? [];
-  const assumptions = Array.isArray(assumptionsRaw) ? (assumptionsRaw as any[]) : [];
-  const scenarios = Array.isArray(scenariosRaw) ? (scenariosRaw as any[]) : [];
+  const assumptions: Assumption[] = Array.isArray(assumptionsRaw) ? (assumptionsRaw as Assumption[]) : [];
+  const scenarios: Scenario[] = Array.isArray(scenariosRaw) ? (scenariosRaw as Scenario[]) : [];
   if (!packId || !sessionId || !companyName || !createdAt || !createdBy) return null;
   return {
     packId,
@@ -41,10 +41,10 @@ function coerceAssumptionPack(obj: unknown): AssumptionPack | null {
     createdAt,
     createdBy,
     status,
-    lineage: lineage as any,
+    lineage: lineage as AssumptionPack["lineage"],
     factPackId,
-    assumptions: assumptions as any,
-    scenarios: scenarios as any,
+    assumptions,
+    scenarios,
   };
 }
 

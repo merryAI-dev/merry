@@ -60,11 +60,11 @@ async function bodyToString(body: unknown): Promise<string> {
   if (!body) return "";
   if (typeof body === "string") return body;
   if (body instanceof Uint8Array) return new TextDecoder().decode(body);
-  if (typeof (body as any).transformToString === "function") {
-    return (body as any).transformToString();
+  if (typeof (body as { transformToString?: () => Promise<string> }).transformToString === "function") {
+    return (body as { transformToString: () => Promise<string> }).transformToString();
   }
   const chunks: Buffer[] = [];
-  for await (const chunk of body as any) {
+  for await (const chunk of body as AsyncIterable<Uint8Array>) {
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
   }
   return Buffer.concat(chunks).toString("utf-8");
@@ -114,7 +114,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ draftId: strin
     const obj = await s3.send(new GetObjectCommand({ Bucket: artifact.s3Bucket, Key: artifact.s3Key }));
     const raw = await bodyToString(obj.Body as unknown);
     const json = JSON.parse(raw || "{}") as Record<string, unknown>;
-    const evidence = (json && typeof json === "object" ? (json as any).evidence : null) as unknown;
+    const evidence: unknown = json && typeof json === "object" ? json.evidence : null;
 
     const maxItems = typeof body.maxItems === "number" ? body.maxItems : 20;
     const block = evidenceToMarkdown(evidence, maxItems);

@@ -1,17 +1,19 @@
 import { NextResponse } from "next/server";
 
+import { handleApiError } from "@/lib/apiError";
+import { paginate } from "@/lib/pagination";
 import { getRecentActivity } from "@/lib/teamActivity";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export const runtime = "nodejs";
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const ws = await requireWorkspaceFromCookies();
-    const activity = await getRecentActivity(ws.teamId, 40);
-    return NextResponse.json({ ok: true, activity });
+    const all = await getRecentActivity(ws.teamId, 100);
+    const { items, total, offset, hasMore } = paginate(all, new URL(req.url));
+    return NextResponse.json({ ok: true, activity: items, total, offset, hasMore });
   } catch (err) {
-    const status = err instanceof Error && err.message === "UNAUTHORIZED" ? 401 : 500;
-    return NextResponse.json({ ok: false, error: "FAILED" }, { status });
+    return handleApiError(err, "GET /api/activity");
   }
 }

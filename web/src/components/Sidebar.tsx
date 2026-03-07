@@ -5,12 +5,16 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  FileSpreadsheet,
   FileText,
   Files,
   FlaskConical,
+  History,
   LayoutDashboard,
   LineChart,
   LogOut,
+  ScanSearch,
+  Settings,
   TrendingUp,
   UploadCloud,
 } from "lucide-react";
@@ -24,11 +28,15 @@ const nav = [
   { href: "/hub",             label: "협업 허브",     icon: LayoutDashboard },
   { href: "/analysis",        label: "분석",          icon: UploadCloud },
   { href: "/documents",       label: "문서 추출",     icon: Files },
+  { href: "/extract",         label: "재무 일괄 추출", icon: FileSpreadsheet },
   { href: "/playground",      label: "플레이그라운드", icon: FlaskConical },
+  { href: "/check",           label: "조건 검사",      icon: ScanSearch },
   { href: "/exit-projection", label: "Exit 프로젝션", icon: TrendingUp },
   { href: "/funds",           label: "펀드",          icon: LineChart },
   { href: "/drafts",          label: "드래프트",      icon: FileText },
   { href: "/report",          label: "투자심사",      icon: ClipboardList },
+  { href: "/history",         label: "작업 이력",     icon: History },
+  { href: "/admin",           label: "관리자",        icon: Settings },
 ];
 
 const STORAGE_KEY = "merry-sidebar-collapsed";
@@ -106,7 +114,7 @@ export function Sidebar({ workspace }: { workspace: WorkspaceSession }) {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-2 py-3 flex flex-col gap-0.5 overflow-y-auto">
+        <nav aria-label="메인 내비게이션" className="flex-1 px-2 py-3 flex flex-col gap-0.5 overflow-y-auto">
           {nav.map((item) => {
             const Icon = item.icon;
             const active = pathname === item.href || pathname.startsWith(item.href + "/");
@@ -115,6 +123,7 @@ export function Sidebar({ workspace }: { workspace: WorkspaceSession }) {
                 key={item.href}
                 href={item.href}
                 title={collapsed ? item.label : undefined}
+                aria-current={active ? "page" : undefined}
                 className={cn(
                   "group relative flex items-center rounded-xl text-[13.5px] font-medium",
                   "transition-all duration-150",
@@ -154,6 +163,7 @@ export function Sidebar({ workspace }: { workspace: WorkspaceSession }) {
           <button
             onClick={logout}
             disabled={busy}
+            aria-busy={busy}
             title={collapsed ? "로그아웃" : undefined}
             className={cn(
               "group relative flex w-full items-center rounded-xl text-[13px] font-medium",

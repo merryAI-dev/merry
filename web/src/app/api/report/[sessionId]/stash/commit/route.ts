@@ -33,7 +33,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ sessionId: str
       return NextResponse.json({ ok: false, error: "BAD_SESSION" }, { status: 400 });
     }
 
-    const body = CommitSchema.parse(await req.json().catch(() => ({})));
+    const body = CommitSchema.parse(await req.json());
     const stash = await listReportStashItems(ws.teamId, sessionId);
     let items: ReportStashItem[] = stash;
     const requested = (body.itemIds ?? []).map((s) => s.trim()).filter(Boolean);

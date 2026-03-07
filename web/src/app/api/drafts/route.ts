@@ -1,24 +1,26 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { handleApiError } from "@/lib/apiError";
 import { createDraft, listDrafts } from "@/lib/drafts";
+import { paginate } from "@/lib/pagination";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export const runtime = "nodejs";
 
 const CreateSchema = z.object({
-  title: z.string().min(1),
-  content: z.string().min(1),
+  title: z.string().min(1).max(500),
+  content: z.string().min(1).max(50_000),
 });
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const ws = await requireWorkspaceFromCookies();
-    const drafts = await listDrafts(ws.teamId);
-    return NextResponse.json({ ok: true, drafts });
+    const all = await listDrafts(ws.teamId);
+    const { items, total, offset, hasMore } = paginate(all, new URL(req.url));
+    return NextResponse.json({ ok: true, drafts: items, total, offset, hasMore });
   } catch (err) {
-    const status = err instanceof Error && err.message === "UNAUTHORIZED" ? 401 : 500;
-    return NextResponse.json({ ok: false, error: "FAILED" }, { status });
+    return handleApiError(err, "GET /api/drafts");
   }
 }
 

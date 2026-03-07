@@ -9,13 +9,8 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import type { FundSummary } from "@/lib/funds";
+import { apiFetch } from "@/lib/apiClient";
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { cache: "no-store", ...init });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || "FAILED");
-  return json as T;
-}
 
 function fmtCompact(n?: number) {
   if (typeof n !== "number" || !Number.isFinite(n)) return "—";
@@ -56,7 +51,7 @@ export default function FundsPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetchJson<{ funds: FundSummary[] }>("/api/funds");
+      const res = await apiFetch<{ funds: FundSummary[] }>("/api/funds");
       setFunds(res.funds || []);
     } catch (e) {
       const msg = e instanceof Error ? e.message : "FAILED";

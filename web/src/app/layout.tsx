@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Fraunces, IBM_Plex_Mono, Space_Grotesk, Noto_Sans_KR } from "next/font/google";
 import "./globals.css";
+import { NetworkBanner } from "@/components/NetworkBanner";
+import { ToastProvider } from "@/components/ui/Toast";
 
 const fontSans = Space_Grotesk({
   variable: "--font-merry-sans",
@@ -47,7 +49,8 @@ export default function RootLayout({
         className={`${fontSans.variable} ${fontDisplay.variable} ${fontMono.variable} ${fontKorean.variable} antialiased`}
         style={{ background: "#ffffff", color: "#001e46" }}
       >
-        {children}
+        <NetworkBanner />
+        <ToastProvider>{children}</ToastProvider>
       </body>
     </html>
   );

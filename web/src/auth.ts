@@ -1,5 +1,20 @@
 import NextAuth from "next-auth";
+import type { JWT } from "next-auth/jwt";
+import type { Session } from "next-auth";
 import Google from "next-auth/providers/google";
+
+/** Extended JWT with custom workspace fields. */
+interface MerryJWT extends JWT {
+  teamId?: string;
+  memberName?: string;
+  email?: string;
+}
+
+/** Extended Session with custom workspace fields. */
+interface MerrySession extends Session {
+  teamId?: string;
+  memberName?: string;
+}
 
 function isGoogleConfigured(): boolean {
   return Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
@@ -46,16 +61,19 @@ const nextAuth = isGoogleConfigured()
             const email = typeof user.email === "string" ? user.email : "";
             const nameRaw = typeof user.name === "string" ? user.name : "";
             const memberName = nameRaw.trim() || (email ? email.split("@")[0] : "member");
-            (token as any).teamId = getTeamId();
-            (token as any).memberName = memberName;
-            (token as any).email = email;
+            const t = token as MerryJWT;
+            t.teamId = getTeamId();
+            t.memberName = memberName;
+            t.email = email;
           }
           return token;
         },
         async session({ session, token }) {
-          (session as any).teamId = (token as any).teamId ?? getTeamId();
-          (session as any).memberName =
-            (token as any).memberName ??
+          const t = token as MerryJWT;
+          const s = session as MerrySession;
+          s.teamId = t.teamId ?? getTeamId();
+          s.memberName =
+            t.memberName ??
             (typeof session.user?.name === "string" ? session.user.name : "") ??
             "member";
           return session;

@@ -7,16 +7,11 @@ import { ArrowLeft, ArrowRight, Check, RefreshCw, Search } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/cn";
+import { apiFetch } from "@/lib/apiClient";
 
 type FundSummary = { fundId: string; name: string; vintage?: string };
 type CompanySummary = { companyId: string; name: string; stage?: string; category?: string };
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { cache: "no-store", ...init });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || "FAILED");
-  return json as T;
-}
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -150,7 +145,7 @@ export function ReportNewWizard({ initialAuthor }: { initialAuthor: string }) {
     setFundBusy(true);
     setError(null);
     try {
-      const res = await fetchJson<{ funds: FundSummary[] }>("/api/funds");
+      const res = await apiFetch<{ funds: FundSummary[] }>("/api/funds");
       setFunds(res.funds || []);
     } catch {
       setFunds([]);
@@ -168,7 +163,7 @@ export function ReportNewWizard({ initialAuthor }: { initialAuthor: string }) {
     setCompanyBusy(true);
     setError(null);
     try {
-      const res = await fetchJson<{ companies?: CompanySummary[]; fund?: { name?: string } }>(`/api/funds/${id}`);
+      const res = await apiFetch<{ companies?: CompanySummary[]; fund?: { name?: string } }>(`/api/funds/${id}`);
       setCompanies(res.companies || []);
       const nm = typeof res.fund?.name === "string" ? res.fund.name : "";
       if (nm && !fundName) setFundName(nm);
@@ -222,7 +217,7 @@ export function ReportNewWizard({ initialAuthor }: { initialAuthor: string }) {
         companyId: companyId || undefined,
         companyName: cn,
       };
-      const res = await fetchJson<{ sessionId: string }>("/api/report/sessions", {
+      const res = await apiFetch<{ sessionId: string }>("/api/report/sessions", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),

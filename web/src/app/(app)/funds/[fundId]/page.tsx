@@ -25,13 +25,8 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import type { CompanySummary } from "@/lib/companies";
 import type { FundDetail, FundSnapshot } from "@/lib/funds";
+import { apiFetch } from "@/lib/apiClient";
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { cache: "no-store", ...init });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || "FAILED");
-  return json as T;
-}
 
 function fmtCompact(n?: number) {
   if (typeof n !== "number" || !Number.isFinite(n)) return "—";
@@ -129,7 +124,7 @@ export default function FundDetailPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetchJson<{ fund: FundDetail; snapshots: FundSnapshot[]; companies?: CompanySummary[]; warnings?: string[] }>(`/api/funds/${fundId}`);
+      const res = await apiFetch<{ fund: FundDetail; snapshots: FundSnapshot[]; companies?: CompanySummary[]; warnings?: string[] }>(`/api/funds/${fundId}`);
       setFund(res.fund);
       setSnapshots(res.snapshots || []);
       setCompanies(res.companies || []);

@@ -12,6 +12,7 @@ import { FactsAssumptionsPanel } from "@/components/report/FactsAssumptionsPanel
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Textarea";
+import { apiFetch } from "@/lib/apiClient";
 
 type ReportSessionMeta = {
   sessionId: string;
@@ -91,12 +92,6 @@ type JobRecord = {
   artifacts?: JobArtifact[];
 };
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { cache: "no-store", ...init });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || "FAILED");
-  return json as T;
-}
 
 function badgeForJobStatus(status: JobStatus) {
   if (status === "succeeded") return <Badge tone="success">완료</Badge>;
@@ -200,7 +195,7 @@ export default function ReportSessionPage() {
 
   const loadMeta = React.useCallback(async () => {
     try {
-      const res = await fetchJson<{ session: ReportSessionMeta }>(`/api/report/${sessionId}/meta`);
+      const res = await apiFetch<{ session: ReportSessionMeta }>(`/api/report/${sessionId}/meta`);
       setMeta(res.session);
     } catch {
       setMeta(null);
@@ -210,7 +205,7 @@ export default function ReportSessionPage() {
   const loadMessages = React.useCallback(async () => {
     setError(null);
     try {
-      const res = await fetchJson<{ messages: ReportMessage[] }>(`/api/report/${sessionId}/messages`);
+      const res = await apiFetch<{ messages: ReportMessage[] }>(`/api/report/${sessionId}/messages`);
       setMessages(res.messages || []);
     } catch {
       setError("메시지를 불러오지 못했습니다.");
@@ -219,7 +214,7 @@ export default function ReportSessionPage() {
 
   const loadStash = React.useCallback(async () => {
     try {
-      const res = await fetchJson<{ items: ReportStashItem[] }>(`/api/report/${sessionId}/stash`);
+      const res = await apiFetch<{ items: ReportStashItem[] }>(`/api/report/${sessionId}/stash`);
       setStash(res.items || []);
     } catch {
       setStash([]);
@@ -234,7 +229,7 @@ export default function ReportSessionPage() {
 
   const loadDrafts = React.useCallback(async () => {
     try {
-      const res = await fetchJson<{ drafts: DraftSummary[] }>("/api/drafts");
+      const res = await apiFetch<{ drafts: DraftSummary[] }>("/api/drafts");
       const list = res.drafts || [];
       setDrafts(list);
       if (!activeDraftId && list[0]?.draftId) setActiveDraftId(list[0].draftId);
@@ -245,7 +240,7 @@ export default function ReportSessionPage() {
 
   const loadJobs = React.useCallback(async () => {
     try {
-      const res = await fetchJson<{ jobs: JobRecord[] }>("/api/jobs");
+      const res = await apiFetch<{ jobs: JobRecord[] }>("/api/jobs");
       setJobs(res.jobs || []);
     } catch {
       setJobs([]);
@@ -373,7 +368,7 @@ export default function ReportSessionPage() {
     setStashBusy(true);
     setStashMsg(null);
     try {
-      const res = await fetchJson<{ itemId: string; alreadyExists?: boolean }>(`/api/report/${sessionId}/stash`, {
+      const res = await apiFetch<{ itemId: string; alreadyExists?: boolean }>(`/api/report/${sessionId}/stash`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ content: text, title: opts?.title, source: opts?.source }),
@@ -399,7 +394,7 @@ export default function ReportSessionPage() {
     setStashBusy(true);
     setStashMsg(null);
     try {
-      await fetchJson(`/api/report/${sessionId}/stash/${id}`, { method: "DELETE" });
+      await apiFetch(`/api/report/${sessionId}/stash/${id}`, { method: "DELETE" });
       await loadStash();
       setStashMsg("바구니에서 제거했습니다.");
     } catch {
@@ -431,7 +426,7 @@ export default function ReportSessionPage() {
         ? `초안 확정(${stash.length}파트) · ${stamp}`
         : `${baseTitle} · 초안 확정(${stash.length}파트)`;
 
-      const res = await fetchJson<{ draftId: string }>(`/api/report/${sessionId}/stash/commit`, {
+      const res = await apiFetch<{ draftId: string }>(`/api/report/${sessionId}/stash/commit`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ draftId: activeDraftId.trim() || undefined, title, itemIds: ordered.map((it) => it.itemId) }),
@@ -459,7 +454,7 @@ export default function ReportSessionPage() {
         (job.artifacts || []).find((a) => a.artifactId === "pdf_evidence_json")?.artifactId ??
         (job.artifacts || [])[0]?.artifactId ??
         undefined;
-      const res = await fetchJson<{ versionId: string; alreadyImported?: boolean }>(`/api/drafts/${draftId}/import-evidence`, {
+      const res = await apiFetch<{ versionId: string; alreadyImported?: boolean }>(`/api/drafts/${draftId}/import-evidence`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ jobId: job.jobId, artifactId }),
