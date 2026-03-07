@@ -71,7 +71,11 @@ type TaskResult = {
   method?: string;
   pages?: number;
   elapsed_s?: number;
+  text_chars?: number;
   conditions?: ConditionResult[];
+  condition_summary?: Record<string, unknown>;
+  detected_facts?: Record<string, unknown>;
+  cache?: Record<string, unknown>;
   parse_warning?: string;
   raw_response?: string;
   error?: string;
@@ -189,6 +193,13 @@ const METRIC_LABELS: Record<string, string> = {
   success_count: "성공 파일",
   failed_count: "실패 파일",
   warning_count: "복구 경고",
+  result_cache_hits: "결과 캐시 적중",
+  parse_cache_hits: "파싱 캐시 적중",
+  rule_condition_count: "규칙 판정 조건",
+  llm_condition_count: "LLM 판정 조건",
+  rule_only_files: "규칙 전용 파일",
+  text_chars: "분석 텍스트",
+  saved_total_tokens: "절감 토큰",
   artifacts_bytes: "결과물 크기",
   ended_at: "종료 시각",
 };
@@ -866,12 +877,38 @@ function TaskDetailPanel({
           {tasks.map((t) => {
             const isOpen = expandedTaskId === t.taskId;
             const hasResult = t.result && typeof t.result === "object";
+            const cacheInfo = t.result?.cache && typeof t.result.cache === "object"
+              ? t.result.cache as Record<string, unknown>
+              : undefined;
+            const conditionSummary = t.result?.condition_summary && typeof t.result.condition_summary === "object"
+              ? t.result.condition_summary as Record<string, unknown>
+              : undefined;
+            const detectedFacts = t.result?.detected_facts && typeof t.result.detected_facts === "object"
+              ? t.result.detected_facts as Record<string, unknown>
+              : undefined;
             const parseWarning = typeof t.result?.parse_warning === "string"
               ? t.result.parse_warning
               : "";
             const rawResponse = typeof t.result?.raw_response === "string"
               ? t.result.raw_response
               : "";
+            const ruleCount = readMetricNumber(conditionSummary, "rule_count");
+            const llmCount = readMetricNumber(conditionSummary, "llm_count");
+            const isResultCacheHit = cacheInfo?.result_hit === true;
+            const isParseCacheHit = cacheInfo?.parse_hit === true;
+            const savedInputTokens = readMetricNumber(cacheInfo, "saved_input_tokens");
+            const savedOutputTokens = readMetricNumber(cacheInfo, "saved_output_tokens");
+            const establishmentDate = typeof detectedFacts?.establishment_date === "string"
+              ? detectedFacts.establishment_date
+              : "";
+            const businessAgeYears = typeof detectedFacts?.business_age_years === "number"
+              ? detectedFacts.business_age_years
+              : null;
+            const revenueCandidates = Array.isArray(detectedFacts?.revenue_candidates)
+              ? detectedFacts.revenue_candidates
+                  .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
+                  .slice(0, 3)
+              : [];
             return (
               <div key={t.taskId}>
                 {/* Task row */}
@@ -900,6 +937,26 @@ function TaskDetailPanel({
                   {parseWarning && (
                     <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
                       복구 응답
+                    </span>
+                  )}
+                  {isResultCacheHit && (
+                    <span className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+                      결과 캐시
+                    </span>
+                  )}
+                  {!isResultCacheHit && isParseCacheHit && (
+                    <span className="shrink-0 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-700">
+                      파싱 캐시
+                    </span>
+                  )}
+                  {ruleCount > 0 && (
+                    <span className="shrink-0 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                      규칙 {ruleCount}
+                    </span>
+                  )}
+                  {llmCount > 0 && (
+                    <span className="shrink-0 rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">
+                      LLM {llmCount}
                     </span>
                   )}
                   {t.startedAt && t.endedAt && (
@@ -931,7 +988,58 @@ function TaskDetailPanel({
                       {t.result?.pages != null && (
                         <span><span className="text-[#8B95A1]">페이지:</span> {t.result.pages}</span>
                       )}
+                      {t.result?.text_chars != null && (
+                        <span><span className="text-[#8B95A1]">텍스트:</span> {Number(t.result.text_chars).toLocaleString()}자</span>
+                      )}
                     </div>
+
+                    {(isResultCacheHit || isParseCacheHit) && (
+                      <div className="rounded border border-blue-200 bg-blue-50 px-3 py-2">
+                        <p className="text-[11px] font-medium text-blue-800">
+                          {isResultCacheHit ? "이전 조건 검사 결과를 재사용했습니다." : "이전 문서 파싱 결과를 재사용했습니다."}
+                        </p>
+                        {(savedInputTokens > 0 || savedOutputTokens > 0) && (
+                          <p className="mt-1 text-[11px] text-blue-700">
+                            절감 토큰 추정치: 입력 {savedInputTokens.toLocaleString()} / 출력 {savedOutputTokens.toLocaleString()}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {(establishmentDate || revenueCandidates.length > 0) && (
+                      <div className="rounded border border-[#E5E8EB] bg-white px-3 py-2">
+                        <p className="text-[11px] font-medium text-[#8B95A1]">추출 팩트</p>
+                        <div className="mt-2 flex flex-wrap gap-3 text-[11px] text-[#4E5968]">
+                          {establishmentDate && (
+                            <span>
+                              <span className="text-[#8B95A1]">설립/개업일:</span> {establishmentDate}
+                            </span>
+                          )}
+                          {businessAgeYears != null && (
+                            <span>
+                              <span className="text-[#8B95A1]">업력:</span> {businessAgeYears.toFixed(2)}년
+                            </span>
+                          )}
+                        </div>
+                        {revenueCandidates.length > 0 && (
+                          <div className="mt-2 space-y-1">
+                            {revenueCandidates.map((candidate, index) => (
+                              <div key={index} className="rounded bg-[#FAFBFC] px-2.5 py-2 text-[11px] text-[#4E5968]">
+                                <span className="font-medium text-[#191F28]">
+                                  {typeof candidate.display === "string" ? candidate.display : "-"}
+                                </span>
+                                {typeof candidate.year === "number" && (
+                                  <span className="ml-1 text-[#8B95A1]">({candidate.year}년)</span>
+                                )}
+                                {typeof candidate.snippet === "string" && (
+                                  <p className="mt-1 text-[#8B95A1]">{candidate.snippet}</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Error */}
                     {(t.error || t.result?.error) && (

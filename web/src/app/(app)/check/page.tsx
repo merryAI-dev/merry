@@ -115,11 +115,22 @@ type JobRecord = {
   fanoutStatus?: "splitting" | "running" | "assembling" | "succeeded" | "failed";
 };
 
+function readMetricNumber(metrics: Record<string, unknown> | undefined, key: string): number {
+  if (!metrics) return 0;
+  const value = metrics[key];
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
 /* ─────────────────────────────────────────────
    Constants
 ───────────────────────────────────────────── */
 
-const MAX_FILES = 1000;
+const MAX_FILES = 800;
 const MAX_CONDITIONS = 6;
 const POLL_INTERVAL_MS = 3000;
 
@@ -848,6 +859,29 @@ export default function CheckPage() {
                       · 총 {(job.metrics.total as number) ?? 0}개
                     </p>
                   )}
+                  {job.metrics && (() => {
+                    const metrics = job.metrics as Record<string, unknown>;
+                    const ruleConditions = readMetricNumber(metrics, "rule_condition_count");
+                    const llmConditions = readMetricNumber(metrics, "llm_condition_count");
+                    const resultCacheHits = readMetricNumber(metrics, "result_cache_hits");
+                    const parseCacheHits = readMetricNumber(metrics, "parse_cache_hits");
+                    const savedTotalTokens = readMetricNumber(metrics, "saved_total_tokens");
+                    if (
+                      ruleConditions === 0 &&
+                      llmConditions === 0 &&
+                      resultCacheHits === 0 &&
+                      parseCacheHits === 0 &&
+                      savedTotalTokens === 0
+                    ) {
+                      return null;
+                    }
+                    return (
+                      <p className="text-xs text-[#8B95A1]">
+                        규칙 {ruleConditions}건 · LLM {llmConditions}건 · 결과 캐시 {resultCacheHits}개 · 파싱 캐시 {parseCacheHits}개
+                        {savedTotalTokens > 0 && ` · 절감 토큰 ${savedTotalTokens.toLocaleString()}`}
+                      </p>
+                    );
+                  })()}
                   <div className="flex flex-col gap-2">
                     {job.artifacts?.map((a) => {
                       const filename = a.artifactId.includes("csv")
