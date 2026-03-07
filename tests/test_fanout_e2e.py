@@ -347,6 +347,11 @@ def get_job(ctx: FakeCtx, team_id: str, job_id: str) -> Dict[str, Any]:
     return ctx.ddb.get_item(Key={"pk": _pk(team_id), "sk": f"JOB#{job_id}"}).get("Item", {})
 
 
+def get_task_result(ctx: FakeCtx, team_id: str, job_id: str, task_id: str) -> Dict[str, Any]:
+    raw = ctx.ddb.items[(_pk(team_id), f"TASK#{job_id}#{task_id}")]["result"]
+    return json.loads(raw) if isinstance(raw, str) else raw
+
+
 def cleanup(team_id: str, job_id: str) -> None:
     p = PROJECT_ROOT / "temp" / team_id / "jobs" / job_id
     shutil.rmtree(p, ignore_errors=True)
@@ -354,7 +359,7 @@ def cleanup(team_id: str, job_id: str) -> None:
 
 # ── Mock Bedrock ──
 
-def _mock_check_nova(text: str, conditions: list, model_id: str, region: str) -> dict:
+def _mock_check_nova(text: str, conditions: list, model_id: str, region: str, facts=None) -> dict:
     """Fake check_conditions_nova returning deterministic results + usage."""
     return {
         "company_name": "테스트기업",
@@ -374,7 +379,7 @@ def _mock_call_nova_visual(images, model_id, region, prompt, max_tokens=1200) ->
     }
 
 
-def _mock_check_nova_warning(text: str, conditions: list, model_id: str, region: str) -> dict:
+def _mock_check_nova_warning(text: str, conditions: list, model_id: str, region: str, facts=None) -> dict:
     return {
         "company_name": "경고기업",
         "conditions": [
@@ -383,6 +388,33 @@ def _mock_check_nova_warning(text: str, conditions: list, model_id: str, region:
         ],
         "parse_warning": "JSON 응답 일부를 복구했습니다.",
         "raw_response": "{bad json",
+        "_usage": {"input_tokens": 500, "output_tokens": 200},
+    }
+
+
+def _mock_check_nova_summary(text: str, conditions: list, model_id: str, region: str, facts=None) -> dict:
+    rule_count = 1 if conditions else 0
+    llm_count = max(len(conditions) - rule_count, 0)
+    return {
+        "company_name": "테스트기업",
+        "conditions": [
+            {
+                "condition": c,
+                "result": True,
+                "evidence": f"summary: {c}",
+                "source": "rule" if i < rule_count else "llm",
+            }
+            for i, c in enumerate(conditions)
+        ],
+        "condition_summary": {
+            "total": len(conditions),
+            "rule_count": rule_count,
+            "llm_count": llm_count,
+            "llm_skipped": llm_count == 0,
+        },
+        "detected_facts": {
+            "company_name": "테스트기업",
+        },
         "_usage": {"input_tokens": 500, "output_tokens": 200},
     }
 
@@ -569,5 +601,96 @@ class TestCancelledJobSkipped:
 
         j = get_job(ctx, team, job)
         assert int(j.get("processed_count", 0)) == 0
+
+        cleanup(team, job)
+
+
+class TestFanoutParseCacheReuse:
+    """Same file content across jobs should reuse parse cache even when conditions differ."""
+
+    def test_parse_cache_reused_for_same_content(self):
+        team = "t_parse_cache"
+        ctx = FakeCtx()
+        pdf_text = "개업연월일 2024년 03월 01일\n2025년 매출액 8억원\n"
+
+        setup_fanout_job(
+            ctx, team, "job_a", ["file_a"], ["창업 3년 미만"],
+            pdf_texts={"file_a": pdf_text},
+        )
+        setup_fanout_job(
+            ctx, team, "job_b", ["file_b"], ["매출 10억 미만"],
+            pdf_texts={"file_b": pdf_text},
+        )
+        ctx.s3.objects[(ctx.bucket, f"uploads/{team}/file_b.pdf")] = ctx.s3.objects[(ctx.bucket, f"uploads/{team}/file_a.pdf")]
+
+        with patch("ralph.condition_checker.check_conditions_nova", _mock_check_nova_summary):
+            process_fanout_task(ctx, team, "job_a", "000", "file_a")
+            process_fanout_task(ctx, team, "job_b", "000", "file_b")
+
+        job_b = get_job(ctx, team, "job_b")
+        result = get_task_result(ctx, team, "job_b", "000")
+        assert result["cache"]["parse_hit"] is True
+        assert result["cache"]["result_hit"] is False
+        assert int(job_b["metrics"]["parse_cache_hits"]) == 1
+
+        cleanup(team, "job_a")
+        cleanup(team, "job_b")
+
+
+class TestFanoutResultCacheReuse:
+    """Same file content + same conditions should reuse the full condition-check result."""
+
+    def test_result_cache_reused_for_same_request(self):
+        team = "t_result_cache"
+        ctx = FakeCtx()
+        pdf_text = "개업연월일 2024년 03월 01일\n2025년 매출액 8억원\n"
+
+        setup_fanout_job(
+            ctx, team, "job_c", ["file_c"], ["창업 3년 미만"],
+            pdf_texts={"file_c": pdf_text},
+        )
+        setup_fanout_job(
+            ctx, team, "job_d", ["file_d"], ["창업 3년 미만"],
+            pdf_texts={"file_d": pdf_text},
+        )
+        ctx.s3.objects[(ctx.bucket, f"uploads/{team}/file_d.pdf")] = ctx.s3.objects[(ctx.bucket, f"uploads/{team}/file_c.pdf")]
+
+        with patch("ralph.condition_checker.check_conditions_nova", _mock_check_nova_summary):
+            process_fanout_task(ctx, team, "job_c", "000", "file_c")
+            process_fanout_task(ctx, team, "job_d", "000", "file_d")
+
+        job_d = get_job(ctx, team, "job_d")
+        result = get_task_result(ctx, team, "job_d", "000")
+        assert result["cache"]["result_hit"] is True
+        assert int(result["token_usage"]["total_tokens"]) == 0
+        assert int(job_d["metrics"]["result_cache_hits"]) == 1
+        assert int(job_d["metrics"]["saved_total_tokens"]) > 0
+
+        cleanup(team, "job_c")
+        cleanup(team, "job_d")
+
+
+class TestFanoutRuleSummaryMetrics:
+    """Rule-engine summaries should aggregate into job metrics and artifacts."""
+
+    def test_rule_and_llm_counts_are_aggregated(self):
+        team, job = "t_rule_metrics", "j_rule_metrics"
+        ctx = FakeCtx()
+        setup_fanout_job(ctx, team, job, ["rule_a", "rule_b"], ["창업 3년 미만", "매출 성장률 10% 이상"])
+
+        with patch("ralph.condition_checker.check_conditions_nova", _mock_check_nova_summary):
+            process_fanout_task(ctx, team, job, "000", "rule_a")
+            process_fanout_task(ctx, team, job, "001", "rule_b")
+
+        j = get_job(ctx, team, job)
+        assert int(j["metrics"]["rule_condition_count"]) == 2
+        assert int(j["metrics"]["llm_condition_count"]) == 2
+
+        csv_art = next(a for a in j["artifacts"] if a["artifactId"] == "condition_check_csv")
+        csv_rows = list(csv.DictReader(io.StringIO(
+            ctx.s3.objects[(ctx.bucket, csv_art["s3Key"])].decode("utf-8-sig"),
+        )))
+        assert csv_rows[0]["rule_conditions"] == "1"
+        assert csv_rows[0]["llm_conditions"] == "1"
 
         cleanup(team, job)

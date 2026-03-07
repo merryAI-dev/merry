@@ -1,10 +1,14 @@
 """Unit tests for Ralph condition-checker output normalization."""
 import os
 import sys
+from datetime import date
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from ralph.condition_checker import (
+    _evaluate_rule_conditions,
+    extract_condition_facts,
     _normalize_requested_conditions,
     _parse_model_output,
     check_conditions_nova,
@@ -71,3 +75,112 @@ def test_check_conditions_nova_rejects_empty_conditions_without_calling_bedrock(
         assert str(exc) == "conditions 파라미터가 비어 있습니다"
     else:
         raise AssertionError("ValueError was not raised")
+
+
+def test_extract_condition_facts_parses_establishment_and_revenue_candidates():
+    text = """
+법인명: 테스트 주식회사
+개업연월일: 2024년 03월 01일
+2025년 매출액 8억원
+"""
+
+    facts = extract_condition_facts(text, reference_date=date(2026, 3, 7))
+
+    assert facts["company_name"] == "테스트 주식회사"
+    assert facts["establishment_date"] == "2024-03-01"
+    assert facts["business_age_years"] is not None
+    assert facts["business_age_years"] < 3
+    assert facts["revenue_candidates"][0]["amount"] == 800_000_000
+
+
+def test_evaluate_rule_conditions_resolves_business_age_and_revenue_rules():
+    text = """
+상호명 테스트기업
+설립일: 2024-03-01
+2025년 매출액 8억원
+"""
+
+    rule_results, facts = _evaluate_rule_conditions(
+        text,
+        ["창업 3년 미만", "매출 10억 미만"],
+        reference_date=date(2026, 3, 7),
+    )
+
+    assert facts["establishment_date"] == "2024-03-01"
+    assert rule_results[0]["result"] is True
+    assert rule_results[0]["source"] == "rule"
+    assert rule_results[1]["result"] is True
+    assert rule_results[1]["source"] == "rule"
+    assert "8.0억원" in rule_results[1]["evidence"]
+
+
+def test_check_conditions_nova_skips_bedrock_when_rules_cover_all_conditions():
+    text = """
+법인명: 테스트 주식회사
+개업연월일: 2024년 03월 01일
+2025년 매출액 8억원
+"""
+
+    with patch("boto3.client", side_effect=AssertionError("Bedrock should not be called")):
+        result = check_conditions_nova(
+            text,
+            ["창업 3년 미만", "매출 10억 미만"],
+            "model",
+            "region",
+            facts=extract_condition_facts(text, reference_date=date(2026, 3, 7)),
+        )
+
+    assert result["company_name"] == "테스트 주식회사"
+    assert result["condition_summary"]["rule_count"] == 2
+    assert result["condition_summary"]["llm_count"] == 0
+    assert result["_usage"]["input_tokens"] == 0
+    assert result["_usage"]["output_tokens"] == 0
+    assert all(item["source"] == "rule" for item in result["conditions"])
+
+
+def test_check_conditions_nova_merges_rule_and_llm_results_in_original_order():
+    text = """
+회사명: 하이브리드 기업
+설립일: 2024-03-01
+"""
+
+    class _FakeBedrock:
+        def converse(self, **kwargs):
+            assert "매출 성장률 10% 이상" in kwargs["messages"][0]["content"][0]["text"]
+            return {
+                "output": {
+                    "message": {
+                        "content": [
+                            {
+                                "text": """
+{
+  "company_name": "하이브리드 기업",
+  "conditions": [
+    {"condition": "매출 성장률 10% 이상", "result": false, "evidence": "문서에서 성장률 수치를 찾지 못했습니다."}
+  ]
+}
+""",
+                            }
+                        ]
+                    }
+                },
+                "usage": {"inputTokens": 123, "outputTokens": 45},
+            }
+
+    with patch("boto3.client", return_value=_FakeBedrock()):
+        result = check_conditions_nova(
+            text,
+            ["창업 3년 미만", "매출 성장률 10% 이상"],
+            "model",
+            "region",
+            facts=extract_condition_facts(text, reference_date=date(2026, 3, 7)),
+        )
+
+    assert result["company_name"] == "하이브리드 기업"
+    assert [item["condition"] for item in result["conditions"]] == ["창업 3년 미만", "매출 성장률 10% 이상"]
+    assert result["conditions"][0]["source"] == "rule"
+    assert result["conditions"][1]["source"] == "llm"
+    assert result["condition_summary"]["rule_count"] == 1
+    assert result["condition_summary"]["llm_count"] == 1
+    assert result["_usage"]["input_tokens"] == 123
+    assert result["_usage"]["output_tokens"] == 45
