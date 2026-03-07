@@ -652,13 +652,13 @@ export async function retryTask(
   const TableName = getDdbTableName();
   const now = new Date().toISOString();
 
-  // Reset task status to pending (only if currently failed).
+  // Reset a terminal task to pending and clear stale per-task execution data.
   await ddb.send(
     new UpdateCommand({
       TableName,
       Key: { pk: pkTeam(teamId), sk: skTask(jobId, taskId) },
       UpdateExpression:
-        "SET #status = :pending, #updated_at = :now, #error = :empty, #ended_at = :empty, #started_at = :empty, #worker_id = :empty",
+        "SET #status = :pending, #updated_at = :now, #error = :empty, #ended_at = :empty, #started_at = :empty, #worker_id = :empty REMOVE #result",
       ConditionExpression: "#status = :from_status",
       ExpressionAttributeNames: {
         "#status": "status",
@@ -667,6 +667,7 @@ export async function retryTask(
         "#ended_at": "ended_at",
         "#started_at": "started_at",
         "#worker_id": "worker_id",
+        "#result": "result",
       },
       ExpressionAttributeValues: {
         ":pending": "pending",
@@ -726,13 +727,15 @@ export async function restoreRetriedTask(
   const TableName = getDdbTableName();
   const now = new Date().toISOString();
   const terminalStatus = task.status;
+  const hasResult = !!task.result && typeof task.result === "object";
 
   await ddb.send(
     new UpdateCommand({
       TableName,
       Key: { pk: pkTeam(teamId), sk: skTask(jobId, task.taskId) },
-      UpdateExpression:
-        "SET #status = :terminal, #updated_at = :now, #error = :error, #started_at = :started_at, #ended_at = :ended_at, #worker_id = :worker_id",
+      UpdateExpression: hasResult
+        ? "SET #status = :terminal, #updated_at = :now, #error = :error, #started_at = :started_at, #ended_at = :ended_at, #worker_id = :worker_id, #result = :result"
+        : "SET #status = :terminal, #updated_at = :now, #error = :error, #started_at = :started_at, #ended_at = :ended_at, #worker_id = :worker_id REMOVE #result",
       ConditionExpression: "#status = :pending",
       ExpressionAttributeNames: {
         "#status": "status",
@@ -741,6 +744,7 @@ export async function restoreRetriedTask(
         "#started_at": "started_at",
         "#ended_at": "ended_at",
         "#worker_id": "worker_id",
+        "#result": "result",
       },
       ExpressionAttributeValues: {
         ":terminal": terminalStatus,
@@ -750,6 +754,7 @@ export async function restoreRetriedTask(
         ":started_at": task.startedAt ?? "",
         ":ended_at": task.endedAt ?? "",
         ":worker_id": task.workerId ?? "",
+        ...(hasResult ? { ":result": task.result } : {}),
       },
     }),
   );

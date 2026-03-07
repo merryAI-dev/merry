@@ -516,24 +516,25 @@ export default function CheckPage() {
     if (!jobId || retrying) return;
     setRetrying(true);
     try {
-      // Bulk retry all failed tasks via single API call.
-      const res = await fetch(`/api/jobs/${jobId}/retry`, {
+      const data = await apiFetch<{ ok: boolean; retriedCount?: number }>(`/api/jobs/${jobId}/retry`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ mode: "failed" }),
       });
-      const data = await res.json();
-      if (data.ok && (data.retriedCount ?? 0) > 0) {
+      if ((data.retriedCount ?? 0) > 0) {
         // Reset ETA tracking and switch back to polling.
         progressRef.current = null;
         setPhase("polling");
+        toast(`실패한 파일 ${data.retriedCount}건을 재시도했습니다`, "success");
+        return;
       }
-    } catch {
-      // ignore
+
+      toast("재시도할 실패 항목이 없습니다", "info");
+    } catch (err) {
+      toast(err instanceof Error ? err.message : "재시도 요청에 실패했습니다", "error", 6000);
     } finally {
       setRetrying(false);
     }
-  }, [jobId, retrying]);
+  }, [jobId, retrying, toast]);
 
   /* ── Reset ── */
   const handleRetry = () => {
