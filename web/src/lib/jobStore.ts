@@ -713,6 +713,106 @@ export async function retryTask(
   );
 }
 
+export async function restoreRetriedTask(
+  teamId: string,
+  jobId: string,
+  task: TaskRecord,
+): Promise<void> {
+  if (task.status !== "failed" && task.status !== "succeeded") {
+    throw new Error(`INVALID_RESTORE_STATUS:${task.status}`);
+  }
+
+  const ddb = getDdbDocClient();
+  const TableName = getDdbTableName();
+  const now = new Date().toISOString();
+  const terminalStatus = task.status;
+
+  await ddb.send(
+    new UpdateCommand({
+      TableName,
+      Key: { pk: pkTeam(teamId), sk: skTask(jobId, task.taskId) },
+      UpdateExpression:
+        "SET #status = :terminal, #updated_at = :now, #error = :error, #started_at = :started_at, #ended_at = :ended_at, #worker_id = :worker_id",
+      ConditionExpression: "#status = :pending",
+      ExpressionAttributeNames: {
+        "#status": "status",
+        "#updated_at": "updated_at",
+        "#error": "error",
+        "#started_at": "started_at",
+        "#ended_at": "ended_at",
+        "#worker_id": "worker_id",
+      },
+      ExpressionAttributeValues: {
+        ":terminal": terminalStatus,
+        ":pending": "pending",
+        ":now": now,
+        ":error": task.error ?? "",
+        ":started_at": task.startedAt ?? "",
+        ":ended_at": task.endedAt ?? "",
+        ":worker_id": task.workerId ?? "",
+      },
+    }),
+  );
+
+  await ddb.send(
+    new UpdateCommand({
+      TableName,
+      Key: { pk: pkTeamTasks(teamId, jobId), sk: `TASK#${task.taskId}` },
+      UpdateExpression: "SET #status = :terminal, #updated_at = :now",
+      ExpressionAttributeNames: { "#status": "status", "#updated_at": "updated_at" },
+      ExpressionAttributeValues: { ":terminal": terminalStatus, ":now": now },
+    }),
+  );
+
+  const updateExpression =
+    terminalStatus === "failed"
+      ? "SET #pc = #pc + :one, #fc = #fc + :one, #updated_at = :now"
+      : "SET #pc = #pc + :one, #updated_at = :now";
+  await ddb.send(
+    new UpdateCommand({
+      TableName,
+      Key: { pk: pkTeam(teamId), sk: skJob(jobId) },
+      UpdateExpression: updateExpression,
+      ExpressionAttributeNames: {
+        "#pc": "processed_count",
+        "#updated_at": "updated_at",
+        ...(terminalStatus === "failed" ? { "#fc": "failed_count" } : {}),
+      },
+      ExpressionAttributeValues: {
+        ":one": 1,
+        ":now": now,
+      },
+    }),
+  );
+}
+
+export async function restoreJobTerminalState(
+  teamId: string,
+  jobId: string,
+  jobStatus: "failed" | "succeeded",
+  fanoutStatus: "failed" | "succeeded",
+): Promise<void> {
+  const ddb = getDdbDocClient();
+  const TableName = getDdbTableName();
+  await ddb.send(
+    new UpdateCommand({
+      TableName,
+      Key: { pk: pkTeam(teamId), sk: skJob(jobId) },
+      UpdateExpression: "SET #status = :status, #fanout_status = :fanout_status, #updated_at = :now",
+      ExpressionAttributeNames: {
+        "#status": "status",
+        "#fanout_status": "fanout_status",
+        "#updated_at": "updated_at",
+      },
+      ExpressionAttributeValues: {
+        ":status": jobStatus,
+        ":fanout_status": fanoutStatus,
+        ":now": new Date().toISOString(),
+      },
+    }),
+  );
+}
+
 export async function cancelJob(
   teamId: string,
   jobId: string,

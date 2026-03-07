@@ -41,6 +41,13 @@ export async function POST(
     if (code === "JOB_NOT_TERMINAL") {
       return NextResponse.json({ ok: false, error: code }, { status: 409 });
     }
+    if (
+      code.startsWith("SQS_BATCH_SEND_FAILED") ||
+      code.startsWith("RETRY_COMPENSATION_FAILED") ||
+      code.startsWith("INVALID_RESTORE_STATUS")
+    ) {
+      return NextResponse.json({ ok: false, error: code }, { status: 500 });
+    }
     return handleApiError(err, "POST /api/jobs/[jobId]/retry");
   }
 }
