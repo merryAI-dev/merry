@@ -70,6 +70,7 @@ type TaskResult = {
   company_name?: string;
   company_group_name?: string;
   company_group_key?: string;
+  company_group_alias_from?: string;
   method?: string;
   pages?: number;
   elapsed_s?: number;
@@ -197,6 +198,7 @@ type CompanyGroupSummary = {
   successCount: number;
   failedCount: number;
   warningCount: number;
+  aliasMergedFiles: number;
   resultCacheHits: number;
   parseCacheHits: number;
   ruleConditionCount: number;
@@ -241,6 +243,7 @@ function buildConditionCompanyGroups(tasks: TaskRecord[] | undefined): CompanyGr
       successCount: 0,
       failedCount: 0,
       warningCount: 0,
+      aliasMergedFiles: 0,
       resultCacheHits: 0,
       parseCacheHits: 0,
       ruleConditionCount: 0,
@@ -252,6 +255,7 @@ function buildConditionCompanyGroups(tasks: TaskRecord[] | undefined): CompanyGr
     existing.successCount += task.status === "succeeded" ? 1 : 0;
     existing.failedCount += task.status === "failed" ? 1 : 0;
     existing.warningCount += typeof result.parse_warning === "string" && result.parse_warning ? 1 : 0;
+    existing.aliasMergedFiles += typeof result.company_group_alias_from === "string" && result.company_group_alias_from ? 1 : 0;
     existing.resultCacheHits += cacheInfo?.result_hit === true ? 1 : 0;
     existing.parseCacheHits += cacheInfo?.parse_hit === true ? 1 : 0;
     existing.ruleConditionCount += readMetricNumber(summary, "rule_count");
@@ -276,6 +280,8 @@ const METRIC_LABELS: Record<string, string> = {
   company_group_count: "기업 그룹",
   recognized_company_files: "기업명 인식 파일",
   unrecognized_company_files: "기업명 미인식 파일",
+  company_alias_merge_count: "기업 alias 병합 그룹",
+  company_alias_merged_files: "alias 보정 파일",
   result_cache_hits: "결과 캐시 적중",
   parse_cache_hits: "파싱 캐시 적중",
   rule_condition_count: "규칙 판정 조건",
@@ -968,6 +974,7 @@ function ConditionCompanyGroupPanel({ tasks }: { tasks?: TaskRecord[] }) {
               <span>성공 {group.successCount}</span>
               {group.failedCount > 0 && <span className="text-rose-600">실패 {group.failedCount}</span>}
               {group.warningCount > 0 && <span className="text-amber-700">경고 {group.warningCount}</span>}
+              {group.aliasMergedFiles > 0 && <span className="text-violet-700">alias 보정 {group.aliasMergedFiles}</span>}
               {group.resultCacheHits > 0 && <span className="text-blue-700">결과 캐시 {group.resultCacheHits}</span>}
               {group.parseCacheHits > 0 && <span className="text-sky-700">파싱 캐시 {group.parseCacheHits}</span>}
             </div>

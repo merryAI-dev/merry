@@ -864,6 +864,8 @@ export default function CheckPage() {
                     const companyGroupCount = readMetricNumber(metrics, "company_group_count");
                     const recognizedCompanyFiles = readMetricNumber(metrics, "recognized_company_files");
                     const unrecognizedCompanyFiles = readMetricNumber(metrics, "unrecognized_company_files");
+                    const aliasMergeGroups = readMetricNumber(metrics, "company_alias_merge_count");
+                    const aliasMergedFiles = readMetricNumber(metrics, "company_alias_merged_files");
                     const ruleConditions = readMetricNumber(metrics, "rule_condition_count");
                     const llmConditions = readMetricNumber(metrics, "llm_condition_count");
                     const resultCacheHits = readMetricNumber(metrics, "result_cache_hits");
@@ -873,6 +875,8 @@ export default function CheckPage() {
                       companyGroupCount === 0 &&
                       recognizedCompanyFiles === 0 &&
                       unrecognizedCompanyFiles === 0 &&
+                      aliasMergeGroups === 0 &&
+                      aliasMergedFiles === 0 &&
                       ruleConditions === 0 &&
                       llmConditions === 0 &&
                       resultCacheHits === 0 &&
@@ -886,6 +890,8 @@ export default function CheckPage() {
                         {companyGroupCount > 0 && `기업 그룹 ${companyGroupCount}개 · `}
                         {recognizedCompanyFiles > 0 && `기업명 인식 ${recognizedCompanyFiles}개 · `}
                         {unrecognizedCompanyFiles > 0 && `미인식 ${unrecognizedCompanyFiles}개 · `}
+                        {aliasMergeGroups > 0 && `alias 병합 ${aliasMergeGroups}그룹 · `}
+                        {aliasMergedFiles > 0 && `alias 보정 ${aliasMergedFiles}개 · `}
                         규칙 {ruleConditions}건 · LLM {llmConditions}건 · 결과 캐시 {resultCacheHits}개 · 파싱 캐시 {parseCacheHits}개
                         {savedTotalTokens > 0 && ` · 절감 토큰 ${savedTotalTokens.toLocaleString()}`}
                       </p>
