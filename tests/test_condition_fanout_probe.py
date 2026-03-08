@@ -61,9 +61,45 @@ def test_analyze_dataset_summarizes_duplicates_groups_and_rule_coverage(tmp_path
     assert summary["recognized_company_files"] == 3
     assert summary["unrecognized_company_files"] == 1
     assert summary["company_group_count"] == 1
+    assert summary["company_alias_merge_count"] == 0
     assert summary["rule_only_files"] == 3
     assert summary["top_company_groups"][0]["company_group_name"] == "테스트랩"
     assert summary["top_company_groups"][0]["file_count"] == 3
+
+
+def test_analyze_dataset_merges_truncated_company_aliases(tmp_path: Path) -> None:
+    dataset_dir = tmp_path / "dataset_alias"
+    dataset_dir.mkdir()
+    pdf_a = dataset_dir / "a.pdf"
+    pdf_b = dataset_dir / "b.pdf"
+
+    _make_pdf(pdf_a, "A")
+    _make_pdf(pdf_b, "B")
+
+    text_map = {
+        "a": "법인명: 주식회사 스트레스솔루션\n",
+        "b": "회사명: 주식회사스트레\n",
+    }
+
+    def _fake_extract_text(pdf_path: str):
+        stem = Path(pdf_path).stem
+        return text_map[stem], 1, []
+
+    with patch("scripts.condition_fanout_probe.extract_text", side_effect=_fake_extract_text):
+        result = analyze_dataset(
+            [pdf_a, pdf_b],
+            dataset_dir=dataset_dir,
+            conditions=["업력 3년 미만"],
+        )
+
+    summary = result["summary"]
+    assert summary["company_group_count"] == 1
+    assert summary["company_alias_merge_count"] == 1
+    assert summary["company_alias_merged_files"] == 1
+    assert summary["top_company_groups"][0]["company_group_name"] == "스트레스솔루션"
+    merged = next(record for record in result["records"] if record["relative_path"] == "b.pdf")
+    assert merged["company_group_name"] == "스트레스솔루션"
+    assert merged["company_group_alias_from"] == "스트레"
 
 
 def test_write_probe_outputs_creates_summary_and_records(tmp_path: Path) -> None:
@@ -80,6 +116,8 @@ def test_write_probe_outputs_creates_summary_and_records(tmp_path: Path) -> None
             "recognized_company_files": 1,
             "unrecognized_company_files": 0,
             "company_group_count": 1,
+            "company_alias_merge_count": 0,
+            "company_alias_merged_files": 0,
             "rule_only_files": 1,
             "rule_coverage_rate": 1.0,
             "unresolved_condition_rate": 0.0,
@@ -94,6 +132,7 @@ def test_write_probe_outputs_creates_summary_and_records(tmp_path: Path) -> None
             "company_name": "테스트랩",
             "company_group_name": "테스트랩",
             "company_group_key": "테스트랩",
+            "company_group_alias_from": "",
             "rule_count": 2,
             "unresolved_count": 0,
             "unresolved_conditions": [],

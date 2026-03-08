@@ -36,6 +36,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from ralph.condition_checker import _evaluate_rule_conditions, extract_condition_facts
+from ralph.company_encoder import build_company_alias_map
 from ralph.playground_parser import extract_text
 
 
@@ -51,6 +52,7 @@ class ProbeRecord:
     rule_count: int
     unresolved_count: int
     unresolved_conditions: List[str]
+    company_group_alias_from: str = ""
     error: str = ""
 
 
@@ -165,6 +167,32 @@ def analyze_dataset(
     ]
 
     digest_counts = Counter(record.digest for record in records)
+    raw_groups: Dict[str, Dict[str, Any]] = {}
+    for record in records:
+        if not record.company_group_key:
+            continue
+        group = raw_groups.setdefault(record.company_group_key, {
+            "company_group_key": record.company_group_key,
+            "company_group_name": record.company_group_name or record.company_name,
+            "file_count": 0,
+        })
+        group["file_count"] += 1
+
+    alias_map, alias_stats = build_company_alias_map(list(raw_groups.values()))
+    alias_merged_files = 0
+    for record in records:
+        if not record.company_group_key:
+            continue
+        canonical = alias_map.get(record.company_group_key)
+        if not canonical:
+            continue
+        if canonical["company_group_key"] == record.company_group_key:
+            continue
+        alias_merged_files += 1
+        record.company_group_alias_from = record.company_group_name or record.company_group_key
+        record.company_group_name = canonical["company_group_name"]
+        record.company_group_key = canonical["company_group_key"]
+
     company_groups: Dict[str, Dict[str, Any]] = {}
     for record in records:
         if not record.company_group_key:
@@ -215,6 +243,8 @@ def analyze_dataset(
         "recognized_company_files": recognized_company_files,
         "unrecognized_company_files": unrecognized_company_files,
         "company_group_count": len(company_groups),
+        "company_alias_merge_count": int(alias_stats.get("merged_group_count", 0)),
+        "company_alias_merged_files": alias_merged_files,
         "rule_only_files": rule_only_files,
         "rule_coverage_rate": round(total_rule_conditions / total_conditions, 4) if total_conditions else 0.0,
         "unresolved_condition_rate": round(total_unresolved_conditions / total_conditions, 4) if total_conditions else 0.0,
@@ -252,6 +282,7 @@ def write_probe_outputs(result: Dict[str, Any], *, output_dir: Path) -> Dict[str
                 "company_name",
                 "company_group_name",
                 "company_group_key",
+                "company_group_alias_from",
                 "rule_count",
                 "unresolved_count",
                 "unresolved_conditions",
@@ -284,6 +315,12 @@ def _print_summary(summary: Dict[str, Any]) -> None:
         f"{summary['recognized_company_files']} / {summary['total_files']} "
         f"(그룹 {summary['company_group_count']}개)"
     )
+    if summary.get("company_alias_merge_count", 0):
+        print(
+            "기업 alias 병합: "
+            f"{summary['company_alias_merge_count']}개 그룹, "
+            f"{summary['company_alias_merged_files']}개 파일"
+        )
     print(
         "규칙 전용 파일: "
         f"{summary['rule_only_files']} / {summary['analyzed_files']} "

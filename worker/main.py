@@ -2285,7 +2285,12 @@ def _assemble_fanout_inner(
 
     xlsx_path: Optional[Path] = None
     companies: List[Dict[str, Any]] = []
+    company_alias_stats = {
+        "company_alias_merge_count": 0,
+        "company_alias_merged_files": 0,
+    }
     if job_type == "condition_check" and conditions:
+        company_alias_stats = _canonicalize_condition_company_rows(rows)
         csv_path, json_path, companies = _build_condition_check_csv(assembly_dir, rows, conditions)
         try:
             xlsx_path = _build_condition_check_xlsx(assembly_dir, rows, conditions)
@@ -2424,6 +2429,8 @@ def _assemble_fanout_inner(
         "company_group_count": len(companies) if job_type == "condition_check" else 0,
         "recognized_company_files": recognized_company_files,
         "unrecognized_company_files": len(rows) - recognized_company_files if job_type == "condition_check" else 0,
+        "company_alias_merge_count": company_alias_stats["company_alias_merge_count"] if job_type == "condition_check" else 0,
+        "company_alias_merged_files": company_alias_stats["company_alias_merged_files"] if job_type == "condition_check" else 0,
         "result_cache_hits": result_cache_hits,
         "parse_cache_hits": parse_cache_hits,
         "rule_condition_count": rule_condition_count,
@@ -2480,6 +2487,71 @@ def _assemble_fanout_inner(
     gc.collect()
 
 
+def _company_identity_from_row(row: Dict[str, Any]) -> Tuple[str, str, str]:
+    facts = row.get("detected_facts") if isinstance(row.get("detected_facts"), dict) else {}
+    company_name = str(row.get("company_name") or facts.get("company_name") or "").strip()
+    company_group_name = str(row.get("company_group_name") or facts.get("company_group_name") or "").strip()
+    company_group_key = str(row.get("company_group_key") or facts.get("company_group_key") or "").strip().lower()
+    if not company_group_name and company_name:
+        company_group_name = company_name
+        company_group_name = company_group_name.replace("㈜", "")
+        company_group_name = re.sub(r"\(\s*주\s*\)|（\s*주\s*）", "", company_group_name)
+        company_group_name = re.sub(r"\(\s*유\s*\)|（\s*유\s*）", "", company_group_name)
+        company_group_name = re.sub(r"^(주식회사|유한회사)\s*", "", company_group_name)
+        company_group_name = re.sub(r"\s*(주식회사|유한회사)$", "", company_group_name)
+        company_group_name = re.sub(r"\s+", " ", company_group_name).strip(" -_.,:;")
+    if not company_group_key and company_group_name:
+        company_group_key = re.sub(r"[^0-9A-Za-z가-힣]+", "", company_group_name).lower()
+    return company_name, company_group_name, company_group_key
+
+
+def _canonicalize_condition_company_rows(rows: List[Dict[str, Any]]) -> Dict[str, int]:
+    from ralph.company_encoder import build_company_alias_map
+
+    raw_groups: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        company_name, company_group_name, company_group_key = _company_identity_from_row(row)
+        if not company_group_key or not company_group_name:
+            continue
+        group = raw_groups.setdefault(company_group_key, {
+            "company_group_key": company_group_key,
+            "company_group_name": company_group_name,
+            "file_count": 0,
+            "representative_company_name": company_name or company_group_name,
+        })
+        group["file_count"] += 1
+        if company_name and len(company_name) > len(str(group.get("representative_company_name") or "")):
+            group["representative_company_name"] = company_name
+
+    alias_map, alias_stats = build_company_alias_map(list(raw_groups.values()))
+    merged_files = 0
+    for row in rows:
+        company_name, company_group_name, company_group_key = _company_identity_from_row(row)
+        if not company_group_key:
+            continue
+        canonical = alias_map.get(company_group_key)
+        if not canonical:
+            continue
+        if canonical["company_group_key"] == company_group_key:
+            row["company_group_name"] = company_group_name or canonical["company_group_name"]
+            row["company_group_key"] = company_group_key
+            continue
+
+        merged_files += 1
+        row["company_group_alias_from"] = company_group_name or company_group_key
+        row["company_group_name"] = canonical["company_group_name"]
+        row["company_group_key"] = canonical["company_group_key"]
+        detected_facts = row.get("detected_facts") if isinstance(row.get("detected_facts"), dict) else None
+        if detected_facts is not None:
+            detected_facts["company_group_name"] = canonical["company_group_name"]
+            detected_facts["company_group_key"] = canonical["company_group_key"]
+
+    return {
+        "company_alias_merge_count": int(alias_stats.get("merged_group_count", 0)),
+        "company_alias_merged_files": merged_files,
+    }
+
+
 def _build_condition_check_csv(
     output_dir: Path,
     rows: List[Dict[str, Any]],
@@ -2493,23 +2565,6 @@ def _build_condition_check_csv(
         if cache.get("parse_hit"):
             return "parse"
         return ""
-
-    def _company_identity(row: Dict[str, Any]) -> Tuple[str, str, str]:
-        facts = row.get("detected_facts") if isinstance(row.get("detected_facts"), dict) else {}
-        company_name = str(row.get("company_name") or facts.get("company_name") or "").strip()
-        company_group_name = str(row.get("company_group_name") or facts.get("company_group_name") or "").strip()
-        company_group_key = str(row.get("company_group_key") or facts.get("company_group_key") or "").strip().lower()
-        if not company_group_name and company_name:
-            company_group_name = company_name
-            company_group_name = company_group_name.replace("㈜", "")
-            company_group_name = re.sub(r"\(\s*주\s*\)|（\s*주\s*）", "", company_group_name)
-            company_group_name = re.sub(r"\(\s*유\s*\)|（\s*유\s*）", "", company_group_name)
-            company_group_name = re.sub(r"^(주식회사|유한회사)\s+", "", company_group_name)
-            company_group_name = re.sub(r"\s+(주식회사|유한회사)$", "", company_group_name)
-            company_group_name = re.sub(r"\s+", " ", company_group_name).strip(" -_.,:;")
-        if not company_group_key and company_group_name:
-            company_group_key = re.sub(r"[^0-9A-Za-z가-힣]+", "", company_group_name).lower()
-        return company_name, company_group_name, company_group_key
 
     buf = io.StringIO()
     company_groups: Dict[str, Dict[str, Any]] = {}
@@ -2532,7 +2587,7 @@ def _build_condition_check_csv(
     writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
     writer.writeheader()
     for r in rows:
-        company_name, company_group_name, company_group_key = _company_identity(r)
+        company_name, company_group_name, company_group_key = _company_identity_from_row(r)
         row: Dict[str, Any] = {
             "filename": r.get("filename", ""),
             "company_name": company_name,

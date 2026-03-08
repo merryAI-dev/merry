@@ -776,6 +776,55 @@ class TestFanoutCompanyGrouping:
 
         cleanup(team, job)
 
+    def test_truncated_aliases_merge_into_dominant_company_group(self):
+        team, job = "t_group_alias", "j_group_alias"
+        ctx = FakeCtx()
+        setup_fanout_job(
+            ctx,
+            team,
+            job,
+            ["full", "short"],
+            ["업력 3년 미만"],
+            pdf_texts={
+                "full": "법인명: 주식회사 스트레스솔루션\n",
+                "short": "회사명: 주식회사스트레\n",
+            },
+        )
+
+        text_map = {
+            "full": "법인명: 주식회사 스트레스솔루션\n",
+            "short": "회사명: 주식회사스트레\n",
+        }
+
+        def _fake_extract_text(pdf_path: str):
+            key = Path(pdf_path).stem
+            return text_map.get(key, ""), 1, []
+
+        with patch("ralph.condition_checker.check_conditions_nova", _mock_check_nova_grouping), \
+             patch("ralph.playground_parser.extract_text", side_effect=_fake_extract_text), \
+             patch("ralph.playground_parser.assess_text_quality", return_value=(0.0, False, False)):
+            process_fanout_task(ctx, team, job, "000", "full")
+            process_fanout_task(ctx, team, job, "001", "short")
+
+        j = get_job(ctx, team, job)
+        assert int(j["metrics"]["company_group_count"]) == 1
+        assert int(j["metrics"]["company_alias_merge_count"]) == 1
+        assert int(j["metrics"]["company_alias_merged_files"]) == 1
+
+        csv_art = next(a for a in j["artifacts"] if a["artifactId"] == "condition_check_csv")
+        csv_rows = list(csv.DictReader(io.StringIO(
+            ctx.s3.objects[(ctx.bucket, csv_art["s3Key"])].decode("utf-8-sig"),
+        )))
+        assert all(row["company_group"] == "스트레스솔루션" for row in csv_rows)
+
+        json_art = next(a for a in j["artifacts"] if a["artifactId"] == "condition_check_json")
+        data = json.loads(ctx.s3.objects[(ctx.bucket, json_art["s3Key"])].decode("utf-8"))
+        assert data["company_groups"][0]["company_group_name"] == "스트레스솔루션"
+        short_row = next(row for row in data["results"] if row["filename"] == "doc_1.pdf")
+        assert short_row["company_group_alias_from"] == "스트레"
+
+        cleanup(team, job)
+
 
 class TestFanoutScale:
     """Large fan-out batches should finish with visible cache savings."""
