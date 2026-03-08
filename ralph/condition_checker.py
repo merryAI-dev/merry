@@ -48,6 +48,17 @@ _COMPANY_PREFIXES = (
     "사회적협동조합",
     "협동조합",
 )
+_COMPANY_INVALID_TOKENS = (
+    "종된사업장",
+    "사업장",
+    "말소사항",
+    "자료",
+    "명부",
+    "증명",
+    "사본",
+    "원본",
+)
+_COMPANY_SENTENCE_ENDINGS = ("반영", "포함", "기재", "확인", "표시", "제출", "제공")
 _COMPARATORS = {
     "미만": "lt",
     "이하": "lte",
@@ -179,8 +190,8 @@ def _company_group_name(value: object) -> str | None:
     display = re.sub(r"（\s*주\s*）", "", display)
     display = re.sub(r"（\s*유\s*）", "", display)
     for prefix in _COMPANY_PREFIXES:
-        display = re.sub(rf"^{re.escape(prefix)}\s+", "", display)
-        display = re.sub(rf"\s+{re.escape(prefix)}$", "", display)
+        display = re.sub(rf"^{re.escape(prefix)}\s*", "", display)
+        display = re.sub(rf"\s*{re.escape(prefix)}$", "", display)
     display = re.sub(r"\s+", " ", display).strip(" -_.,:;")
     return display or name
 
@@ -209,6 +220,27 @@ def _is_missing_company_marker(value: object) -> bool:
     lowered = name.lower()
     compact = re.sub(r"\s+", "", lowered)
     return any(token in lowered or token.replace(" ", "") in compact for token in _COMPANY_NEGATIVE_TOKENS)
+
+
+def _is_plausible_company_name(value: object) -> bool:
+    name = _normalize_company_name(value)
+    if not name or _is_missing_company_marker(name):
+        return False
+    group_name = _company_group_name(name) or ""
+    if not group_name or not re.search(r"[A-Za-z0-9가-힣]", group_name):
+        return False
+    if any(token in group_name for token in _COMPANY_INVALID_TOKENS):
+        return False
+    if len(group_name) > 30:
+        return False
+    if (
+        len(re.sub(r"[^가-힣]", "", group_name)) >= 8
+        and " " not in name
+        and not any(prefix in name for prefix in _COMPANY_PREFIXES)
+        and any(group_name.endswith(ending) for ending in _COMPANY_SENTENCE_ENDINGS)
+    ):
+        return False
+    return True
 
 
 def _parse_amount_value(number_text: str, unit: str | None) -> int | None:
@@ -251,7 +283,7 @@ def _extract_company_name_from_text(text: str) -> str | None:
         candidate = re.split(r"\s{2,}|[|/]", candidate)[0].strip()
         candidate = candidate.rstrip(":：")
         candidate = _normalize_company_name(candidate)
-        if candidate and len(candidate) <= 80 and not _is_missing_company_marker(candidate):
+        if candidate and len(candidate) <= 80 and _is_plausible_company_name(candidate):
             return candidate
 
     legal_form_pattern = re.compile(
@@ -267,7 +299,7 @@ def _extract_company_name_from_text(text: str) -> str | None:
         if not match:
             continue
         candidate = _normalize_company_name(match.group(1))
-        if candidate and not _is_missing_company_marker(candidate) and _company_group_key(candidate):
+        if candidate and _is_plausible_company_name(candidate) and _company_group_key(candidate):
             return candidate
     return None
 

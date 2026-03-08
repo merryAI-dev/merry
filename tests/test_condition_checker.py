@@ -102,9 +102,21 @@ def test_extract_condition_facts_groups_company_name_variants():
     assert facts["company_group_name"] == "테스트랩"
     assert facts["company_group_key"] == "테스트랩"
 
+    compact = extract_condition_facts("법인명: 주식회사테스트랩", reference_date=date(2026, 3, 7))
+    assert compact["company_group_name"] == "테스트랩"
+    assert compact["company_group_key"] == "테스트랩"
+
 
 def test_extract_condition_facts_ignores_missing_company_markers():
     facts = extract_condition_facts("문서 본문에 회사명이 없습니다.", reference_date=date(2026, 3, 7))
+
+    assert facts["company_name"] is None
+    assert facts["company_group_name"] is None
+    assert facts["company_group_key"] is None
+
+
+def test_extract_condition_facts_rejects_non_company_tokens():
+    facts = extract_condition_facts("회사명: ③종된사업장", reference_date=date(2026, 3, 7))
 
     assert facts["company_name"] is None
     assert facts["company_group_name"] is None
