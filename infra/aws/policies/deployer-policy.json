@@ -1,0 +1,126 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DoctorReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:DescribeTable",
+        "logs:DescribeLogGroups",
+        "s3:GetBucketCors",
+        "s3:GetBucketEncryption",
+        "s3:GetBucketLifecycleConfiguration",
+        "s3:GetBucketOwnershipControls",
+        "s3:GetBucketPolicy",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:HeadBucket",
+        "sqs:GetQueueAttributes",
+        "sqs:GetQueueUrl",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EcrPush",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:BatchGetImage",
+        "ecr:CompleteLayerUpload",
+        "ecr:CreateRepository",
+        "ecr:DescribeRepositories",
+        "ecr:GetAuthorizationToken",
+        "ecr:InitiateLayerUpload",
+        "ecr:PutImage",
+        "ecr:UploadLayerPart"
+      ],
+      "Resource": [
+        "arn:aws:ecr:ap-northeast-2:471036546503:repository/merry-worker"
+      ]
+    },
+    {
+      "Sid": "EcrAuthToken",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "EcsDeploy",
+      "Effect": "Allow",
+      "Action": [
+        "ecs:CreateCluster",
+        "ecs:CreateService",
+        "ecs:DescribeClusters",
+        "ecs:DescribeServices",
+        "ecs:RegisterTaskDefinition",
+        "ecs:UpdateService"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "PassExistingWorkerRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:PassRole"
+      ],
+      "Resource": [
+        "arn:aws:iam::471036546503:role/merry-worker-task-role",
+        "arn:aws:iam::471036546503:role/merry-worker-exec-role"
+      ]
+    },
+    {
+      "Sid": "VpcAndSecurityGroupReadWrite",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateSecurityGroup",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeSubnets",
+        "ec2:DescribeVpcs"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CreateWorkerLogGroup",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup"
+      ],
+      "Resource": [
+        "arn:aws:logs:ap-northeast-2:471036546503:log-group:/merry/worker"
+      ]
+    },
+    {
+      "Sid": "ServiceAutoScaling",
+      "Effect": "Allow",
+      "Action": [
+        "application-autoscaling:DescribeScalingPolicies",
+        "application-autoscaling:DescribeScalableTargets",
+        "application-autoscaling:PutScalingPolicy",
+        "application-autoscaling:RegisterScalableTarget",
+        "cloudwatch:DeleteAlarms",
+        "cloudwatch:DescribeAlarms",
+        "cloudwatch:PutMetricAlarm"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "CreateServiceLinkedRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateServiceLinkedRole"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": [
+            "ecs.amazonaws.com",
+            "ecs.application-autoscaling.amazonaws.com"
+          ]
+        }
+      }
+    }
+  ]
+}
