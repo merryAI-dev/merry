@@ -738,7 +738,7 @@ def _is_retryable(exc: Exception) -> Tuple[bool, str]:
         "timeout", "temporary failure", "name resolution",
         "broken pipe", "connection refused", "network is unreachable",
         "internal server error", "service unavailable", "bad gateway",
-        "502", "503", "504",
+        "502", "503", "504", "transaction conflict", "transactionconflict",
     )
     if any(k in exc_str for k in transient_keywords):
         return True, "transient"
@@ -755,6 +755,10 @@ def _is_retryable(exc: Exception) -> Tuple[bool, str]:
             "ModelStreamErrorException", "ModelTimeoutException",
             "ServiceQuotaExceededException", "LimitExceededException",
         }
+        if code == "TransactionCanceledException":
+            reasons = json.dumps(resp.get("CancellationReasons", []), ensure_ascii=False).lower()
+            if "transactionconflict" in reasons or "transaction conflict" in exc_str:
+                return True, "transient"
         if code in retryable_codes:
             is_throttle = any(k in code for k in ("Throughput", "Limit", "Throttl", "Quota", "TooMany"))
             return True, "throttle" if is_throttle else "transient"
