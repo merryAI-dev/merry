@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import subprocess
 import sys
 import time
 import urllib.parse
@@ -19,6 +21,8 @@ from scripts.bench_pipeline import _extract_cookie, _http_json, _http_put_file
 
 TEMP_ROOT = PROJECT_ROOT / "temp" / "soak"
 DEFAULT_STAGE_SIZES = {"50": 50, "200": 200, "800": 800}
+AUTHJS_COOKIE = "authjs.session-token"
+SECURE_AUTHJS_COOKIE = "__Secure-authjs.session-token"
 
 
 def _load_pdf_paths(dataset_dir: Path) -> List[Path]:
@@ -42,6 +46,79 @@ def _take_files(paths: List[Path], count: int) -> List[Path]:
     return selected
 
 
+def _parse_env_lines(text: str) -> Dict[str, str]:
+    env: Dict[str, str] = {}
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        env[key] = value
+    return env
+
+
+def _load_env_file(path: Path) -> Dict[str, str]:
+    if not path.exists():
+        raise FileNotFoundError(f"auth env file not found: {path}")
+    return _parse_env_lines(path.read_text(encoding="utf-8"))
+
+
+def _default_authjs_cookie_name(base_url: str) -> str:
+    scheme = urllib.parse.urlparse(base_url).scheme.lower()
+    return SECURE_AUTHJS_COOKIE if scheme == "https" else AUTHJS_COOKIE
+
+
+def _create_authjs_session_token(
+    *,
+    env_file: Path,
+    cookie_name: str,
+    team_id: str,
+    member_name: str,
+    member_email: str,
+) -> str:
+    env = _load_env_file(env_file)
+    secret = env.get("NEXTAUTH_SECRET") or env.get("AUTH_SECRET") or env.get("WORKSPACE_JWT_SECRET")
+    if not secret:
+        raise RuntimeError(f"auth env file missing NEXTAUTH_SECRET/AUTH_SECRET/WORKSPACE_JWT_SECRET: {env_file}")
+
+    jwt_module = (PROJECT_ROOT / "web" / "node_modules" / "@auth" / "core" / "jwt.js").as_posix()
+    js = f"""
+import {{ encode }} from {json.dumps(jwt_module)};
+const token = await encode({{
+  secret: {json.dumps(secret)},
+  salt: {json.dumps(cookie_name)},
+  token: {{
+    sub: 'codex-soak',
+    name: {json.dumps(member_name)},
+    email: {json.dumps(member_email)},
+    teamId: {json.dumps(team_id)},
+    memberName: {json.dumps(member_name)},
+  }},
+}});
+process.stdout.write(token);
+"""
+    return subprocess.check_output(
+        ["node", "--input-type=module", "-e", js],
+        text=True,
+        cwd=str(PROJECT_ROOT),
+    ).strip()
+
+
+def _login_authjs(base_url: str, env_file: Path, team_id: str, member_name: str, member_email: str, cookie_name: str) -> str:
+    _ = base_url
+    return _create_authjs_session_token(
+        env_file=env_file,
+        cookie_name=cookie_name,
+        team_id=team_id,
+        member_name=member_name,
+        member_email=member_email,
+    )
+
+
 def _login_workspace(base_url: str, team_id: str, member_name: str, passcode: str) -> str:
     status, payload, headers = _http_json(
         method="POST",
@@ -57,6 +134,31 @@ def _login_workspace(base_url: str, team_id: str, member_name: str, passcode: st
     return ws_token
 
 
+def _build_auth_header(cookie_name: str, cookie_value: str) -> Dict[str, str]:
+    return {"cookie": f"{cookie_name}={cookie_value}"}
+
+
+def _probe_auth(base_url: str, auth_header: Dict[str, str]) -> Dict[str, Any]:
+    status, payload, _ = _http_json(
+        method="GET",
+        url=base_url.rstrip("/") + "/api/jobs?limit=1",
+        headers=auth_header,
+        timeout_seconds=20,
+    )
+    if status != 200 or not payload.get("ok"):
+        raise RuntimeError(f"auth probe failed: http {status} {payload}")
+    return payload
+
+
+def _make_upload_session_id(path: Path) -> str:
+    stem = path.stem.strip().replace(" ", "-")
+    compact = "".join(ch for ch in stem if ch.isalnum() or ch in {"-", "_"}).strip("-_")
+    compact = compact[:40] or "file"
+    digest = hashlib.sha1(f"{path.name}:{path.stat().st_size}".encode("utf-8")).hexdigest()[:16]
+    session_id = f"soak-{compact}-{digest}"
+    return session_id[:64]
+
+
 def _upload_file(base_url: str, auth_header: Dict[str, str], path: Path) -> Tuple[str, Dict[str, int]]:
     timings: Dict[str, int] = {}
     t0 = time.time()
@@ -67,7 +169,7 @@ def _upload_file(base_url: str, auth_header: Dict[str, str], path: Path) -> Tupl
             "filename": path.name,
             "contentType": "application/pdf",
             "sizeBytes": path.stat().st_size,
-            "uploadSessionId": f"soak-{path.stem}-{path.stat().st_size}",
+            "uploadSessionId": _make_upload_session_id(path),
         },
         headers=auth_header,
         timeout_seconds=30,
@@ -224,9 +326,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset-dir", default=str(PROJECT_ROOT / "companyData"))
     parser.add_argument("--stage", choices=sorted(DEFAULT_STAGE_SIZES.keys()), default="50")
     parser.add_argument("--limit", type=int, default=0, help="Override stage size.")
-    parser.add_argument("--team-id", required=True)
+    parser.add_argument("--auth-mode", choices=["workspace", "authjs"], default="workspace")
+    parser.add_argument("--team-id", default="")
     parser.add_argument("--member-name", default="soak")
-    parser.add_argument("--passcode", required=True)
+    parser.add_argument("--member-email", default="")
+    parser.add_argument("--passcode", default="")
+    parser.add_argument("--auth-env-file", default="")
+    parser.add_argument("--cookie-name", default="")
     parser.add_argument("--condition", action="append", dest="conditions", default=[])
     parser.add_argument("--timeout-seconds", type=int, default=3600)
     parser.add_argument("--poll-interval-seconds", type=float, default=3.0)
@@ -242,9 +348,36 @@ def main() -> int:
     if not selected:
         raise RuntimeError("no pdf files selected for soak run")
     conditions = list(args.conditions or ["업력 3년 미만", "매출 10억 미만"])
+    team_id = args.team_id.strip()
+    member_name = args.member_name.strip() or "soak"
 
-    ws_token = _login_workspace(args.base_url, args.team_id, args.member_name, args.passcode)
-    auth_header = {"cookie": f"merry_ws={ws_token}"}
+    if args.auth_mode == "workspace":
+        if not team_id:
+            raise RuntimeError("--team-id is required for --auth-mode workspace")
+        if not args.passcode:
+            raise RuntimeError("--passcode is required for --auth-mode workspace")
+        cookie_name = "merry_ws"
+        cookie_value = _login_workspace(args.base_url, team_id, member_name, args.passcode)
+    else:
+        env_file = Path(args.auth_env_file).resolve() if args.auth_env_file else Path("/tmp/merry_production.env")
+        auth_env = _load_env_file(env_file)
+        resolved_team_id = team_id or auth_env.get("AUTH_TEAM_ID", "").strip()
+        if not resolved_team_id:
+            raise RuntimeError("authjs login needs --team-id or AUTH_TEAM_ID in --auth-env-file")
+        cookie_name = args.cookie_name.strip() or _default_authjs_cookie_name(args.base_url)
+        member_email = args.member_email.strip() or f"{member_name}@{auth_env.get('AUTH_ALLOWED_DOMAIN', 'mysc.co.kr')}"
+        cookie_value = _login_authjs(
+            args.base_url,
+            env_file,
+            resolved_team_id,
+            member_name,
+            member_email,
+            cookie_name,
+        )
+        team_id = resolved_team_id
+
+    auth_header = _build_auth_header(cookie_name, cookie_value)
+    auth_probe = _probe_auth(args.base_url, auth_header)
 
     upload_timings: List[Dict[str, int]] = []
     file_ids: List[str] = []
@@ -272,6 +405,8 @@ def main() -> int:
     report = {
         "summary": {
             "baseUrl": args.base_url,
+            "authMode": args.auth_mode,
+            "teamId": team_id,
             "datasetDir": str(dataset_dir),
             "stage": args.stage,
             "selectedFiles": len(selected),
@@ -280,6 +415,7 @@ def main() -> int:
             "status": job.get("status"),
             "fanoutStatus": job.get("fanoutStatus"),
             "createJobMs": create_job_ms,
+            "authProbeJobsVisible": len(auth_probe.get("jobs") or []),
             "metrics": _summarize_metric_snapshot(job),
         },
         "uploads": {
