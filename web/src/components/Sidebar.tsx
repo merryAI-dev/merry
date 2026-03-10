@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import {
+  AlertTriangle,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
@@ -35,6 +36,7 @@ const nav = [
   { href: "/funds",           label: "펀드",          icon: LineChart },
   { href: "/drafts",          label: "드래프트",      icon: FileText },
   { href: "/report",          label: "투자심사",      icon: ClipboardList },
+  { href: "/review",          label: "검토 큐",       icon: AlertTriangle },
   { href: "/history",         label: "작업 이력",     icon: History },
   { href: "/admin",           label: "관리자",        icon: Settings },
 ];
