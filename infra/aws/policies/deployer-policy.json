@@ -2,23 +2,32 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "DoctorReadOnly",
+      "Sid": "DoctorReadOnlyGlobal",
       "Effect": "Allow",
       "Action": [
         "dynamodb:DescribeTable",
         "logs:DescribeLogGroups",
-        "s3:GetBucketCors",
-        "s3:GetBucketEncryption",
-        "s3:GetBucketLifecycleConfiguration",
-        "s3:GetBucketOwnershipControls",
-        "s3:GetBucketPolicy",
-        "s3:GetBucketPublicAccessBlock",
-        "s3:HeadBucket",
         "sqs:GetQueueAttributes",
         "sqs:GetQueueUrl",
         "sts:GetCallerIdentity"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "DoctorReadOnlyS3Bucket",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetBucketCORS",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetLifecycleConfiguration",
+        "s3:GetBucketOwnershipControls",
+        "s3:GetBucketPolicy",
+        "s3:GetBucketPublicAccessBlock",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::merry-private-apne2-seoul-471036546503"
+      ]
     },
     {
       "Sid": "EcrPush",
