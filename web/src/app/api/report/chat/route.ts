@@ -13,6 +13,7 @@ import type { Assumption, AssumptionPack } from "@/lib/reportPacks";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 /** Catch-and-log wrapper: returns null on error instead of silently swallowing. */
 function logAndNull<T>(label: string, p: Promise<T>): Promise<T | null> {
