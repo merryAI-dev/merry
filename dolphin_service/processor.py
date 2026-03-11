@@ -31,6 +31,7 @@ from . import classifier as doc_classifier
 from . import chunker
 from . import prompts as prompt_registry
 from .strategy import get_strategy, ProcessingStrategy
+from .table_extractor import extract_financial_tables
 from shared.training_logger import log_training_data
 
 logger = logging.getLogger(__name__)
@@ -586,11 +587,12 @@ class ClaudeVisionProcessor:
                 pages.append(page_data)
 
             content = "".join(text_parts)
+            structured = {"pages": pages}
 
             return {
                 "content": content,
-                "structured_content": {"pages": pages},
-                "financial_tables": {},  # table_extractor가 나중에 처리
+                "structured_content": structured,
+                "financial_tables": extract_financial_tables({"structured_content": structured}),
             }
         finally:
             doc.close()

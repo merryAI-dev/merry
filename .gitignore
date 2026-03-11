@@ -57,6 +57,7 @@ temp/
 companyData/
 0206.md
 ralph/results/
+results/
 
 # Test coverage
 .coverage

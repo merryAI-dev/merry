@@ -17,13 +17,17 @@ export const maxDuration = 60;
 
 const PROJECT_ROOT = join(process.cwd(), ".."); // merry/
 
-async function runParser(pdfPath: string): Promise<Record<string, unknown>> {
+async function runParser(pdfPath: string, forcePro = false): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     const scriptPath = join(PROJECT_ROOT, "ralph", "playground_parser.py");
 
     const proc = spawn("python3", [scriptPath, pdfPath], {
       cwd: PROJECT_ROOT,
-      env: { ...process.env, PYTHONPATH: PROJECT_ROOT },
+      env: {
+        ...process.env,
+        PYTHONPATH: PROJECT_ROOT,
+        ...(forcePro ? { RALPH_FORCE_PRO: "true" } : {}),
+      },
     });
 
     let stdout = "";
@@ -73,7 +77,8 @@ export async function POST(req: Request) {
     tempPath = join(tmpdir(), `ralph_pg_${uid}.pdf`);
     await writeFile(tempPath, Buffer.from(bytes));
 
-    const result = await runParser(tempPath);
+    const forcePro = formData.get("force_pro") === "true";
+    const result = await runParser(tempPath, forcePro);
     return NextResponse.json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "PARSE_FAILED";

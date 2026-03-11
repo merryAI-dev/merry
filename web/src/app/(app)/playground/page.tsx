@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Loader2, Upload } from "lucide-react";
+import { Loader2, Sparkles, Upload } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -19,9 +19,11 @@ type ParseResult = {
   error?: string;
   text?: string;
   pages?: number;
-  method?: "pymupdf" | "nova_hybrid" | "nova_error";
+  method?: "pymupdf" | "nova_hybrid" | "nova_presentation" | "nova_error" | "nova_pro";
   text_quality?: number;
   is_poor?: boolean;
+  is_fragmented?: boolean;
+  text_structure?: "document" | "presentation" | "image";
   doc_type?: string | null;
   confidence?: number;
   detection_method?: string;
@@ -63,22 +65,25 @@ function buildMarkdown(result: ParseResult): string {
 
   lines.push("");
 
-  // Nova 시각 인식 결과 (이미지 문서인 경우)
+  // Nova 시각 인식 결과 (스캔 또는 슬라이드 문서)
   const vd = result.visual_description;
   if (vd && !vd.error) {
+    if (vd.structure_notes?.trim()) {
+      lines.push(`*${vd.structure_notes.trim()}*\n`);
+    }
     if (vd.readable_text?.trim()) {
       lines.push(vd.readable_text.trim());
     }
-    if (vd.structure_notes?.trim()) {
-      lines.push(`\n${vd.structure_notes.trim()}`);
-    }
     lines.push("");
-  }
-
-  // 텍스트 추출 결과
-  if (result.text?.trim()) {
+    // 발표자료는 Nova 구조화 결과 우선, PyMuPDF 원문은 하단에 추가 참고
+    if (result.text_structure === "presentation" && result.text?.trim()) {
+      lines.push("\n---\n");
+      lines.push("**원문 텍스트 (PyMuPDF)**\n");
+      lines.push(result.text.trim());
+    }
+  } else if (result.text?.trim()) {
     lines.push(result.text.trim());
-  } else if (!vd) {
+  } else {
     lines.push("*추출된 텍스트가 없습니다.*");
   }
 
@@ -87,8 +92,19 @@ function buildMarkdown(result: ParseResult): string {
 
 /* ── Cost helper ── */
 
-function formatCost(method?: string): string {
-  if (method === "nova_hybrid") return "~$0.0001";
+function formatCost(method?: string, pages?: number): string {
+  if (method === "nova_presentation") {
+    // Nova Pro: ~$0.0008/1K input + $0.0032/1K output
+    // 1페이지당 ~$0.002, 기본 7페이지 기준 ~$0.015
+    const p = pages ?? 7;
+    const est = p * 0.002;
+    return `~$${est.toFixed(3)}`;
+  }
+  if (method === "nova_hybrid") {
+    // Nova Lite OCR: 1페이지
+    return "~$0.003";
+  }
+  if (method === "nova_pro") return "~$0.006";  // Pro OCR 1p
   return "$0.00";
 }
 
@@ -97,6 +113,7 @@ function formatCost(method?: string): string {
 export default function PlaygroundPage() {
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
   const [filename, setFilename] = React.useState<string>("");
+  const [currentFile, setCurrentFile] = React.useState<File | null>(null);
   const [result, setResult] = React.useState<ParseResult | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [tab, setTab] = React.useState<"markdown" | "raw">("markdown");
@@ -118,6 +135,7 @@ export default function PlaygroundPage() {
     });
 
     setFilename(f.name);
+    setCurrentFile(f);
     setResult(null);
     setBusy(true);
 
@@ -130,6 +148,20 @@ export default function PlaygroundPage() {
       .catch((e: Error) => setResult({ ok: false, error: e.message }))
       .finally(() => setBusy(false));
   }, []);
+
+  const handleForcePro = React.useCallback(() => {
+    if (!currentFile) return;
+    setResult(null);
+    setBusy(true);
+    const form = new FormData();
+    form.append("file", currentFile);
+    form.append("force_pro", "true");
+    fetch("/api/ralph/parse", { method: "POST", body: form })
+      .then((r) => r.json())
+      .then((data: ParseResult) => setResult(data))
+      .catch((e: Error) => setResult({ ok: false, error: e.message }))
+      .finally(() => setBusy(false));
+  }, [currentFile]);
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -163,7 +195,11 @@ export default function PlaygroundPage() {
       <div className="flex min-h-0 flex-1 gap-4">
 
         {/* ── Left: PDF Preview ── */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[#E5E8EB] bg-white">
+        <div
+          className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[#E5E8EB] bg-white"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={handleDrop}
+        >
           {previewUrl ? (
             <>
               {/* 파일명만 — iframe이 자체 PDF 컨트롤을 갖고 있으므로 별도 컨트롤 없음 */}
@@ -180,8 +216,6 @@ export default function PlaygroundPage() {
             <label
               htmlFor="pdf-file-input"
               className="flex flex-1 cursor-pointer select-none flex-col items-center justify-center gap-3 text-center"
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDrop}
             >
               <Upload className="h-10 w-10 text-[#D1D5DC]" />
               <p className="text-sm text-[#8B95A1]">PDF를 여기에 놓거나 클릭하여 업로드하세요</p>
@@ -235,17 +269,28 @@ export default function PlaygroundPage() {
             )}
           </div>
 
-          {/* Footer — 기술 메타데이터 + 비용 (작게) */}
+          {/* Footer — 기술 메타데이터 + 비용 + Pro 재분석 버튼 */}
           {result?.ok && (
             <div className="flex items-center justify-between border-t border-[#E5E8EB] px-4 py-2">
               <span className="text-xs text-[#B0B8C1]">
                 {result.pages}p
-                {result.detection_method && ` · ${result.detection_method}`}
-                {result.confidence !== undefined && ` · 신뢰도 ${(result.confidence * 100).toFixed(0)}%`}
+                {result.detection_method && result.detection_method !== "none" && ` · ${result.detection_method}`}
+                {result.confidence !== undefined && result.confidence > 0 && ` · 신뢰도 ${(result.confidence * 100).toFixed(0)}%`}
               </span>
-              <span className="text-xs text-[#B0B8C1]">
-                {formatCost(result.method)}
-              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-[#B0B8C1]">
+                  {formatCost(result.method, result.pages)}
+                </span>
+                {result.method !== "nova_presentation" && result.method !== "nova_pro" && currentFile && !busy && (
+                  <button
+                    onClick={handleForcePro}
+                    className="flex items-center gap-1 text-xs text-[#8B95A1] transition-colors hover:text-[#191F28]"
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    Nova Pro로 재분석
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>

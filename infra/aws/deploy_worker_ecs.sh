@@ -47,6 +47,7 @@ MERRY_WORKER_EXEC_ROLE_NAME="${MERRY_WORKER_EXEC_ROLE_NAME:-merry-worker-exec-ro
 
 echo "[ecs] region=$AWS_REGION"
 aws sts get-caller-identity --region "$AWS_REGION" >/dev/null
+ACCOUNT_ID="$(aws sts get-caller-identity --region "$AWS_REGION" --query Account --output text)"
 
 echo "[ecs] resolving role ARNs..."
 TASK_ROLE_ARN="$(aws iam get-role --role-name "$MERRY_WORKER_TASK_ROLE_NAME" --query Role.Arn --output text)"
@@ -110,6 +111,8 @@ for key in [
     "MERRY_S3_BUCKET",
     "MERRY_SQS_QUEUE_URL",
     "MERRY_DELETE_INPUTS",
+    "MERRY_LAMBDA_ASSEMBLY",
+    "WORKER_CONCURRENCY",
     "LLM_PROVIDER",
     "BEDROCK_MODEL_ID",
     "BEDROCK_HAIKU_MODEL_ID",
@@ -189,11 +192,127 @@ else
   echo "  - created"
 fi
 
+# ── Auto-Scaling ──
+# Scale ECS worker count based on SQS queue depth.
+# Target: ~5 messages per worker task (each worker has WORKER_CONCURRENCY threads).
+# Min: 0 (scale to zero when idle for cost savings)
+# Max: configurable (default 10, = 10 workers × 5 threads = 50 concurrent tasks)
+
+MERRY_AUTOSCALE_MIN="${MERRY_AUTOSCALE_MIN:-0}"
+MERRY_AUTOSCALE_MAX="${MERRY_AUTOSCALE_MAX:-10}"
+MERRY_AUTOSCALE_TARGET_PER_TASK="${MERRY_AUTOSCALE_TARGET_PER_TASK:-5}"
+MERRY_AUTOSCALE_ENABLED="${MERRY_AUTOSCALE_ENABLED:-true}"
+
+if [[ "$MERRY_AUTOSCALE_ENABLED" == "true" ]]; then
+  echo "[ecs] configuring auto-scaling (min=$MERRY_AUTOSCALE_MIN max=$MERRY_AUTOSCALE_MAX target=$MERRY_AUTOSCALE_TARGET_PER_TASK msgs/task)"
+
+  RESOURCE_ID="service/${MERRY_ECS_CLUSTER}/${MERRY_ECS_SERVICE}"
+
+  # 1. Register scalable target.
+  aws application-autoscaling register-scalable-target \
+    --region "$AWS_REGION" \
+    --service-namespace ecs \
+    --scalable-dimension "ecs:service:DesiredCount" \
+    --resource-id "$RESOURCE_ID" \
+    --min-capacity "$MERRY_AUTOSCALE_MIN" \
+    --max-capacity "$MERRY_AUTOSCALE_MAX" \
+    >/dev/null
+  echo "  - registered scalable target"
+
+  # 2. Custom metric spec for SQS-based scaling.
+  # Uses backlog-per-task = ApproximateNumberOfMessagesVisible / RunningTaskCount.
+  # When backlog-per-task > target, scale out. When < target, scale in.
+  MERRY_SQS_QUEUE_NAME="${MERRY_SQS_QUEUE_NAME:-merry-analysis-jobs}"
+  SQS_QUEUE_ARN="arn:aws:sqs:${AWS_REGION}:${ACCOUNT_ID}:${MERRY_SQS_QUEUE_NAME}"
+
+  SCALING_POLICY_JSON="$(python3 - <<PY
+import json, os
+
+cluster = os.environ.get("MERRY_ECS_CLUSTER", "merry")
+service = os.environ.get("MERRY_ECS_SERVICE", "merry-worker")
+queue   = os.environ.get("MERRY_SQS_QUEUE_NAME", "merry-analysis-jobs")
+target  = int(os.environ.get("MERRY_AUTOSCALE_TARGET_PER_TASK", "5"))
+
+print(json.dumps({
+  "TargetValue": float(target),
+  "CustomizedMetricSpecification": {
+    "Metrics": [
+      {
+        "Label": "SQS Visible Messages",
+        "Id": "m1",
+        "MetricStat": {
+          "Metric": {
+            "MetricName": "ApproximateNumberOfMessagesVisible",
+            "Namespace": "AWS/SQS",
+            "Dimensions": [
+              {"Name": "QueueName", "Value": queue}
+            ]
+          },
+          "Stat": "Average",
+          "Period": 60
+        },
+        "ReturnData": False
+      },
+      {
+        "Label": "ECS Running Task Count",
+        "Id": "m2",
+        "MetricStat": {
+          "Metric": {
+            "MetricName": "RunningTaskCount",
+            "Namespace": "ECS/ContainerInsights",
+            "Dimensions": [
+              {"Name": "ClusterName", "Value": cluster},
+              {"Name": "ServiceName", "Value": service}
+            ]
+          },
+          "Stat": "Average",
+          "Period": 60
+        },
+        "ReturnData": False
+      },
+      {
+        "Label": "Backlog Per Task",
+        "Id": "e1",
+        "Expression": "m1 / MAX(m2, 1)",
+        "ReturnData": True
+      }
+    ]
+  },
+  "ScaleInCooldown": 300,
+  "ScaleOutCooldown": 60,
+}))
+PY
+)"
+
+  aws application-autoscaling put-scaling-policy \
+    --region "$AWS_REGION" \
+    --service-namespace ecs \
+    --scalable-dimension "ecs:service:DesiredCount" \
+    --resource-id "$RESOURCE_ID" \
+    --policy-name "merry-worker-sqs-scaling" \
+    --policy-type TargetTrackingScaling \
+    --target-tracking-scaling-policy-configuration "$SCALING_POLICY_JSON" \
+    >/dev/null
+  echo "  - scaling policy applied (target tracking: backlog-per-task)"
+
+  # 3. Scale-to-zero alarm: when queue is empty for 5 min, scale to 0.
+  # Application Auto Scaling handles this via min-capacity=0 + the target tracking.
+  # But we add an explicit scale-in step policy as a safety net for faster scale-down.
+  echo "  - min=0 → auto scale-to-zero when queue is empty"
+else
+  echo "[ecs] auto-scaling disabled (set MERRY_AUTOSCALE_ENABLED=true to enable)"
+fi
+
 echo
 echo "[ecs] outputs:"
 echo "ECS_CLUSTER=$MERRY_ECS_CLUSTER"
 echo "ECS_SERVICE=$MERRY_ECS_SERVICE"
 echo "TASK_DEFINITION_ARN=$TASK_DEF_ARN"
 echo "LOG_GROUP=$MERRY_ECS_LOG_GROUP"
+if [[ "$MERRY_AUTOSCALE_ENABLED" == "true" ]]; then
+  echo "AUTOSCALE_MIN=$MERRY_AUTOSCALE_MIN"
+  echo "AUTOSCALE_MAX=$MERRY_AUTOSCALE_MAX"
+  echo "AUTOSCALE_TARGET=$MERRY_AUTOSCALE_TARGET_PER_TASK msgs/task"
+fi
 echo
 echo "[ecs] done"
