@@ -110,6 +110,19 @@ class TestIsRetryable:
         assert retryable is True
         assert cat == "transient"
 
+    def test_transaction_canceled_with_conflict_reason_is_retryable(self):
+        exc = Exception(
+            "TransactionCanceledException: Transaction cancelled "
+            "[None, None, TransactionConflict]"
+        )
+        exc.response = {
+            "Error": {"Code": "TransactionCanceledException"},
+            "CancellationReasons": [{}, {}, {"Code": "TransactionConflict"}],
+        }
+        retryable, cat = _is_retryable(exc)
+        assert retryable is True
+        assert cat == "transient"
+
     def test_botocore_provisioned_throughput_code(self):
         exc = Exception("Throughput exceeded")
         exc.response = {"Error": {"Code": "ProvisionedThroughputExceededException"}}

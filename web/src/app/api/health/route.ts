@@ -17,7 +17,7 @@ type LlmProvider = "bedrock" | "anthropic";
 
 function asErrorString(err: unknown): string {
   if (err instanceof Error) return err.message || err.name || "Error";
-  if (err && typeof err === "object" && "name" in err) return String((err as any).name);
+  if (err && typeof err === "object" && "name" in err) return String((err as Record<string, unknown>).name);
   return String(err);
 }
 

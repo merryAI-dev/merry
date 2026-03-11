@@ -1,25 +1,27 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { handleApiError } from "@/lib/apiError";
+import { paginate } from "@/lib/pagination";
 import { addTeamEvent, listTeamEvents } from "@/lib/teamCalendar";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export const runtime = "nodejs";
 
 const AddSchema = z.object({
-  date: z.string().min(1),
-  title: z.string().min(1),
-  notes: z.string().optional(),
+  date: z.string().min(1).max(20),
+  title: z.string().min(1).max(500),
+  notes: z.string().max(5_000).optional(),
 });
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const ws = await requireWorkspaceFromCookies();
-    const events = await listTeamEvents(ws.teamId, 30);
-    return NextResponse.json({ ok: true, events });
+    const all = await listTeamEvents(ws.teamId, 100);
+    const { items, total, offset, hasMore } = paginate(all, new URL(req.url));
+    return NextResponse.json({ ok: true, events: items, total, offset, hasMore });
   } catch (err) {
-    const status = err instanceof Error && err.message === "UNAUTHORIZED" ? 401 : 500;
-    return NextResponse.json({ ok: false, error: "FAILED" }, { status });
+    return handleApiError(err, "GET /api/calendar");
   }
 }
 

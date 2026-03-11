@@ -7,17 +7,17 @@ import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 export const runtime = "nodejs";
 
 const BodySchema = z.object({
-  versionId: z.string().min(1),
+  versionId: z.string().min(1).max(128),
   kind: z.enum(["수정", "좋음", "대안"]),
-  text: z.string().min(1),
+  text: z.string().min(1).max(5_000),
   anchor: z.object({
     start: z.number().int().min(0),
     end: z.number().int().min(0),
-    quote: z.string().min(1),
-    context: z.string().optional(),
+    quote: z.string().min(1).max(2_000),
+    context: z.string().max(2_000).optional(),
   }),
-  threadId: z.string().optional(),
-  parentId: z.string().optional(),
+  threadId: z.string().max(128).optional(),
+  parentId: z.string().max(128).optional(),
 });
 
 export async function POST(

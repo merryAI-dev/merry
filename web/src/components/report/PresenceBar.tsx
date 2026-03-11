@@ -4,6 +4,7 @@ import * as React from "react";
 
 import { Badge } from "@/components/ui/Badge";
 import { cn } from "@/lib/cn";
+import { apiFetch } from "@/lib/apiClient";
 
 type PresenceMember = {
   memberKey: string;
@@ -12,12 +13,6 @@ type PresenceMember = {
   lastSeenAt: string;
 };
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { cache: "no-store", ...init });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || "FAILED");
-  return json as T;
-}
 
 function initials(name: string) {
   const s = (name ?? "").trim();
@@ -32,7 +27,7 @@ export function PresenceBar({ sessionId }: { sessionId: string }) {
 
   const load = React.useCallback(async () => {
     try {
-      const res = await fetchJson<{ members: PresenceMember[] }>(
+      const res = await apiFetch<{ members: PresenceMember[] }>(
         `/api/presence?scope=report&scopeId=${encodeURIComponent(sessionId)}`,
       );
       setMembers(res.members || []);
@@ -43,7 +38,7 @@ export function PresenceBar({ sessionId }: { sessionId: string }) {
 
   const heartbeat = React.useCallback(async () => {
     try {
-      await fetchJson("/api/presence", {
+      await apiFetch("/api/presence", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ scope: "report", scopeId: sessionId }),

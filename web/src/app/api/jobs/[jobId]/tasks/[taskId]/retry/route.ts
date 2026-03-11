@@ -1,9 +1,7 @@
-import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { NextResponse } from "next/server";
 
-import { getSqsClient } from "@/lib/aws/sqs";
-import { getSqsQueueUrl } from "@/lib/aws/env";
-import { getTask, retryTask } from "@/lib/jobStore";
+import { handleApiError } from "@/lib/apiError";
+import { retryFailedTask } from "@/lib/fanoutRetry";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export const runtime = "nodejs";
@@ -16,37 +14,23 @@ export async function POST(
     const ws = await requireWorkspaceFromCookies();
     const { jobId, taskId } = await params;
 
-    // Verify task exists and is in failed state.
-    const task = await getTask(ws.teamId, jobId, taskId);
-    if (!task) {
-      return NextResponse.json({ ok: false, error: "TASK_NOT_FOUND" }, { status: 404 });
-    }
-    if (task.status !== "failed") {
-      return NextResponse.json({ ok: false, error: "TASK_NOT_FAILED" }, { status: 400 });
-    }
-
-    // Reset task to pending and adjust job counters.
-    await retryTask(ws.teamId, jobId, taskId);
-
-    // Re-enqueue SQS message for this task.
-    const sqs = getSqsClient();
-    const sqsUrl = getSqsQueueUrl();
-    await sqs.send(
-      new SendMessageCommand({
-        QueueUrl: sqsUrl,
-        MessageBody: JSON.stringify({
-          version: 2,
-          teamId: ws.teamId,
-          jobId,
-          taskId: task.taskId,
-          fileId: task.fileId,
-        }),
-      }),
-    );
-
-    return NextResponse.json({ ok: true });
+    await retryFailedTask(ws.teamId, jobId, taskId);
+    return NextResponse.json({ ok: true, retriedCount: 1 });
   } catch (err) {
-    const status = err instanceof Error && err.message === "UNAUTHORIZED" ? 401 : 500;
-    return NextResponse.json({ ok: false, error: "FAILED" }, { status });
+    const code = err instanceof Error ? err.message : "";
+    if (code === "TASK_NOT_FOUND") {
+      return NextResponse.json({ ok: false, error: code }, { status: 404 });
+    }
+    if (code === "TASK_NOT_FAILED") {
+      return NextResponse.json({ ok: false, error: code }, { status: 400 });
+    }
+    if (
+      code.startsWith("SQS_BATCH_SEND_FAILED") ||
+      code.startsWith("RETRY_COMPENSATION_FAILED") ||
+      code.startsWith("INVALID_RESTORE_STATUS")
+    ) {
+      return NextResponse.json({ ok: false, error: code }, { status: 500 });
+    }
+    return handleApiError(err, "POST /api/jobs/[jobId]/tasks/[taskId]/retry");
   }
 }

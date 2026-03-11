@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
+import { apiFetch } from "@/lib/apiClient";
 
 type DraftSummary = {
   draftId: string;
@@ -16,12 +17,6 @@ type DraftSummary = {
   createdAt?: string;
 };
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { cache: "no-store", ...init });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || "FAILED");
-  return json as T;
-}
 
 export default function DraftsPage() {
   const [drafts, setDrafts] = React.useState<DraftSummary[]>([]);
@@ -37,7 +32,7 @@ export default function DraftsPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetchJson<{ drafts: DraftSummary[] }>("/api/drafts");
+      const res = await apiFetch<{ drafts: DraftSummary[] }>("/api/drafts");
       setDrafts(res.drafts || []);
     } catch {
       setError("드래프트 목록을 불러오지 못했습니다.");
@@ -55,7 +50,7 @@ export default function DraftsPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetchJson<{ draftId: string }>("/api/drafts", {
+      const res = await apiFetch<{ draftId: string }>("/api/drafts", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ title, content }),

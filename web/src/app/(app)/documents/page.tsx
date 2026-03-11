@@ -6,7 +6,7 @@ import { CheckCircle2, Download, FileText, Loader2, UploadCloud, XCircle } from 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
-import { cn } from "@/lib/cn";
+import { apiFetch } from "@/lib/apiClient";
 
 /* ── Types ── */
 
@@ -51,12 +51,6 @@ type Stage = "upload" | "mapping" | "processing" | "results";
 
 /* ── Helpers ── */
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { cache: "no-store", ...init });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || "FAILED");
-  return json as T;
-}
 
 const DOC_TYPE_LABELS: Record<string, string> = {
   business_reg: "사업자등록증",
@@ -109,7 +103,7 @@ export default function DocumentsPage() {
       // Upload all files
       const fileIds: string[] = [];
       for (const f of files) {
-        const presign = await fetchJson<{
+        const presign = await apiFetch<{
           file: { fileId: string };
           upload: { url: string; headers: Record<string, string> };
         }>("/api/uploads/presign", {
@@ -129,7 +123,7 @@ export default function DocumentsPage() {
         });
         if (!putRes.ok) throw new Error("UPLOAD_FAILED");
 
-        await fetchJson("/api/uploads/complete", {
+        await apiFetch("/api/uploads/complete", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ fileId: presign.file.fileId }),
@@ -138,7 +132,7 @@ export default function DocumentsPage() {
       }
 
       // Classify
-      const classifyRes = await fetchJson<{
+      const classifyRes = await apiFetch<{
         files: { fileId: string; filename: string; detectedType: string | null; confidence: number }[];
         supportedTypes: SupportedType[];
       }>("/api/ralph/classify", {
@@ -183,7 +177,7 @@ export default function DocumentsPage() {
         typeMap[f.fileId] = f.selectedType;
       }
 
-      const res = await fetchJson<{ jobId: string }>("/api/jobs", {
+      const res = await apiFetch<{ jobId: string }>("/api/jobs", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -207,7 +201,7 @@ export default function DocumentsPage() {
   const pollJob = React.useCallback(async () => {
     if (!jobId) return;
     try {
-      const res = await fetchJson<{ jobs: JobRecord[] }>("/api/jobs");
+      const res = await apiFetch<{ jobs: JobRecord[] }>("/api/jobs");
       const found = (res.jobs || []).find((j: JobRecord) => j.jobId === jobId);
       if (found) {
         setJob(found);
@@ -231,7 +225,7 @@ export default function DocumentsPage() {
 
   async function downloadArtifact(artifact: JobArtifact) {
     try {
-      const res = await fetchJson<{ url: string }>(`/api/jobs/${jobId}/artifact?artifactId=${artifact.artifactId}`);
+      const res = await apiFetch<{ url: string }>(`/api/jobs/${jobId}/artifact?artifactId=${artifact.artifactId}`);
       window.open(res.url, "_blank", "noopener,noreferrer");
     } catch {
       setError("다운로드 URL 발급 실패");

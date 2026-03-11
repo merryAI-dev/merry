@@ -18,6 +18,7 @@ import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { Textarea } from "@/components/ui/Textarea";
 import { cn } from "@/lib/cn";
+import { apiFetch } from "@/lib/apiClient";
 
 type TeamTask = {
   id: string;
@@ -159,12 +160,6 @@ function TaskCard({ task }: { task: TeamTask }) {
   );
 }
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { cache: "no-store", ...init });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || "FAILED");
-  return json as T;
-}
 
 export default function HubPage() {
   const [busy, setBusy] = React.useState(false);
@@ -184,11 +179,11 @@ export default function HubPage() {
     setError(null);
     try {
       const [t, d, c, cal, a] = await Promise.all([
-        fetchJson<{ tasks: TeamTask[] }>("/api/tasks"),
-        fetchJson<{ docs: TeamDoc[] }>("/api/docs"),
-        fetchJson<{ comments: TeamComment[] }>("/api/comments"),
-        fetchJson<{ events: TeamEvent[] }>("/api/calendar"),
-        fetchJson<{ activity: TeamActivity[] }>("/api/activity"),
+        apiFetch<{ tasks: TeamTask[] }>("/api/tasks"),
+        apiFetch<{ docs: TeamDoc[] }>("/api/docs"),
+        apiFetch<{ comments: TeamComment[] }>("/api/comments"),
+        apiFetch<{ events: TeamEvent[] }>("/api/calendar"),
+        apiFetch<{ activity: TeamActivity[] }>("/api/activity"),
       ]);
       setTasks(t.tasks || []);
       setDocs(d.docs || []);
@@ -226,7 +221,7 @@ export default function HubPage() {
 
     setTasks((prev) => prev.map((t) => (t.id === activeId ? { ...t, status: overId } : t)));
     try {
-      await fetchJson("/api/tasks", {
+      await apiFetch("/api/tasks", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ taskId: activeId, status: overId }),
@@ -245,7 +240,7 @@ export default function HubPage() {
     if (!title) return;
     setNewTaskTitle("");
     try {
-      await fetchJson("/api/tasks", {
+      await apiFetch("/api/tasks", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ title, owner: newTaskOwner, due_date: newTaskDue }),
@@ -262,7 +257,7 @@ export default function HubPage() {
     if (!name) return;
     setNewDocName("");
     try {
-      await fetchJson("/api/docs", {
+      await apiFetch("/api/docs", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ name, required: true }),
@@ -276,7 +271,7 @@ export default function HubPage() {
   async function toggleDocUploaded(docId: string, uploaded: boolean) {
     setDocs((prev) => prev.map((d) => (d.id === docId ? { ...d, uploaded } : d)));
     try {
-      await fetchJson("/api/docs", {
+      await apiFetch("/api/docs", {
         method: "PATCH",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ docId, uploaded }),
@@ -291,7 +286,7 @@ export default function HubPage() {
   async function addEvent() {
     if (!newEventDate || !newEventTitle.trim()) return;
     try {
-      await fetchJson("/api/calendar", {
+      await apiFetch("/api/calendar", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ date: newEventDate, title: newEventTitle, notes: "" }),
@@ -309,7 +304,7 @@ export default function HubPage() {
     if (!text) return;
     setNewComment("");
     try {
-      await fetchJson("/api/comments", {
+      await apiFetch("/api/comments", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ text }),
@@ -324,7 +319,7 @@ export default function HubPage() {
     setBriefBusy(true);
     setError(null);
     try {
-      const res = await fetchJson<{ brief: CollabBrief }>("/api/ai/collab-brief", {
+      const res = await apiFetch<{ brief: CollabBrief }>("/api/ai/collab-brief", {
         method: "POST",
       });
       setBrief(res.brief);

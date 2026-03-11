@@ -14,7 +14,7 @@ const BodySchema = z.object({
   sourceJobIds: z.array(z.string().min(1)).min(1).max(6),
 });
 
-async function readBodyToString(body: any): Promise<string> {
+async function readBodyToString(body: string | Uint8Array | AsyncIterable<Uint8Array> | null | undefined): Promise<string> {
   if (!body) return "";
   // AWS SDK v3 in Node returns a Readable with async iterator.
   if (typeof body === "string") return body;
@@ -108,7 +108,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ sessionId: str
       }
 
       const objResp = await s3.send(new GetObjectCommand({ Bucket: artifact.s3Bucket, Key: artifact.s3Key }));
-      const text = await readBodyToString(objResp.Body as any);
+      const text = await readBodyToString(objResp.Body as AsyncIterable<Uint8Array> | undefined);
       let parsed: unknown = null;
       try {
         parsed = JSON.parse(text);
@@ -153,7 +153,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ sessionId: str
           const raw = typeof n === "string" ? n : String(n);
           const unit = inferUnit(raw);
           const num = parseFirstNumber(raw);
-          if (typeof num === "number") {
+          if (typeof num === "number" && Number.isFinite(num)) {
             facts.push({
               factId: crypto.randomUUID(),
               key: `evidence_num_p${pageNum ?? 0}_${idx + 1}_n${j + 1}`,

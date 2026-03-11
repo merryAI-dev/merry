@@ -1,35 +1,37 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
+import { handleApiError } from "@/lib/apiError";
+import { paginate } from "@/lib/pagination";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 import { addTeamTask, listTeamTasks, updateTeamTask } from "@/lib/teamTasks";
 
 export const runtime = "nodejs";
 
 const AddSchema = z.object({
-  title: z.string().min(1),
-  owner: z.string().optional(),
-  due_date: z.string().optional(),
-  notes: z.string().optional(),
+  title: z.string().min(1).max(500),
+  owner: z.string().max(100).optional(),
+  due_date: z.string().max(20).optional(),
+  notes: z.string().max(5_000).optional(),
 });
 
 const UpdateSchema = z.object({
-  taskId: z.string().min(1),
-  title: z.string().optional(),
+  taskId: z.string().min(1).max(128),
+  title: z.string().max(500).optional(),
   status: z.enum(["todo", "in_progress", "done", "blocked"]).optional(),
-  owner: z.string().optional(),
-  due_date: z.string().optional(),
-  notes: z.string().optional(),
+  owner: z.string().max(100).optional(),
+  due_date: z.string().max(20).optional(),
+  notes: z.string().max(5_000).optional(),
 });
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
     const ws = await requireWorkspaceFromCookies();
-    const tasks = await listTeamTasks(ws.teamId, true, 80);
-    return NextResponse.json({ ok: true, tasks });
+    const all = await listTeamTasks(ws.teamId, true, 100);
+    const { items, total, offset, hasMore } = paginate(all, new URL(req.url));
+    return NextResponse.json({ ok: true, tasks: items, total, offset, hasMore });
   } catch (err) {
-    const status = err instanceof Error && err.message === "UNAUTHORIZED" ? 401 : 500;
-    return NextResponse.json({ ok: false, error: "FAILED" }, { status });
+    return handleApiError(err, "GET /api/tasks");
   }
 }
 

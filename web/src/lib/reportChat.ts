@@ -95,8 +95,8 @@ export async function createReportSession(args: {
   return { sessionId };
 }
 
-export async function getReportMessages(teamId: string, sessionId: string): Promise<ReportMessage[]> {
-  const messages = await getMessages(teamId, sessionId);
+export async function getReportMessages(teamId: string, sessionId: string, maxMessages?: number): Promise<ReportMessage[]> {
+  const messages = await getMessages(teamId, sessionId, maxMessages);
   const out: ReportMessage[] = [];
   for (const m of messages) {
     if (m.role !== "user" && m.role !== "assistant") continue;

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { withCache } from "@/lib/cache";
 import { estimateUsd } from "@/lib/cost";
 import { listRecentJobs } from "@/lib/jobStore";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
@@ -80,16 +81,19 @@ export async function GET(req: Request) {
     const avgOut = sumOut / samples;
     const avgUsd = sumUsd / samples;
 
-    return NextResponse.json({
-      ok: true,
-      samples,
-      n,
-      type: type || null,
-      avgInputTokens: Math.round(avgIn),
-      avgOutputTokens: Math.round(avgOut),
-      avgUsd: Number(avgUsd.toFixed(4)),
-      estimateUsd: Number((avgUsd * n).toFixed(2)),
-    });
+    return withCache(
+      NextResponse.json({
+        ok: true,
+        samples,
+        n,
+        type: type || null,
+        avgInputTokens: Math.round(avgIn),
+        avgOutputTokens: Math.round(avgOut),
+        avgUsd: Number(avgUsd.toFixed(4)),
+        estimateUsd: Number((avgUsd * n).toFixed(2)),
+      }),
+      300, 600,
+    );
   } catch (err) {
     const status = err instanceof Error && err.message === "UNAUTHORIZED" ? 401 : 500;
     return NextResponse.json({ ok: false, error: "FAILED" }, { status });

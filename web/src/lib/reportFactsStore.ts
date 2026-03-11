@@ -1,5 +1,5 @@
 import { addMessage, getMessages } from "@/lib/chatStore";
-import type { FactPack } from "@/lib/reportPacks";
+import type { Fact, FactPack } from "@/lib/reportPacks";
 
 const ROLE_FACT_PACK = "report_fact_pack";
 
@@ -26,7 +26,7 @@ function coerceFactPack(obj: unknown): FactPack | null {
   const jobIds = Array.isArray(jobIdsRaw) ? jobIdsRaw.map(asString).filter(Boolean) : [];
   const fileIds = Array.isArray(fileIdsRaw) ? fileIdsRaw.map(asString).filter(Boolean) : [];
   const factsRaw = (r.facts as unknown) ?? [];
-  const facts = Array.isArray(factsRaw) ? (factsRaw as any[]) : [];
+  const facts: Fact[] = Array.isArray(factsRaw) ? (factsRaw as Fact[]) : [];
   const warningsRaw = (r.warnings as unknown) ?? [];
   const warnings = Array.isArray(warningsRaw) ? warningsRaw.map(asString).filter(Boolean) : [];
   if (!factPackId || !sessionId || !createdAt || !createdBy) return null;
@@ -36,7 +36,7 @@ function coerceFactPack(obj: unknown): FactPack | null {
     createdAt,
     createdBy,
     inputs: { jobIds, fileIds },
-    facts: facts as any,
+    facts,
     warnings,
   };
 }

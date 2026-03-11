@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { InvokeModelWithResponseStreamCommand } from "@aws-sdk/client-bedrock-runtime";
+import { InvokeModelWithResponseStreamCommand, type ResponseStream } from "@aws-sdk/client-bedrock-runtime";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
@@ -9,19 +9,27 @@ import { getBedrockRuntimeClient } from "@/lib/aws/bedrock";
 import { buildMerryPersona } from "@/lib/merryPersona";
 import { getJob } from "@/lib/jobStore";
 import { getAssumptionPackById, getLatestComputeSnapshot, getLatestLockedAssumptionPack } from "@/lib/reportAssumptionsStore";
-import type { AssumptionPack } from "@/lib/reportPacks";
+import type { Assumption, AssumptionPack } from "@/lib/reportPacks";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export const runtime = "nodejs";
 
+/** Catch-and-log wrapper: returns null on error instead of silently swallowing. */
+function logAndNull<T>(label: string, p: Promise<T>): Promise<T | null> {
+  return p.catch((err) => {
+    console.warn(`[${label}] suppressed:`, err instanceof Error ? err.message : String(err));
+    return null;
+  });
+}
+
 const BodySchema = z.object({
-  sessionId: z.string().min(1),
-  message: z.string().min(1),
-  packId: z.string().min(6).optional(),
+  sessionId: z.string().min(1).max(128),
+  message: z.string().min(1).max(50_000),
+  packId: z.string().min(6).max(128).optional(),
   section: z
     .object({
-      key: z.string().min(1),
-      title: z.string().min(1),
+      key: z.string().min(1).max(128),
+      title: z.string().min(1).max(500),
       index: z.number().int().positive().optional(),
     })
     .optional(),
@@ -62,7 +70,7 @@ function safeLlmErrorText(err: unknown): string {
 }
 
 function summarizeAssumptionPack(pack: AssumptionPack): string {
-  const byKey = new Map<string, any>();
+  const byKey = new Map<string, Assumption>();
   for (const a of pack.assumptions || []) {
     if (!a || typeof a !== "object") continue;
     const key = typeof a.key === "string" ? a.key.trim() : "";
@@ -82,7 +90,7 @@ function summarizeAssumptionPack(pack: AssumptionPack): string {
     if (vt === "number_array") {
       const arr = Array.isArray(a.numberArrayValue) ? a.numberArrayValue : [];
       const nums = arr
-        .map((n: any) => (typeof n === "number" ? n : Number(n)))
+        .map((n: unknown) => (typeof n === "number" ? n : Number(n)))
         .filter((n: number) => Number.isFinite(n));
       return `- ${key}: ${nums.length ? `[${nums.join(", ")}]` : "[확인 필요]"}${unit}`;
     }
@@ -108,7 +116,7 @@ function summarizeAssumptionPack(pack: AssumptionPack): string {
 
 function summarizeExitProjectionMetrics(metrics: unknown): string {
   const r = metrics && typeof metrics === "object" ? (metrics as Record<string, unknown>) : null;
-  const rows = r && Array.isArray(r["projection_summary"]) ? (r["projection_summary"] as any[]) : [];
+  const rows = r && Array.isArray(r["projection_summary"]) ? (r["projection_summary"] as Record<string, unknown>[]) : [];
   if (!rows.length) return "";
 
   const parsed = rows
@@ -218,11 +226,11 @@ export async function POST(req: Request) {
     const requestedPackId = (body.packId ?? "").trim();
     const pack =
       requestedPackId
-        ? await getAssumptionPackById(ws.teamId, body.sessionId, requestedPackId).catch(() => null)
-        : await getLatestLockedAssumptionPack(ws.teamId, body.sessionId).catch(() => null);
+        ? await logAndNull("getAssumptionPackById", getAssumptionPackById(ws.teamId, body.sessionId, requestedPackId))
+        : await logAndNull("getLatestLockedPack", getLatestLockedAssumptionPack(ws.teamId, body.sessionId));
 
-    const snap = await getLatestComputeSnapshot(ws.teamId, body.sessionId).catch(() => null);
-    const job = snap ? await getJob(ws.teamId, snap.jobId).catch(() => null) : null;
+    const snap = await logAndNull("getLatestComputeSnapshot", getLatestComputeSnapshot(ws.teamId, body.sessionId));
+    const job = snap ? await logAndNull("getJob", getJob(ws.teamId, snap.jobId)) : null;
     const computeJob = job ? { jobId: job.jobId, status: job.status, metrics: job.metrics } : null;
 
     await addReportMessage({
@@ -238,9 +246,10 @@ export async function POST(req: Request) {
       },
     });
 
-    const history = await getReportMessages(ws.teamId, body.sessionId);
+    const maxHistory = body.section ? 8 : 20;
+    const history = await getReportMessages(ws.teamId, body.sessionId, maxHistory);
     const messages = history
-      .slice(body.section ? -8 : -20)
+      .slice(-maxHistory)
       .map((m) => ({ role: m.role, content: m.content })) as Array<{ role: "user" | "assistant"; content: string }>;
 
     const maxTokens = Number(process.env.ANTHROPIC_REPORT_MAX_TOKENS ?? "8192");
@@ -249,6 +258,11 @@ export async function POST(req: Request) {
     const encoder = new TextEncoder();
     let assistantText = "";
     const abortController = new AbortController();
+
+    // Propagate client disconnect to abort in-flight LLM calls.
+    if (req.signal) {
+      req.signal.addEventListener("abort", () => abortController.abort(), { once: true });
+    }
 
     const readable = new ReadableStream<Uint8Array>({
       async start(controller) {
@@ -267,12 +281,15 @@ export async function POST(req: Request) {
             for (let round = 0; round < maxRounds; round++) {
               let roundText = "";
               const stream = client.messages
-                .stream({
-                  model,
-                  system,
-                  max_tokens: maxTokens,
-                  messages: loopMessages,
-                })
+                .stream(
+                  {
+                    model,
+                    system,
+                    max_tokens: maxTokens,
+                    messages: loopMessages,
+                  },
+                  { signal: abortController.signal },
+                )
                 .on("text", (text) => {
                   roundText += text;
                   assistantText += text;
@@ -369,46 +386,50 @@ export async function POST(req: Request) {
             let bedrockStopReason = "end_turn";
 
             const handleObj = (obj: unknown) => {
-              if (!obj || typeof obj !== "object") return;
-              const rec = obj as Record<string, unknown>;
-              if (rec["type"] === "message_start") {
-                const msg = rec["message"];
-                const usage = msg && typeof msg === "object" ? (msg as Record<string, unknown>)["usage"] : undefined;
-                const u = usage && typeof usage === "object" ? (usage as Record<string, unknown>) : {};
-                const it = toNumberOrUndefined(u["input_tokens"]);
-                if (it) totalInputTokens += it;
-              } else if (rec["type"] === "message_delta") {
-                const usage = rec["usage"];
-                const u = usage && typeof usage === "object" ? (usage as Record<string, unknown>) : {};
-                const ot = toNumberOrUndefined(u["output_tokens"]);
-                if (ot) totalOutputTokens += ot;
-                const delta = rec["delta"];
-                if (delta && typeof delta === "object") {
-                  const sr = (delta as Record<string, unknown>)["stop_reason"];
-                  if (typeof sr === "string") bedrockStopReason = sr;
+              try {
+                if (!obj || typeof obj !== "object") return;
+                const rec = obj as Record<string, unknown>;
+                if (rec["type"] === "message_start") {
+                  const msg = rec["message"];
+                  const usage = msg && typeof msg === "object" ? (msg as Record<string, unknown>)["usage"] : undefined;
+                  const u = usage && typeof usage === "object" ? (usage as Record<string, unknown>) : {};
+                  const it = toNumberOrUndefined(u["input_tokens"]);
+                  if (it) totalInputTokens += it;
+                } else if (rec["type"] === "message_delta") {
+                  const usage = rec["usage"];
+                  const u = usage && typeof usage === "object" ? (usage as Record<string, unknown>) : {};
+                  const ot = toNumberOrUndefined(u["output_tokens"]);
+                  if (ot) totalOutputTokens += ot;
+                  const delta = rec["delta"];
+                  if (delta && typeof delta === "object") {
+                    const sr = (delta as Record<string, unknown>)["stop_reason"];
+                    if (typeof sr === "string") bedrockStopReason = sr;
+                  }
                 }
+                const text = extractAnthropicDeltaText(obj);
+                if (!text) return;
+                roundText += text;
+                assistantText += text;
+                controller.enqueue(encoder.encode(text));
+              } catch {
+                // Ignore per-chunk errors (e.g. client disconnect) to keep streaming.
               }
-              const text = extractAnthropicDeltaText(obj);
-              if (!text) return;
-              roundText += text;
-              assistantText += text;
-              controller.enqueue(encoder.encode(text));
             };
 
-            for await (const event of bedrockStream as any) {
-              const evt = event as any;
+            for await (const event of bedrockStream as AsyncIterable<ResponseStream>) {
+              const evt = event as unknown as Record<string, unknown>;
               const errEvt =
-                evt?.internalServerException ??
-                evt?.modelStreamErrorException ??
-                evt?.throttlingException ??
-                evt?.validationException ??
-                evt?.serviceUnavailableException;
+                (evt.internalServerException ??
+                evt.modelStreamErrorException ??
+                evt.throttlingException ??
+                evt.validationException ??
+                evt.serviceUnavailableException) as { message?: string } | undefined;
               if (errEvt) {
-                const msg = typeof errEvt?.message === "string" ? errEvt.message : "Bedrock stream error";
+                const msg = typeof errEvt.message === "string" ? errEvt.message : "Bedrock stream error";
                 throw new Error(msg);
               }
 
-              const chunk = (event as any)?.chunk;
+              const chunk = (evt.chunk) as { bytes?: Uint8Array } | undefined;
               const bytes: Uint8Array | undefined = chunk?.bytes;
               if (!bytes) continue;
 

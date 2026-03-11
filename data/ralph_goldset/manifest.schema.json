@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RALPH Condition Goldset Record",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "record_id",
+    "filename",
+    "policy_id",
+    "policy_text",
+    "expected_result",
+    "review_status"
+  ],
+  "properties": {
+    "record_id": {
+      "type": "string",
+      "minLength": 4
+    },
+    "relative_path": {
+      "type": "string"
+    },
+    "filename": {
+      "type": "string",
+      "minLength": 1
+    },
+    "company_group_key": {
+      "type": "string"
+    },
+    "company_group_name": {
+      "type": "string"
+    },
+    "policy_id": {
+      "type": "string",
+      "minLength": 2
+    },
+    "policy_text": {
+      "type": "string",
+      "minLength": 2
+    },
+    "expected_result": {
+      "type": "boolean"
+    },
+    "expected_evidence": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "default": []
+    },
+    "notes": {
+      "type": "string"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "review_status": {
+      "type": "string",
+      "enum": [
+        "confirmed",
+        "ambiguous",
+        "needs_review"
+      ]
+    }
+  }
+}

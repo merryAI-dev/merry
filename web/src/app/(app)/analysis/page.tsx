@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Card } from "@/components/ui/Card";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/cn";
+import { apiFetch } from "@/lib/apiClient";
 
 type JobType = "exit_projection" | "diagnosis_analysis" | "pdf_evidence" | "pdf_parse" | "contract_review";
 type JobStatus = "queued" | "running" | "succeeded" | "failed";
@@ -41,12 +42,6 @@ type CostEstimate =
   | { ok: true; samples: number; avgUsd?: number; estimateUsd?: number; note?: string }
   | { ok: false; error: string };
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { cache: "no-store", ...init });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || "FAILED");
-  return json as T;
-}
 
 function badgeForStatus(status: JobStatus) {
   if (status === "succeeded") return <Badge tone="success">완료</Badge>;
@@ -89,7 +84,7 @@ export default function AnalysisPage() {
   const loadJobs = React.useCallback(async () => {
     setError(null);
     try {
-      const res = await fetchJson<{ jobs: JobRecord[] }>("/api/jobs");
+      const res = await apiFetch<{ jobs: JobRecord[] }>("/api/jobs");
       setJobs(res.jobs || []);
       if (!activeJobId && (res.jobs?.[0]?.jobId ?? "")) setActiveJobId(res.jobs[0].jobId);
     } catch {
@@ -103,7 +98,7 @@ export default function AnalysisPage() {
 
   const loadCost = React.useCallback(async () => {
     try {
-      const res = await fetchJson<CostEstimate>(`/api/cost/estimate?n=200&type=${jobType}`);
+      const res = await apiFetch<CostEstimate>(`/api/cost/estimate?n=200&type=${jobType}`);
       setCost(res);
     } catch {
       // Non-fatal.
@@ -181,7 +176,7 @@ export default function AnalysisPage() {
       if (jobType === "contract_review" && file2) files.push(file2);
 
       async function uploadOne(f: File): Promise<string> {
-        const presign = await fetchJson<{
+        const presign = await apiFetch<{
           file: { fileId: string; contentType: string };
           upload: { url: string; headers: Record<string, string> };
         }>("/api/uploads/presign", {
@@ -201,7 +196,7 @@ export default function AnalysisPage() {
         });
         if (!putRes.ok) throw new Error("UPLOAD_FAILED");
 
-        await fetchJson("/api/uploads/complete", {
+        await apiFetch("/api/uploads/complete", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ fileId: presign.file.fileId }),
@@ -212,7 +207,7 @@ export default function AnalysisPage() {
       const fileIds: string[] = [];
       for (const f of files) fileIds.push(await uploadOne(f));
 
-      const started = await fetchJson<{ jobId: string }>("/api/jobs", {
+      const started = await apiFetch<{ jobId: string }>("/api/jobs", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -241,7 +236,7 @@ export default function AnalysisPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetchJson<{ url: string }>(`/api/jobs/${job.jobId}/artifact?artifactId=${artifact.artifactId}`);
+      const res = await apiFetch<{ url: string }>(`/api/jobs/${job.jobId}/artifact?artifactId=${artifact.artifactId}`);
       window.open(res.url, "_blank", "noopener,noreferrer");
     } catch {
       setError("다운로드 URL 발급에 실패했습니다.");

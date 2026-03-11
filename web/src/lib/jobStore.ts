@@ -1,4 +1,4 @@
-import { BatchWriteCommand, GetCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { BatchWriteCommand, GetCommand, PutCommand, QueryCommand, TransactWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
 import { getDdbDocClient } from "@/lib/aws/ddb";
 import { getDdbTableName } from "@/lib/aws/env";
@@ -651,63 +651,181 @@ export async function retryTask(
   const ddb = getDdbDocClient();
   const TableName = getDdbTableName();
   const now = new Date().toISOString();
-
-  // Reset task status to pending (only if currently failed).
-  await ddb.send(
-    new UpdateCommand({
-      TableName,
-      Key: { pk: pkTeam(teamId), sk: skTask(jobId, taskId) },
-      UpdateExpression:
-        "SET #status = :pending, #updated_at = :now, #error = :empty, #ended_at = :empty, #started_at = :empty, #worker_id = :empty",
-      ConditionExpression: "#status = :from_status",
-      ExpressionAttributeNames: {
-        "#status": "status",
-        "#updated_at": "updated_at",
-        "#error": "error",
-        "#ended_at": "ended_at",
-        "#started_at": "started_at",
-        "#worker_id": "worker_id",
-      },
-      ExpressionAttributeValues: {
-        ":pending": "pending",
-        ":from_status": fromStatus,
-        ":now": now,
-        ":empty": "",
-      },
-    }),
-  );
-
-  // Also update the task index record.
-  await ddb.send(
-    new UpdateCommand({
-      TableName,
-      Key: { pk: pkTeamTasks(teamId, jobId), sk: `TASK#${taskId}` },
-      UpdateExpression: "SET #status = :pending, #updated_at = :now",
-      ExpressionAttributeNames: { "#status": "status", "#updated_at": "updated_at" },
-      ExpressionAttributeValues: { ":pending": "pending", ":now": now },
-    }),
-  );
-
-  // Decrement job counters (processed_count and failed_count).
-  const updateExpression =
+  const jobUpdateExpression =
     fromStatus === "failed"
       ? "SET #pc = #pc - :one, #fc = #fc - :one, #updated_at = :now, fanout_status = :running, #status = :running"
       : "SET #pc = #pc - :one, #updated_at = :now, fanout_status = :running, #status = :running";
+  const jobConditionExpression =
+    fromStatus === "failed"
+      ? "attribute_exists(pk) AND #pc >= :one AND #fc >= :one"
+      : "attribute_exists(pk) AND #pc >= :one";
+
+  await ddb.send(
+    new TransactWriteCommand({
+      TransactItems: [
+        {
+          Update: {
+            TableName,
+            Key: { pk: pkTeam(teamId), sk: skTask(jobId, taskId) },
+            UpdateExpression:
+              "SET #status = :pending, #updated_at = :now, #error = :empty, #ended_at = :empty, #started_at = :empty, #worker_id = :empty REMOVE #result",
+            ConditionExpression: "#status = :from_status",
+            ExpressionAttributeNames: {
+              "#status": "status",
+              "#updated_at": "updated_at",
+              "#error": "error",
+              "#ended_at": "ended_at",
+              "#started_at": "started_at",
+              "#worker_id": "worker_id",
+              "#result": "result",
+            },
+            ExpressionAttributeValues: {
+              ":pending": "pending",
+              ":from_status": fromStatus,
+              ":now": now,
+              ":empty": "",
+            },
+          },
+        },
+        {
+          Update: {
+            TableName,
+            Key: { pk: pkTeamTasks(teamId, jobId), sk: `TASK#${taskId}` },
+            UpdateExpression: "SET #status = :pending, #updated_at = :now",
+            ConditionExpression: "#status = :from_status",
+            ExpressionAttributeNames: { "#status": "status", "#updated_at": "updated_at" },
+            ExpressionAttributeValues: { ":pending": "pending", ":from_status": fromStatus, ":now": now },
+          },
+        },
+        {
+          Update: {
+            TableName,
+            Key: { pk: pkTeam(teamId), sk: skJob(jobId) },
+            UpdateExpression: jobUpdateExpression,
+            ConditionExpression: jobConditionExpression,
+            ExpressionAttributeNames: {
+              "#pc": "processed_count",
+              "#updated_at": "updated_at",
+              "#status": "status",
+              ...(fromStatus === "failed" ? { "#fc": "failed_count" } : {}),
+            },
+            ExpressionAttributeValues: {
+              ":one": 1,
+              ":now": now,
+              ":running": "running",
+            },
+          },
+        },
+      ],
+    }),
+  );
+}
+
+export async function restoreRetriedTask(
+  teamId: string,
+  jobId: string,
+  task: TaskRecord,
+): Promise<void> {
+  if (task.status !== "failed" && task.status !== "succeeded") {
+    throw new Error(`INVALID_RESTORE_STATUS:${task.status}`);
+  }
+
+  const ddb = getDdbDocClient();
+  const TableName = getDdbTableName();
+  const now = new Date().toISOString();
+  const terminalStatus = task.status;
+  const hasResult = !!task.result && typeof task.result === "object";
+  const jobUpdateExpression =
+    terminalStatus === "failed"
+      ? "SET #pc = #pc + :one, #fc = #fc + :one, #updated_at = :now"
+      : "SET #pc = #pc + :one, #updated_at = :now";
+
+  await ddb.send(
+    new TransactWriteCommand({
+      TransactItems: [
+        {
+          Update: {
+            TableName,
+            Key: { pk: pkTeam(teamId), sk: skTask(jobId, task.taskId) },
+            UpdateExpression: hasResult
+              ? "SET #status = :terminal, #updated_at = :now, #error = :error, #started_at = :started_at, #ended_at = :ended_at, #worker_id = :worker_id, #result = :result"
+              : "SET #status = :terminal, #updated_at = :now, #error = :error, #started_at = :started_at, #ended_at = :ended_at, #worker_id = :worker_id REMOVE #result",
+            ConditionExpression: "#status = :pending",
+            ExpressionAttributeNames: {
+              "#status": "status",
+              "#updated_at": "updated_at",
+              "#error": "error",
+              "#started_at": "started_at",
+              "#ended_at": "ended_at",
+              "#worker_id": "worker_id",
+              "#result": "result",
+            },
+            ExpressionAttributeValues: {
+              ":terminal": terminalStatus,
+              ":pending": "pending",
+              ":now": now,
+              ":error": task.error ?? "",
+              ":started_at": task.startedAt ?? "",
+              ":ended_at": task.endedAt ?? "",
+              ":worker_id": task.workerId ?? "",
+              ...(hasResult ? { ":result": task.result } : {}),
+            },
+          },
+        },
+        {
+          Update: {
+            TableName,
+            Key: { pk: pkTeamTasks(teamId, jobId), sk: `TASK#${task.taskId}` },
+            UpdateExpression: "SET #status = :terminal, #updated_at = :now",
+            ConditionExpression: "#status = :pending",
+            ExpressionAttributeNames: { "#status": "status", "#updated_at": "updated_at" },
+            ExpressionAttributeValues: { ":terminal": terminalStatus, ":pending": "pending", ":now": now },
+          },
+        },
+        {
+          Update: {
+            TableName,
+            Key: { pk: pkTeam(teamId), sk: skJob(jobId) },
+            UpdateExpression: jobUpdateExpression,
+            ConditionExpression: "attribute_exists(pk)",
+            ExpressionAttributeNames: {
+              "#pc": "processed_count",
+              "#updated_at": "updated_at",
+              ...(terminalStatus === "failed" ? { "#fc": "failed_count" } : {}),
+            },
+            ExpressionAttributeValues: {
+              ":one": 1,
+              ":now": now,
+            },
+          },
+        },
+      ],
+    }),
+  );
+}
+
+export async function restoreJobTerminalState(
+  teamId: string,
+  jobId: string,
+  jobStatus: "failed" | "succeeded",
+  fanoutStatus: "failed" | "succeeded",
+): Promise<void> {
+  const ddb = getDdbDocClient();
+  const TableName = getDdbTableName();
   await ddb.send(
     new UpdateCommand({
       TableName,
       Key: { pk: pkTeam(teamId), sk: skJob(jobId) },
-      UpdateExpression: updateExpression,
+      UpdateExpression: "SET #status = :status, #fanout_status = :fanout_status, #updated_at = :now",
       ExpressionAttributeNames: {
-        "#pc": "processed_count",
-        "#updated_at": "updated_at",
         "#status": "status",
-        ...(fromStatus === "failed" ? { "#fc": "failed_count" } : {}),
+        "#fanout_status": "fanout_status",
+        "#updated_at": "updated_at",
       },
       ExpressionAttributeValues: {
-        ":one": 1,
-        ":now": now,
-        ":running": "running",
+        ":status": jobStatus,
+        ":fanout_status": fanoutStatus,
+        ":now": new Date().toISOString(),
       },
     }),
   );

@@ -226,7 +226,7 @@ const airtableMetaTablesCache = new Map<string, { ts: number; tables: AirtableMe
 
 async function getAirtableMetaTables(cfg: AirtableConfig): Promise<AirtableMetaTable[]> {
   const cached = airtableMetaTablesCache.get(cfg.baseId);
-  const ttlMs = 10 * 60 * 1000;
+  const ttlMs = Number(process.env.MERRY_AIRTABLE_CACHE_TTL_MS ?? 600_000); // 10 minutes
   if (cached && Date.now() - cached.ts < ttlMs) return cached.tables;
 
   const url = `https://api.airtable.com/v0/meta/bases/${encodeURIComponent(cfg.baseId)}/tables`;
@@ -542,7 +542,7 @@ async function airtableGetJson<T>(cfg: AirtableConfig, path: string, params?: UR
   const url = `https://api.airtable.com/v0/${encodeURIComponent(cfg.baseId)}/${path}${qs}`;
 
   const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), 12_000);
+  const t = setTimeout(() => controller.abort(), Number(process.env.MERRY_AIRTABLE_TIMEOUT_MS ?? 12_000));
   try {
     let res: Response;
     try {
@@ -556,7 +556,7 @@ async function airtableGetJson<T>(cfg: AirtableConfig, path: string, params?: UR
         signal: controller.signal,
       });
     } catch (err) {
-      const name = err && typeof err === "object" && "name" in err ? String((err as any).name) : "";
+      const name = err instanceof Error ? err.name : (err && typeof err === "object" && "name" in err ? String((err as Record<string, unknown>).name) : "");
       if (name === "AbortError") throw new Error("AIRTABLE_TIMEOUT");
       throw err;
     }

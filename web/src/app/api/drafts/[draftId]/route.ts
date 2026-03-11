@@ -7,8 +7,8 @@ import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 export const runtime = "nodejs";
 
 const VersionSchema = z.object({
-  title: z.string().min(1),
-  content: z.string().min(1),
+  title: z.string().min(1).max(500),
+  content: z.string().min(1).max(50_000),
 });
 
 export async function GET(

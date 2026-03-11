@@ -7,6 +7,7 @@ import { Plus, RefreshCw, Search } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { apiFetch } from "@/lib/apiClient";
 
 type ReportSession = {
   sessionId: string;
@@ -19,12 +20,6 @@ type ReportSession = {
   author?: string;
 };
 
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, { cache: "no-store", ...init });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(json?.error || "FAILED");
-  return json as T;
-}
 
 function SessionCard({ s }: { s: ReportSession }) {
   return (
@@ -90,7 +85,7 @@ export default function ReportSessionsPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetchJson<{ sessions: ReportSession[] }>("/api/report/sessions");
+      const res = await apiFetch<{ sessions: ReportSession[] }>("/api/report/sessions");
       setSessions(res.sessions || []);
     } catch {
       setError("세션을 불러오지 못했습니다. 환경변수/인증을 확인하세요.");
