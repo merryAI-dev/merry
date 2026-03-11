@@ -51,7 +51,7 @@ export async function GET(req: Request) {
     const n = Math.max(1, Math.min(5000, Number(url.searchParams.get("n") ?? "200") || 200));
     const type = (url.searchParams.get("type") ?? "").trim();
 
-    const jobs = await listRecentJobs(ws.teamId, 120);
+    const { jobs } = await listRecentJobs(ws.teamId, 120);
     const filtered = jobs.filter((j) => j.status === "succeeded" && (!type || j.type === type));
 
     let samples = 0;
@@ -95,4 +95,3 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: false, error: "FAILED" }, { status });
   }
 }
-

@@ -13,9 +13,13 @@ def _make_rows():
         {
             "filename": "doc1.pdf",
             "company_name": "테스트 주식회사",
+            "company_group_name": "테스트",
             "method": "pymupdf",
             "pages": 5,
             "elapsed_s": 2.3,
+            "cache": {"parse_hit": True},
+            "parse_warning": "JSON 응답 일부를 복구했습니다.",
+            "condition_summary": {"rule_count": 1, "llm_count": 1},
             "conditions": [
                 {"result": True, "evidence": "매출 증가 추세"},
                 {"result": False, "evidence": "영업이익 부족"},
@@ -24,18 +28,23 @@ def _make_rows():
         {
             "filename": "doc2.pdf",
             "company_name": "Sample Corp",
+            "company_group_name": "Sample Corp",
             "method": "nova_hybrid",
             "pages": 12,
             "elapsed_s": 4.1,
             "error": "PDF 손상",
+            "cache": {"result_hit": True, "parse_hit": True},
+            "condition_summary": {"rule_count": 0, "llm_count": 2},
             "conditions": [],
         },
         {
             "filename": "doc3.pdf",
             "company_name": "정상 기업",
+            "company_group_name": "정상 기업",
             "method": "pymupdf",
             "pages": 3,
             "elapsed_s": 1.5,
+            "condition_summary": {"rule_count": 2, "llm_count": 0},
             "conditions": [
                 {"result": True, "evidence": "조건 충족 근거"},
                 {"result": True, "evidence": "두 번째 조건 충족"},
@@ -87,8 +96,8 @@ def test_xlsx_correct_column_count(tmp_path):
 
     wb = load_workbook(str(xlsx_path))
     ws = wb["조건 검사 결과"]
-    # 6 base + 2 conditions * 2 (result+evidence) = 10
-    assert ws.max_column == 10
+    # 11 base + 2 conditions * 2 (result+evidence) = 15
+    assert ws.max_column == 15
 
 
 def test_xlsx_pass_fail_values(tmp_path):
@@ -100,10 +109,15 @@ def test_xlsx_pass_fail_values(tmp_path):
 
     wb = load_workbook(str(xlsx_path))
     ws = wb["조건 검사 결과"]
-    # Row 2 (first data row), col 7 (first result column)
-    assert ws.cell(row=2, column=7).value == "✓ 충족"
-    assert ws.cell(row=2, column=8).value == "매출 증가 추세"
-    assert ws.cell(row=2, column=9).value == "✗ 미충족"
+    assert ws.cell(row=2, column=3).value == "테스트"
+    assert ws.cell(row=2, column=7).value == "parse"
+    assert ws.cell(row=2, column=8).value == "1"
+    assert ws.cell(row=2, column=9).value == "1"
+    assert ws.cell(row=2, column=10).value == "JSON 응답 일부를 복구했습니다."
+    # Row 2 (first data row), col 12 (first result column)
+    assert ws.cell(row=2, column=12).value == "✓ 충족"
+    assert ws.cell(row=2, column=13).value == "매출 증가 추세"
+    assert ws.cell(row=2, column=14).value == "✗ 미충족"
 
 
 def test_xlsx_summary_sheet(tmp_path):
@@ -116,8 +130,15 @@ def test_xlsx_summary_sheet(tmp_path):
     wb = load_workbook(str(xlsx_path))
     ws = wb["요약"]
     assert ws.cell(row=1, column=2).value == 3  # total files
-    assert ws.cell(row=2, column=2).value == 1  # error files
-    assert ws.cell(row=3, column=2).value == 2  # conditions count
+    assert ws.cell(row=2, column=2).value == 1  # warning files
+    assert ws.cell(row=3, column=2).value == 1  # error files
+    assert ws.cell(row=4, column=2).value == 2  # conditions count
+    assert ws.cell(row=5, column=2).value == 1  # result cache hits
+    assert ws.cell(row=6, column=2).value == 2  # parse cache hits
+    assert ws.cell(row=7, column=2).value == 3  # rule condition count
+    assert ws.cell(row=8, column=2).value == 3  # llm condition count
+    assert ws.cell(row=9, column=2).value == 3  # recognized company groups
+    assert ws.cell(row=10, column=2).value == 3  # recognized company files
 
 
 def test_xlsx_empty_rows(tmp_path):

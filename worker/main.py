@@ -20,6 +20,7 @@ import logging
 import math
 import os
 import random
+import re
 import shutil
 import threading
 import time
@@ -1415,45 +1416,15 @@ def _handle_condition_check(
                 "pages": pages,
                 "company_name": check.get("company_name"),
                 "conditions": check.get("conditions", []),
+                "parse_warning": check.get("parse_warning"),
+                "raw_response": check.get("raw_response"),
                 "elapsed_s": round(_time.time() - t0, 1),
             })
         except Exception as exc:
             entry.update({"error": str(exc), "elapsed_s": round(_time.time() - t0, 1)})
         rows.append(entry)
 
-    # CSV 생성
-    import csv, io
-    buf = io.StringIO()
-    fieldnames = ["filename", "company_name", "method", "pages", "elapsed_s", "error"]
-    for c in conditions:
-        short = c[:30].replace(" ", "_")
-        fieldnames += [f"{short}_result", f"{short}_evidence"]
-    writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
-    writer.writeheader()
-    for r in rows:
-        row: Dict[str, Any] = {k: r.get(k, "") for k in ["filename", "company_name", "method", "pages", "elapsed_s", "error"]}
-        cond_results = r.get("conditions") or []
-        for j, c in enumerate(conditions):
-            short = c[:30].replace(" ", "_")
-            if j < len(cond_results):
-                cr = cond_results[j]
-                row[f"{short}_result"] = "✓" if cr.get("result") else "✗"
-                row[f"{short}_evidence"] = cr.get("evidence", "")
-            else:
-                row[f"{short}_result"] = ""
-                row[f"{short}_evidence"] = ""
-        writer.writerow(row)
-
-    csv_path = input_paths[0].parent / "condition_check_results.csv"
-    csv_path.write_text(buf.getvalue(), encoding="utf-8-sig")
-
-    # JSON 요약도 저장
-    json_path = input_paths[0].parent / "condition_check_results.json"
-    _write_json(json_path, {
-        "conditions": conditions,
-        "total": len(rows),
-        "results": rows,
-    })
+    csv_path, json_path = _build_condition_check_csv(input_paths[0].parent, rows, conditions)
 
     artifacts: List[Dict[str, Any]] = []
 
@@ -1484,10 +1455,12 @@ def _handle_condition_check(
         },
     ])
     success = sum(1 for r in rows if "error" not in r)
+    warning_count = sum(1 for r in rows if r.get("parse_warning"))
     metrics: Dict[str, Any] = {
         "total": len(rows),
         "success_count": success,
         "failed_count": len(rows) - success,
+        "warning_count": warning_count,
         "conditions": conditions,
     }
     return artifacts, metrics
@@ -1799,10 +1772,12 @@ def process_fanout_task(
 
 CACHE_TTL_DAYS = int(os.getenv("MERRY_CACHE_TTL_DAYS", "7"))
 CACHE_ENABLED = os.getenv("MERRY_RESULT_CACHE", "true").lower() != "false"
+PARSE_CACHE_TEXT_CHARS = int(os.getenv("MERRY_PARSE_CACHE_TEXT_CHARS", "16000"))
+_CACHE_VERSION = os.getenv("MERRY_CACHE_VERSION", "v2")
 
 
-def _cache_key(pdf_path: Path, conditions: List[str]) -> str:
-    """Generate a deterministic cache key: SHA256(file_content + sorted_conditions)."""
+def _file_digest(pdf_path: Path) -> str:
+    """Generate a deterministic file digest for cache lookups."""
     import hashlib
     h = hashlib.sha256()
     with open(pdf_path, "rb") as f:
@@ -1811,18 +1786,52 @@ def _cache_key(pdf_path: Path, conditions: List[str]) -> str:
             if not chunk:
                 break
             h.update(chunk)
-    # Sort conditions for deterministic key regardless of input order.
-    for c in sorted(conditions):
+    return h.hexdigest()[:32]
+
+
+def _result_cache_key(file_digest: str, conditions: List[str]) -> str:
+    """Generate a result-cache key from file digest + normalized conditions."""
+    import hashlib
+
+    h = hashlib.sha256()
+    h.update(_CACHE_VERSION.encode("utf-8"))
+    h.update(file_digest.encode("utf-8"))
+    for c in sorted(str(condition).strip() for condition in conditions if str(condition).strip()):
         h.update(c.encode("utf-8"))
     return h.hexdigest()[:32]
 
 
-def _cache_get(ctx: AwsCtx, team_id: str, cache_key: str) -> Optional[Dict[str, Any]]:
+def _parse_cache_key(
+    file_digest: str,
+    *,
+    use_vlm: bool,
+    model_id: str,
+    model_lite: str,
+) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    h.update(_CACHE_VERSION.encode("utf-8"))
+    h.update(file_digest.encode("utf-8"))
+    h.update(str(use_vlm).encode("utf-8"))
+    if use_vlm:
+        h.update(model_id.encode("utf-8"))
+        h.update(model_lite.encode("utf-8"))
+    return h.hexdigest()[:32]
+
+
+def _cache_get(
+    ctx: AwsCtx,
+    team_id: str,
+    cache_key: str,
+    *,
+    namespace: str = "RESULT",
+) -> Optional[Dict[str, Any]]:
     """Lookup result cache. Returns cached result or None."""
     if not CACHE_ENABLED:
         return None
     try:
-        item = ddb_get_item(ctx, _pk_team(team_id), f"CACHE#{cache_key}")
+        item = ddb_get_item(ctx, _pk_team(team_id), f"CACHE#{namespace}#{cache_key}")
         if not item:
             return None
         # Check TTL.
@@ -1837,7 +1846,14 @@ def _cache_get(ctx: AwsCtx, team_id: str, cache_key: str) -> Optional[Dict[str, 
     return None
 
 
-def _cache_put(ctx: AwsCtx, team_id: str, cache_key: str, result: Dict[str, Any]) -> None:
+def _cache_put(
+    ctx: AwsCtx,
+    team_id: str,
+    cache_key: str,
+    result: Dict[str, Any],
+    *,
+    namespace: str = "RESULT",
+) -> None:
     """Store result in cache with TTL."""
     if not CACHE_ENABLED:
         return
@@ -1853,8 +1869,9 @@ def _cache_put(ctx: AwsCtx, team_id: str, cache_key: str, result: Dict[str, Any]
             ctx.ddb.put_item,
             Item=_ddb_sanitize({
                 "pk": _pk_team(team_id),
-                "sk": f"CACHE#{cache_key}",
+                "sk": f"CACHE#{namespace}#{cache_key}",
                 "entity": "cache",
+                "namespace": namespace.lower(),
                 "result": result_json,
                 "created_at": _now_iso(),
                 "expires_at": expires,
@@ -1878,72 +1895,156 @@ def _process_single_condition_check(
         render_first_page, render_pages, analyze_pages,
         call_nova_visual, build_presentation_prompt, _PROMPT_OCR,
     )
-    from ralph.condition_checker import check_conditions_nova
+    from ralph.condition_checker import check_conditions_nova, extract_condition_facts
 
     conditions: List[str] = [str(c) for c in (params.get("conditions") or []) if c]
     if not conditions:
         raise RuntimeError("conditions 파라미터가 비어 있습니다")
 
-    # Cache lookup.
+    t0 = time.time()
     team_id = getattr(_log_context, "ctx", {}).get("team_id", "") if hasattr(_log_context, "ctx") and _log_context.ctx else ""
-    ck = _cache_key(pdf_path, conditions)
-    cached = _cache_get(ctx, team_id, ck) if team_id else None
-    if cached:
-        cached["filename"] = filename
-        cached["_cached"] = True
-        log.info("Cache hit for %s (key=%s)", filename, ck[:8])
-        return cached
 
     model_id = str(params.get("model_id") or os.getenv("RALPH_VLM_NOVA_MODEL_ID", "us.amazon.nova-pro-v1:0"))
     model_lite = os.getenv("RALPH_VLM_NOVA_LITE_MODEL_ID", "us.amazon.nova-lite-v1:0")
     region = str(params.get("region") or os.getenv("RALPH_VLM_NOVA_REGION", "us-east-1"))
     default_use_vlm = "false" if os.getenv("PYTEST_CURRENT_TEST") else "true"
     use_vlm = os.getenv("RALPH_USE_VLM", default_use_vlm).lower() != "false"
+    file_digest = _file_digest(pdf_path)
+    result_cache_key = _result_cache_key(file_digest, conditions)
+    parse_cache_key = _parse_cache_key(
+        file_digest,
+        use_vlm=use_vlm,
+        model_id=model_id,
+        model_lite=model_lite,
+    )
 
-    t0 = time.time()
     entry: Dict[str, Any] = {"filename": filename}
 
-    text, pages, blocks = _call_with_backoff(extract_text, str(pdf_path))
-    _, is_poor, is_fragmented = assess_text_quality(text, blocks, page_count=pages)
+    if team_id:
+        cached = _cache_get(ctx, team_id, result_cache_key, namespace="RESULT")
+        if cached:
+            reused = dict(cached)
+            original_elapsed = reused.get("elapsed_s")
+            original_usage = reused.get("token_usage") if isinstance(reused.get("token_usage"), dict) else {}
+            reused["filename"] = filename
+            reused["elapsed_s"] = round(time.time() - t0, 1)
+            reused["cached_elapsed_s"] = original_elapsed
+            reused["cached_token_usage"] = original_usage
+            reused["token_usage"] = {
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+            }
+            reused["cache"] = {
+                **(reused.get("cache") if isinstance(reused.get("cache"), dict) else {}),
+                "file_signature": file_digest[:8],
+                "result_hit": True,
+                "parse_hit": False,
+                "saved_input_tokens": int(original_usage.get("input_tokens", 0)),
+                "saved_output_tokens": int(original_usage.get("output_tokens", 0)),
+            }
+            log.info("Result cache hit for %s (key=%s)", filename, result_cache_key[:8])
+            return reused
 
-    extracted = ""
-    method = "pymupdf"
     total_input_tokens = 0
     total_output_tokens = 0
+    parse_cache_hit = False
+    parse_saved_input_tokens = 0
+    parse_saved_output_tokens = 0
 
-    if use_vlm and is_poor:
-        img = render_first_page(str(pdf_path))
-        vd = _call_with_backoff(call_nova_visual, img, model_lite, region, _PROMPT_OCR)
-        extracted = vd.get("readable_text") or ""
-        method = "nova_hybrid"
-        vlm_usage = vd.pop("_usage", {})
-        total_input_tokens += vlm_usage.get("input_tokens", 0)
-        total_output_tokens += vlm_usage.get("output_tokens", 0)
-    elif use_vlm and is_fragmented:
-        imgs = render_pages(str(pdf_path), max_pages=10, dpi=100)
-        info = analyze_pages(str(pdf_path), max_pages=10)
-        prompt = build_presentation_prompt(info)
-        vd = _call_with_backoff(call_nova_visual, imgs, model_id, region, prompt, max_tokens=5000)
-        extracted = vd.get("readable_text") or ""
-        method = "nova_presentation"
-        vlm_usage = vd.pop("_usage", {})
-        total_input_tokens += vlm_usage.get("input_tokens", 0)
-        total_output_tokens += vlm_usage.get("output_tokens", 0)
+    parse_cached = _cache_get(ctx, team_id, parse_cache_key, namespace="PARSE") if team_id else None
+    if parse_cached:
+        full_text = str(parse_cached.get("analysis_text") or "")
+        pages = int(parse_cached.get("pages") or 0)
+        method = str(parse_cached.get("method") or "pymupdf")
+        detected_facts = (
+            parse_cached.get("detected_facts")
+            if isinstance(parse_cached.get("detected_facts"), dict)
+            else extract_condition_facts(full_text)
+        )
+        text_chars = int(parse_cached.get("text_chars") or len(full_text))
+        parse_usage = parse_cached.get("parse_token_usage") if isinstance(parse_cached.get("parse_token_usage"), dict) else {}
+        parse_saved_input_tokens = int(parse_usage.get("input_tokens", 0))
+        parse_saved_output_tokens = int(parse_usage.get("output_tokens", 0))
+        parse_cache_hit = True
+        log.info("Parse cache hit for %s (key=%s)", filename, parse_cache_key[:8])
+    else:
+        text, pages, blocks = _call_with_backoff(extract_text, str(pdf_path))
+        _, is_poor, is_fragmented = assess_text_quality(text, blocks, page_count=pages)
 
-    full_text = "\n\n".join(filter(None, [extracted, text]))
-    check = _call_with_backoff(check_conditions_nova, full_text, conditions, model_id, region)
+        extracted = ""
+        method = "pymupdf"
+
+        if use_vlm and is_poor:
+            img = render_first_page(str(pdf_path))
+            vd = _call_with_backoff(call_nova_visual, img, model_lite, region, _PROMPT_OCR)
+            extracted = vd.get("readable_text") or ""
+            method = "nova_hybrid"
+            vlm_usage = vd.pop("_usage", {})
+            total_input_tokens += int(vlm_usage.get("input_tokens", 0))
+            total_output_tokens += int(vlm_usage.get("output_tokens", 0))
+        elif use_vlm and is_fragmented:
+            imgs = render_pages(str(pdf_path), max_pages=10, dpi=100)
+            info = analyze_pages(str(pdf_path), max_pages=10)
+            prompt = build_presentation_prompt(info)
+            vd = _call_with_backoff(call_nova_visual, imgs, model_id, region, prompt, max_tokens=5000)
+            extracted = vd.get("readable_text") or ""
+            method = "nova_presentation"
+            vlm_usage = vd.pop("_usage", {})
+            total_input_tokens += int(vlm_usage.get("input_tokens", 0))
+            total_output_tokens += int(vlm_usage.get("output_tokens", 0))
+
+        full_text = "\n\n".join(filter(None, [extracted, text]))
+        text_chars = len(full_text)
+        detected_facts = extract_condition_facts(full_text)
+
+        if team_id:
+            _cache_put(
+                ctx,
+                team_id,
+                parse_cache_key,
+                {
+                    "analysis_text": full_text[:PARSE_CACHE_TEXT_CHARS],
+                    "pages": pages,
+                    "method": method,
+                    "text_chars": text_chars,
+                    "detected_facts": detected_facts,
+                    "parse_token_usage": {
+                        "input_tokens": total_input_tokens,
+                        "output_tokens": total_output_tokens,
+                        "total_tokens": total_input_tokens + total_output_tokens,
+                    },
+                },
+                namespace="PARSE",
+            )
+
+    check = _call_with_backoff(check_conditions_nova, full_text, conditions, model_id, region, detected_facts)
 
     # Aggregate token usage from condition check call.
     check_usage = check.pop("_usage", {})
-    total_input_tokens += check_usage.get("input_tokens", 0)
-    total_output_tokens += check_usage.get("output_tokens", 0)
+    total_input_tokens += int(check_usage.get("input_tokens", 0))
+    total_output_tokens += int(check_usage.get("output_tokens", 0))
 
     entry.update({
         "method": method,
         "pages": pages,
         "company_name": check.get("company_name"),
+        "company_group_name": check.get("company_group_name"),
+        "company_group_key": check.get("company_group_key"),
         "conditions": check.get("conditions", []),
+        "condition_summary": check.get("condition_summary", {}),
+        "detected_facts": check.get("detected_facts") if isinstance(check.get("detected_facts"), dict) else detected_facts,
+        "parse_warning": check.get("parse_warning"),
+        "raw_response": check.get("raw_response"),
+        "text_chars": text_chars,
         "elapsed_s": round(time.time() - t0, 1),
+        "cache": {
+            "file_signature": file_digest[:8],
+            "result_hit": False,
+            "parse_hit": parse_cache_hit,
+            "saved_input_tokens": parse_saved_input_tokens,
+            "saved_output_tokens": parse_saved_output_tokens,
+        },
         "token_usage": {
             "input_tokens": total_input_tokens,
             "output_tokens": total_output_tokens,
@@ -1953,7 +2054,7 @@ def _process_single_condition_check(
 
     # Store in cache for future identical requests.
     if team_id:
-        _cache_put(ctx, team_id, ck, entry)
+        _cache_put(ctx, team_id, result_cache_key, entry, namespace="RESULT")
 
     return entry
 
@@ -2184,8 +2285,13 @@ def _assemble_fanout_inner(
 
     xlsx_path: Optional[Path] = None
     companies: List[Dict[str, Any]] = []
+    company_alias_stats = {
+        "company_alias_merge_count": 0,
+        "company_alias_merged_files": 0,
+    }
     if job_type == "condition_check" and conditions:
-        csv_path, json_path = _build_condition_check_csv(assembly_dir, rows, conditions)
+        company_alias_stats = _canonicalize_condition_company_rows(rows)
+        csv_path, json_path, companies = _build_condition_check_csv(assembly_dir, rows, conditions)
         try:
             xlsx_path = _build_condition_check_xlsx(assembly_dir, rows, conditions)
         except Exception as e:
@@ -2274,6 +2380,15 @@ def _assemble_fanout_inner(
                 pass  # Best-effort; lifecycle rule handles leftovers.
 
     success_count = sum(1 for r in rows if "error" not in r)
+    warning_count = sum(1 for r in rows if r.get("parse_warning"))
+    result_cache_hits = 0
+    parse_cache_hits = 0
+    rule_condition_count = 0
+    llm_condition_count = 0
+    rule_only_files = 0
+    saved_input_tokens = 0
+    saved_output_tokens = 0
+    total_text_chars = 0
 
     # Aggregate token usage across all tasks.
     total_input_tokens = 0
@@ -2282,11 +2397,49 @@ def _assemble_fanout_inner(
         tu = r.get("token_usage") if isinstance(r.get("token_usage"), dict) else {}
         total_input_tokens += int(tu.get("input_tokens", 0))
         total_output_tokens += int(tu.get("output_tokens", 0))
+        cache = r.get("cache") if isinstance(r.get("cache"), dict) else {}
+        if cache.get("result_hit"):
+            result_cache_hits += 1
+        if cache.get("parse_hit"):
+            parse_cache_hits += 1
+        saved_input_tokens += int(cache.get("saved_input_tokens", 0))
+        saved_output_tokens += int(cache.get("saved_output_tokens", 0))
+
+        summary = r.get("condition_summary") if isinstance(r.get("condition_summary"), dict) else {}
+        rule_hits = int(summary.get("rule_count", 0))
+        llm_hits = int(summary.get("llm_count", 0))
+        rule_condition_count += rule_hits
+        llm_condition_count += llm_hits
+        if rule_hits > 0 and llm_hits == 0:
+            rule_only_files += 1
+
+        total_text_chars += int(r.get("text_chars", 0))
+
+    recognized_company_files = (
+        sum(int(company.get("file_count", 0)) for company in companies)
+        if job_type == "condition_check"
+        else 0
+    )
 
     metrics: Dict[str, Any] = {
         "total": len(rows),
         "success_count": success_count,
         "failed_count": len(rows) - success_count,
+        "warning_count": warning_count,
+        "company_group_count": len(companies) if job_type == "condition_check" else 0,
+        "recognized_company_files": recognized_company_files,
+        "unrecognized_company_files": len(rows) - recognized_company_files if job_type == "condition_check" else 0,
+        "company_alias_merge_count": company_alias_stats["company_alias_merge_count"] if job_type == "condition_check" else 0,
+        "company_alias_merged_files": company_alias_stats["company_alias_merged_files"] if job_type == "condition_check" else 0,
+        "result_cache_hits": result_cache_hits,
+        "parse_cache_hits": parse_cache_hits,
+        "rule_condition_count": rule_condition_count,
+        "llm_condition_count": llm_condition_count,
+        "rule_only_files": rule_only_files,
+        "text_chars": total_text_chars,
+        "saved_input_tokens": saved_input_tokens,
+        "saved_output_tokens": saved_output_tokens,
+        "saved_total_tokens": saved_input_tokens + saved_output_tokens,
         "conditions": conditions,
         "companies": companies,
         "artifacts_bytes": total_bytes,
@@ -2334,21 +2487,124 @@ def _assemble_fanout_inner(
     gc.collect()
 
 
+def _company_identity_from_row(row: Dict[str, Any]) -> Tuple[str, str, str]:
+    facts = row.get("detected_facts") if isinstance(row.get("detected_facts"), dict) else {}
+    company_name = str(row.get("company_name") or facts.get("company_name") or "").strip()
+    company_group_name = str(row.get("company_group_name") or facts.get("company_group_name") or "").strip()
+    company_group_key = str(row.get("company_group_key") or facts.get("company_group_key") or "").strip().lower()
+    if not company_group_name and company_name:
+        company_group_name = company_name
+        company_group_name = company_group_name.replace("㈜", "")
+        company_group_name = re.sub(r"\(\s*주\s*\)|（\s*주\s*）", "", company_group_name)
+        company_group_name = re.sub(r"\(\s*유\s*\)|（\s*유\s*）", "", company_group_name)
+        company_group_name = re.sub(r"^(주식회사|유한회사)\s*", "", company_group_name)
+        company_group_name = re.sub(r"\s*(주식회사|유한회사)$", "", company_group_name)
+        company_group_name = re.sub(r"\s+", " ", company_group_name).strip(" -_.,:;")
+    if not company_group_key and company_group_name:
+        company_group_key = re.sub(r"[^0-9A-Za-z가-힣]+", "", company_group_name).lower()
+    return company_name, company_group_name, company_group_key
+
+
+def _canonicalize_condition_company_rows(rows: List[Dict[str, Any]]) -> Dict[str, int]:
+    from ralph.company_encoder import build_company_alias_map
+
+    raw_groups: Dict[str, Dict[str, Any]] = {}
+    for row in rows:
+        company_name, company_group_name, company_group_key = _company_identity_from_row(row)
+        if not company_group_key or not company_group_name:
+            continue
+        group = raw_groups.setdefault(company_group_key, {
+            "company_group_key": company_group_key,
+            "company_group_name": company_group_name,
+            "file_count": 0,
+            "representative_company_name": company_name or company_group_name,
+        })
+        group["file_count"] += 1
+        if company_name and len(company_name) > len(str(group.get("representative_company_name") or "")):
+            group["representative_company_name"] = company_name
+
+    alias_map, alias_stats = build_company_alias_map(list(raw_groups.values()))
+    merged_files = 0
+    for row in rows:
+        company_name, company_group_name, company_group_key = _company_identity_from_row(row)
+        if not company_group_key:
+            continue
+        canonical = alias_map.get(company_group_key)
+        if not canonical:
+            continue
+        if canonical["company_group_key"] == company_group_key:
+            row["company_group_name"] = company_group_name or canonical["company_group_name"]
+            row["company_group_key"] = company_group_key
+            continue
+
+        merged_files += 1
+        row["company_group_alias_from"] = company_group_name or company_group_key
+        row["company_group_name"] = canonical["company_group_name"]
+        row["company_group_key"] = canonical["company_group_key"]
+        detected_facts = row.get("detected_facts") if isinstance(row.get("detected_facts"), dict) else None
+        if detected_facts is not None:
+            detected_facts["company_group_name"] = canonical["company_group_name"]
+            detected_facts["company_group_key"] = canonical["company_group_key"]
+
+    return {
+        "company_alias_merge_count": int(alias_stats.get("merged_group_count", 0)),
+        "company_alias_merged_files": merged_files,
+    }
+
+
 def _build_condition_check_csv(
     output_dir: Path,
     rows: List[Dict[str, Any]],
     conditions: List[str],
-) -> Tuple[Path, Path]:
+) -> Tuple[Path, Path, List[Dict[str, Any]]]:
     """Build CSV and JSON files from condition check results (same format as legacy)."""
+    def _cache_label(row: Dict[str, Any]) -> str:
+        cache = row.get("cache") if isinstance(row.get("cache"), dict) else {}
+        if cache.get("result_hit"):
+            return "result"
+        if cache.get("parse_hit"):
+            return "parse"
+        return ""
+
     buf = io.StringIO()
-    fieldnames = ["filename", "company_name", "method", "pages", "elapsed_s", "error"]
+    company_groups: Dict[str, Dict[str, Any]] = {}
+    fieldnames = [
+        "filename",
+        "company_name",
+        "company_group",
+        "method",
+        "pages",
+        "elapsed_s",
+        "cache",
+        "rule_conditions",
+        "llm_conditions",
+        "warning",
+        "error",
+    ]
     for c in conditions:
         short = c[:30].replace(" ", "_")
         fieldnames += [f"{short}_result", f"{short}_evidence"]
     writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
     writer.writeheader()
     for r in rows:
-        row: Dict[str, Any] = {k: r.get(k, "") for k in ["filename", "company_name", "method", "pages", "elapsed_s", "error"]}
+        company_name, company_group_name, company_group_key = _company_identity_from_row(r)
+        row: Dict[str, Any] = {
+            "filename": r.get("filename", ""),
+            "company_name": company_name,
+            "company_group": company_group_name,
+            "method": r.get("method", ""),
+            "pages": r.get("pages", ""),
+            "elapsed_s": r.get("elapsed_s", ""),
+            "cache": _cache_label(r),
+            "rule_conditions": (r.get("condition_summary") or {}).get("rule_count", 0)
+            if isinstance(r.get("condition_summary"), dict)
+            else 0,
+            "llm_conditions": (r.get("condition_summary") or {}).get("llm_count", 0)
+            if isinstance(r.get("condition_summary"), dict)
+            else 0,
+            "warning": r.get("parse_warning", ""),
+            "error": r.get("error", ""),
+        }
         cond_results = r.get("conditions") or []
         for j, c in enumerate(conditions):
             short = c[:30].replace(" ", "_")
@@ -2361,16 +2617,49 @@ def _build_condition_check_csv(
                 row[f"{short}_evidence"] = ""
         writer.writerow(row)
 
+        if company_group_key:
+            group = company_groups.setdefault(company_group_key, {
+                "company_group_key": company_group_key,
+                "company_group_name": company_group_name or company_name,
+                "representative_company_name": company_name or company_group_name,
+                "file_count": 0,
+                "success_count": 0,
+                "failed_count": 0,
+                "warning_count": 0,
+                "result_cache_hits": 0,
+                "parse_cache_hits": 0,
+                "rule_condition_count": 0,
+                "llm_condition_count": 0,
+            })
+            group["file_count"] += 1
+            group["success_count"] += 0 if r.get("error") else 1
+            group["failed_count"] += 1 if r.get("error") else 0
+            group["warning_count"] += 1 if r.get("parse_warning") else 0
+            group["result_cache_hits"] += 1 if isinstance(r.get("cache"), dict) and r["cache"].get("result_hit") else 0
+            group["parse_cache_hits"] += 1 if isinstance(r.get("cache"), dict) and r["cache"].get("parse_hit") else 0
+            if company_name and len(company_name) > len(str(group.get("representative_company_name") or "")):
+                group["representative_company_name"] = company_name
+            summary = r.get("condition_summary") if isinstance(r.get("condition_summary"), dict) else {}
+            group["rule_condition_count"] += int(summary.get("rule_count", 0))
+            group["llm_condition_count"] += int(summary.get("llm_count", 0))
+
     csv_path = output_dir / "condition_check_results.csv"
     csv_path.write_text(buf.getvalue(), encoding="utf-8-sig")
 
     json_path = output_dir / "condition_check_results.json"
+    warning_count = sum(1 for r in rows if r.get("parse_warning"))
+    company_group_rows = sorted(
+        company_groups.values(),
+        key=lambda item: (-int(item["file_count"]), str(item["company_group_name"] or item["company_group_key"])),
+    )
     _write_json(json_path, {
         "conditions": conditions,
         "total": len(rows),
+        "warning_count": warning_count,
+        "company_groups": company_group_rows,
         "results": rows,
     })
-    return csv_path, json_path
+    return csv_path, json_path, company_group_rows
 
 
 def _build_condition_check_xlsx(
@@ -2410,10 +2699,12 @@ def _build_condition_check_xlsx(
     body_font = Font(name="맑은 고딕", size=9)
     body_align = Alignment(vertical="top", wrap_text=False)
     evidence_align = Alignment(vertical="top", wrap_text=True)
+    warning_font = Font(name="맑은 고딕", color="B45309", size=9)
     error_font = Font(name="맑은 고딕", color="DC2626", size=9)
+    cache_font = Font(name="맑은 고딕", color="1D4ED8", size=9)
 
     # ── Headers ──
-    base_headers = ["파일명", "회사명", "추출 방식", "페이지 수", "처리 시간(초)", "에러"]
+    base_headers = ["파일명", "회사명", "그룹명", "추출 방식", "페이지 수", "처리 시간(초)", "캐시", "규칙 판정", "LLM 판정", "경고", "에러"]
     headers = list(base_headers)
     for c in conditions:
         short = c[:40]
@@ -2434,16 +2725,41 @@ def _build_condition_check_xlsx(
         base_values = [
             r.get("filename", ""),
             r.get("company_name", ""),
+            (
+                r.get("company_group_name")
+                or (
+                    (r.get("detected_facts") or {}).get("company_group_name")
+                    if isinstance(r.get("detected_facts"), dict)
+                    else ""
+                )
+            ),
             r.get("method", ""),
             r.get("pages", ""),
             r.get("elapsed_s", ""),
+            "result" if isinstance(r.get("cache"), dict) and r["cache"].get("result_hit")
+            else "parse" if isinstance(r.get("cache"), dict) and r["cache"].get("parse_hit")
+            else "",
+            (r.get("condition_summary") or {}).get("rule_count", 0)
+            if isinstance(r.get("condition_summary"), dict)
+            else 0,
+            (r.get("condition_summary") or {}).get("llm_count", 0)
+            if isinstance(r.get("condition_summary"), dict)
+            else 0,
+            r.get("parse_warning", ""),
             r.get("error", ""),
         ]
         cond_results = r.get("conditions") or []
 
         for col_idx, val in enumerate(base_values, 1):
             cell = ws.cell(row=row_idx, column=col_idx, value=str(val) if val else "")
-            cell.font = error_font if col_idx == 6 and val else body_font
+            if col_idx == 7 and val:
+                cell.font = cache_font
+            elif col_idx == 10 and val:
+                cell.font = warning_font
+            elif col_idx == 11 and val:
+                cell.font = error_font
+            else:
+                cell.font = body_font
             cell.alignment = body_align
             cell.border = thin_border
 
@@ -2487,13 +2803,83 @@ def _build_condition_check_xlsx(
     # ── Summary sheet ──
     ws2 = wb.create_sheet("요약")
     total = len(rows)
+    warnings = sum(1 for r in rows if r.get("parse_warning"))
     errors = sum(1 for r in rows if r.get("error"))
+    result_cache_hits = sum(
+        1
+        for r in rows
+        if isinstance(r.get("cache"), dict) and r["cache"].get("result_hit")
+    )
+    parse_cache_hits = sum(
+        1
+        for r in rows
+        if isinstance(r.get("cache"), dict) and r["cache"].get("parse_hit")
+    )
+    rule_conditions = sum(
+        int((r.get("condition_summary") or {}).get("rule_count", 0))
+        for r in rows
+        if isinstance(r.get("condition_summary"), dict)
+    )
+    llm_conditions = sum(
+        int((r.get("condition_summary") or {}).get("llm_count", 0))
+        for r in rows
+        if isinstance(r.get("condition_summary"), dict)
+    )
+    company_groups: Dict[str, Dict[str, Any]] = {}
+    for r in rows:
+        facts = r.get("detected_facts") if isinstance(r.get("detected_facts"), dict) else {}
+        group_name = str(r.get("company_group_name") or facts.get("company_group_name") or "").strip()
+        if not group_name:
+            group_name = str(r.get("company_name") or facts.get("company_name") or "").strip()
+            group_name = group_name.replace("㈜", "")
+            group_name = re.sub(r"\(\s*주\s*\)|（\s*주\s*）", "", group_name)
+            group_name = re.sub(r"\(\s*유\s*\)|（\s*유\s*）", "", group_name)
+            group_name = re.sub(r"^(주식회사|유한회사)\s+", "", group_name)
+            group_name = re.sub(r"\s+(주식회사|유한회사)$", "", group_name)
+            group_name = re.sub(r"\s+", " ", group_name).strip(" -_.,:;")
+        group_key = str(r.get("company_group_key") or facts.get("company_group_key") or "").strip().lower()
+        if not group_key and group_name:
+            group_key = re.sub(r"[^0-9A-Za-z가-힣]+", "", group_name).lower()
+        if not group_key:
+            continue
+        group = company_groups.setdefault(group_key, {
+            "name": group_name or str(r.get("company_name") or ""),
+            "file_count": 0,
+        })
+        group["file_count"] += 1
     ws2.cell(row=1, column=1, value="총 파일 수").font = Font(bold=True)
     ws2.cell(row=1, column=2, value=total)
-    ws2.cell(row=2, column=1, value="에러 파일 수").font = Font(bold=True)
-    ws2.cell(row=2, column=2, value=errors)
-    ws2.cell(row=3, column=1, value="검사 조건 수").font = Font(bold=True)
-    ws2.cell(row=3, column=2, value=len(conditions))
+    ws2.cell(row=2, column=1, value="경고 파일 수").font = Font(bold=True)
+    ws2.cell(row=2, column=2, value=warnings)
+    ws2.cell(row=3, column=1, value="에러 파일 수").font = Font(bold=True)
+    ws2.cell(row=3, column=2, value=errors)
+    ws2.cell(row=4, column=1, value="검사 조건 수").font = Font(bold=True)
+    ws2.cell(row=4, column=2, value=len(conditions))
+    ws2.cell(row=5, column=1, value="결과 캐시 적중 파일 수").font = Font(bold=True)
+    ws2.cell(row=5, column=2, value=result_cache_hits)
+    ws2.cell(row=6, column=1, value="파싱 캐시 적중 파일 수").font = Font(bold=True)
+    ws2.cell(row=6, column=2, value=parse_cache_hits)
+    ws2.cell(row=7, column=1, value="규칙 판정 조건 수").font = Font(bold=True)
+    ws2.cell(row=7, column=2, value=rule_conditions)
+    ws2.cell(row=8, column=1, value="LLM 판정 조건 수").font = Font(bold=True)
+    ws2.cell(row=8, column=2, value=llm_conditions)
+    ws2.cell(row=9, column=1, value="인식된 기업 그룹 수").font = Font(bold=True)
+    ws2.cell(row=9, column=2, value=len(company_groups))
+    ws2.cell(row=10, column=1, value="기업명 인식 파일 수").font = Font(bold=True)
+    ws2.cell(row=10, column=2, value=sum(int(group["file_count"]) for group in company_groups.values()))
+
+    condition_summary_start_row = 12
+    if company_groups:
+        start_row = 12
+        ws2.cell(row=start_row, column=1, value="기업 그룹").font = Font(bold=True)
+        ws2.cell(row=start_row, column=2, value="파일 수").font = Font(bold=True)
+        for index, group in enumerate(
+            sorted(company_groups.values(), key=lambda item: (-int(item["file_count"]), str(item["name"]))),
+            start=1,
+        ):
+            ws2.cell(row=start_row + index, column=1, value=group["name"])
+            ws2.cell(row=start_row + index, column=2, value=group["file_count"])
+        condition_summary_start_row = start_row + len(company_groups) + 2
 
     for i, c in enumerate(conditions):
         pass_count = 0
@@ -2505,9 +2891,9 @@ def _build_condition_check_xlsx(
                     pass_count += 1
                 else:
                     fail_count += 1
-        ws2.cell(row=5 + i, column=1, value=c[:60]).font = body_font
-        ws2.cell(row=5 + i, column=2, value=f"✓ {pass_count}").font = pass_font
-        ws2.cell(row=5 + i, column=3, value=f"✗ {fail_count}").font = fail_font
+        ws2.cell(row=condition_summary_start_row + i, column=1, value=c[:60]).font = body_font
+        ws2.cell(row=condition_summary_start_row + i, column=2, value=f"✓ {pass_count}").font = pass_font
+        ws2.cell(row=condition_summary_start_row + i, column=3, value=f"✗ {fail_count}").font = fail_font
 
     ws2.column_dimensions["A"].width = 50
     ws2.column_dimensions["B"].width = 12

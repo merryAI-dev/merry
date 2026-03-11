@@ -27,7 +27,7 @@ export const runtime = "nodejs";
 const FANOUT_JOB_TYPES: ReadonlySet<string> = new Set(["condition_check", "document_extraction", "financial_extraction"]);
 
 /* ── Max file count per fan-out job ── */
-const FANOUT_MAX_FILES = 200;
+const FANOUT_MAX_FILES = Number(process.env.MERRY_FANOUT_MAX_FILES ?? 800);
 
 /* ── Max concurrent fan-out jobs per team ── */
 const MAX_CONCURRENT_FANOUT = Number(process.env.MERRY_MAX_CONCURRENT_FANOUT ?? 3);

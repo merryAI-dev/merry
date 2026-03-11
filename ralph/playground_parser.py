@@ -276,6 +276,13 @@ def call_nova_visual(
     )
     raw = resp["output"]["message"]["content"][0]["text"]
 
+    # Extract token usage from Bedrock response.
+    _resp_usage = resp.get("usage", {})
+    _bedrock_usage = {
+        "input_tokens": _resp_usage.get("inputTokens", 0),
+        "output_tokens": _resp_usage.get("outputTokens", 0),
+    }
+
     def _sanitize(s: str) -> str:
         """
         Nova JSON 응답의 두 가지 문제를 수정:
@@ -323,23 +330,27 @@ def call_nova_visual(
 
     s = _sanitize(raw)
 
+    def _attach_usage(result: dict) -> dict:
+        result["_usage"] = _bedrock_usage
+        return result
+
     # 1) 순수 JSON 응답
     try:
-        return json.loads(s.strip())
+        return _attach_usage(json.loads(s.strip()))
     except json.JSONDecodeError:
         pass
     # 2) 마크다운 코드펜스 안 JSON
     m = re.search(r"```json\s*(.*?)\s*```", raw, re.DOTALL)
     if m:
         try:
-            return json.loads(_sanitize(m.group(1)))
+            return _attach_usage(json.loads(_sanitize(m.group(1))))
         except json.JSONDecodeError:
             pass
     # 3) 텍스트 내 JSON 블록 추출 (greedy — 가장 큰 {} 블록)
     m = re.search(r"\{.*\}", raw, re.DOTALL)
     if m:
         try:
-            return json.loads(_sanitize(m.group(0)))
+            return _attach_usage(json.loads(_sanitize(m.group(0))))
         except json.JSONDecodeError:
             pass
     # 4) 끊긴 응답 처리 (maxTokens 초과로 JSON이 잘린 경우)
@@ -347,10 +358,10 @@ def call_nova_visual(
     trimmed = re.sub(r"\\u[0-9a-fA-F]{0,3}$", "", s.rstrip())
     for suffix in ['"}', '"\n}']:
         try:
-            return json.loads(trimmed + suffix)
+            return _attach_usage(json.loads(trimmed + suffix))
         except json.JSONDecodeError:
             pass
-    return {"readable_text": trimmed}
+    return _attach_usage({"readable_text": trimmed})
 
 
 # ─────────────────────────────────────────────────────────────

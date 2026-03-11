@@ -1,0 +1,51 @@
+"""CLI integration test for the offline Ralph playground parser path."""
+
+from __future__ import annotations
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+import fitz
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _make_text_pdf(path: Path) -> None:
+    doc = fitz.open()
+    page = doc.new_page()
+    sample = "This is a sample PDF for Ralph parser integration testing. " * 4
+    page.insert_textbox(fitz.Rect(72, 72, 520, 760), sample, fontsize=12)
+    doc.save(path)
+    doc.close()
+
+
+def test_playground_parser_cli_returns_pymupdf_result_for_text_pdf_without_vlm(tmp_path: Path) -> None:
+    pdf_path = tmp_path / "sample.pdf"
+    _make_text_pdf(pdf_path)
+
+    env = os.environ.copy()
+    env["RALPH_USE_VLM"] = "false"
+    env["PYTHONPATH"] = str(PROJECT_ROOT)
+
+    proc = subprocess.run(
+        [sys.executable, str(PROJECT_ROOT / "ralph" / "playground_parser.py"), str(pdf_path)],
+        cwd=str(PROJECT_ROOT),
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(proc.stdout)
+    assert payload["ok"] is True
+    assert payload["pages"] == 1
+    assert payload["method"] == "pymupdf"
+    assert payload["text_structure"] == "document"
+    assert payload["visual_description"] is None
+    assert "integration testing" in payload["text"]

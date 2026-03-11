@@ -607,6 +607,20 @@ function deserializeTask(row: Record<string, unknown>, teamId: string): TaskReco
     statusRaw === "processing" || statusRaw === "succeeded" || statusRaw === "failed"
       ? statusRaw
       : "pending";
+  const rawResult = row["result"];
+  let result: Record<string, unknown> | undefined;
+  if (rawResult && typeof rawResult === "object") {
+    result = rawResult as Record<string, unknown>;
+  } else if (typeof rawResult === "string" && rawResult) {
+    try {
+      const parsed = JSON.parse(rawResult) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        result = parsed as Record<string, unknown>;
+      }
+    } catch {
+      result = undefined;
+    }
+  }
   return {
     taskId: asString(row["task_id"]),
     jobId: asString(row["job_id"]),
@@ -618,7 +632,7 @@ function deserializeTask(row: Record<string, unknown>, teamId: string): TaskReco
     updatedAt: asOptionalString(row["updated_at"]),
     startedAt: asOptionalString(row["started_at"]),
     endedAt: asOptionalString(row["ended_at"]),
-    result: row["result"] && typeof row["result"] === "object" ? (row["result"] as Record<string, unknown>) : undefined,
+    result,
     error: asOptionalString(row["error"]),
     workerId: asOptionalString(row["worker_id"]),
   };

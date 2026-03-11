@@ -1,18 +1,18 @@
 import { NextResponse } from "next/server";
 
-import { handleParseFormData, runParser } from "./handler";
+import { handleCheckFormData, runChecker } from "./handler";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  const result = await handleParseFormData(await req.formData(), {
+  const result = await handleCheckFormData(await req.formData(), {
     requireWorkspace: requireWorkspaceFromCookies,
-    runParser,
+    runChecker,
   });
   if (result.status >= 500 && result.body.error !== "UNAUTHORIZED") {
-    console.error("[RALPH] parse route failed", {
+    console.error("[RALPH] check route failed", {
       error: result.body.error,
     });
   }

@@ -347,6 +347,11 @@ def get_job(ctx: FakeCtx, team_id: str, job_id: str) -> Dict[str, Any]:
     return ctx.ddb.get_item(Key={"pk": _pk(team_id), "sk": f"JOB#{job_id}"}).get("Item", {})
 
 
+def get_task_result(ctx: FakeCtx, team_id: str, job_id: str, task_id: str) -> Dict[str, Any]:
+    raw = ctx.ddb.items[(_pk(team_id), f"TASK#{job_id}#{task_id}")]["result"]
+    return json.loads(raw) if isinstance(raw, str) else raw
+
+
 def cleanup(team_id: str, job_id: str) -> None:
     p = PROJECT_ROOT / "temp" / team_id / "jobs" / job_id
     shutil.rmtree(p, ignore_errors=True)
@@ -354,7 +359,7 @@ def cleanup(team_id: str, job_id: str) -> None:
 
 # ── Mock Bedrock ──
 
-def _mock_check_nova(text: str, conditions: list, model_id: str, region: str) -> dict:
+def _mock_check_nova(text: str, conditions: list, model_id: str, region: str, facts=None) -> dict:
     """Fake check_conditions_nova returning deterministic results + usage."""
     return {
         "company_name": "테스트기업",
@@ -371,6 +376,69 @@ def _mock_call_nova_visual(images, model_id, region, prompt, max_tokens=1200) ->
     return {
         "readable_text": "Mocked VLM text extraction.",
         "_usage": {"input_tokens": 300, "output_tokens": 100},
+    }
+
+
+def _mock_check_nova_warning(text: str, conditions: list, model_id: str, region: str, facts=None) -> dict:
+    return {
+        "company_name": "경고기업",
+        "conditions": [
+            {"condition": c, "result": True, "evidence": f"warning: {c}"}
+            for c in conditions
+        ],
+        "parse_warning": "JSON 응답 일부를 복구했습니다.",
+        "raw_response": "{bad json",
+        "_usage": {"input_tokens": 500, "output_tokens": 200},
+    }
+
+
+def _mock_check_nova_summary(text: str, conditions: list, model_id: str, region: str, facts=None) -> dict:
+    rule_count = 1 if conditions else 0
+    llm_count = max(len(conditions) - rule_count, 0)
+    return {
+        "company_name": "테스트기업",
+        "conditions": [
+            {
+                "condition": c,
+                "result": True,
+                "evidence": f"summary: {c}",
+                "source": "rule" if i < rule_count else "llm",
+            }
+            for i, c in enumerate(conditions)
+        ],
+        "condition_summary": {
+            "total": len(conditions),
+            "rule_count": rule_count,
+            "llm_count": llm_count,
+            "llm_skipped": llm_count == 0,
+        },
+        "detected_facts": {
+            "company_name": "테스트기업",
+        },
+        "_usage": {"input_tokens": 500, "output_tokens": 200},
+    }
+
+
+def _mock_check_nova_grouping(text: str, conditions: list, model_id: str, region: str, facts=None) -> dict:
+    company_name = (facts or {}).get("company_name")
+    company_group_name = (facts or {}).get("company_group_name")
+    company_group_key = (facts or {}).get("company_group_key")
+    return {
+        "company_name": company_name,
+        "company_group_name": company_group_name,
+        "company_group_key": company_group_key,
+        "conditions": [
+            {"condition": c, "result": True, "evidence": f"group: {c}", "source": "rule"}
+            for c in conditions
+        ],
+        "condition_summary": {
+            "total": len(conditions),
+            "rule_count": len(conditions),
+            "llm_count": 0,
+            "llm_skipped": True,
+        },
+        "detected_facts": facts or {},
+        "_usage": {"input_tokens": 0, "output_tokens": 0},
     }
 
 
@@ -509,6 +577,36 @@ class TestFanoutTokenAggregation:
         cleanup(team, job)
 
 
+class TestFanoutParseWarnings:
+    """Recovered checker responses should remain visible in artifacts and metrics."""
+
+    def test_warning_propagates_to_artifacts_and_metrics(self):
+        team, job = "t_warning", "j_warning"
+        ctx = FakeCtx()
+        setup_fanout_job(ctx, team, job, ["warn"], ["조건A"])
+
+        with patch("ralph.condition_checker.check_conditions_nova", _mock_check_nova_warning):
+            process_fanout_task(ctx, team, job, "000", "warn")
+
+        j = get_job(ctx, team, job)
+        assert int(j.get("metrics", {}).get("warning_count", 0)) == 1
+
+        arts = j.get("artifacts", [])
+        csv_art = next(a for a in arts if a["artifactId"] == "condition_check_csv")
+        csv_rows = list(csv.DictReader(io.StringIO(
+            ctx.s3.objects[(ctx.bucket, csv_art["s3Key"])].decode("utf-8-sig"),
+        )))
+        assert csv_rows[0]["warning"] == "JSON 응답 일부를 복구했습니다."
+
+        json_art = next(a for a in arts if a["artifactId"] == "condition_check_json")
+        data = json.loads(ctx.s3.objects[(ctx.bucket, json_art["s3Key"])].decode("utf-8"))
+        assert data["warning_count"] == 1
+        assert data["results"][0]["parse_warning"] == "JSON 응답 일부를 복구했습니다."
+        assert data["results"][0]["raw_response"] == "{bad json"
+
+        cleanup(team, job)
+
+
 class TestCancelledJobSkipped:
     """Task skipped when job is already failed/cancelled."""
 
@@ -526,5 +624,261 @@ class TestCancelledJobSkipped:
 
         j = get_job(ctx, team, job)
         assert int(j.get("processed_count", 0)) == 0
+
+        cleanup(team, job)
+
+
+class TestFanoutParseCacheReuse:
+    """Same file content across jobs should reuse parse cache even when conditions differ."""
+
+    def test_parse_cache_reused_for_same_content(self):
+        team = "t_parse_cache"
+        ctx = FakeCtx()
+        pdf_text = "개업연월일 2024년 03월 01일\n2025년 매출액 8억원\n"
+
+        setup_fanout_job(
+            ctx, team, "job_a", ["file_a"], ["창업 3년 미만"],
+            pdf_texts={"file_a": pdf_text},
+        )
+        setup_fanout_job(
+            ctx, team, "job_b", ["file_b"], ["매출 10억 미만"],
+            pdf_texts={"file_b": pdf_text},
+        )
+        ctx.s3.objects[(ctx.bucket, f"uploads/{team}/file_b.pdf")] = ctx.s3.objects[(ctx.bucket, f"uploads/{team}/file_a.pdf")]
+
+        with patch("ralph.condition_checker.check_conditions_nova", _mock_check_nova_summary):
+            process_fanout_task(ctx, team, "job_a", "000", "file_a")
+            process_fanout_task(ctx, team, "job_b", "000", "file_b")
+
+        job_b = get_job(ctx, team, "job_b")
+        result = get_task_result(ctx, team, "job_b", "000")
+        assert result["cache"]["parse_hit"] is True
+        assert result["cache"]["result_hit"] is False
+        assert int(job_b["metrics"]["parse_cache_hits"]) == 1
+
+        cleanup(team, "job_a")
+        cleanup(team, "job_b")
+
+
+class TestFanoutResultCacheReuse:
+    """Same file content + same conditions should reuse the full condition-check result."""
+
+    def test_result_cache_reused_for_same_request(self):
+        team = "t_result_cache"
+        ctx = FakeCtx()
+        pdf_text = "개업연월일 2024년 03월 01일\n2025년 매출액 8억원\n"
+
+        setup_fanout_job(
+            ctx, team, "job_c", ["file_c"], ["창업 3년 미만"],
+            pdf_texts={"file_c": pdf_text},
+        )
+        setup_fanout_job(
+            ctx, team, "job_d", ["file_d"], ["창업 3년 미만"],
+            pdf_texts={"file_d": pdf_text},
+        )
+        ctx.s3.objects[(ctx.bucket, f"uploads/{team}/file_d.pdf")] = ctx.s3.objects[(ctx.bucket, f"uploads/{team}/file_c.pdf")]
+
+        with patch("ralph.condition_checker.check_conditions_nova", _mock_check_nova_summary):
+            process_fanout_task(ctx, team, "job_c", "000", "file_c")
+            process_fanout_task(ctx, team, "job_d", "000", "file_d")
+
+        job_d = get_job(ctx, team, "job_d")
+        result = get_task_result(ctx, team, "job_d", "000")
+        assert result["cache"]["result_hit"] is True
+        assert int(result["token_usage"]["total_tokens"]) == 0
+        assert int(job_d["metrics"]["result_cache_hits"]) == 1
+        assert int(job_d["metrics"]["saved_total_tokens"]) > 0
+
+        cleanup(team, "job_c")
+        cleanup(team, "job_d")
+
+
+class TestFanoutRuleSummaryMetrics:
+    """Rule-engine summaries should aggregate into job metrics and artifacts."""
+
+    def test_rule_and_llm_counts_are_aggregated(self):
+        team, job = "t_rule_metrics", "j_rule_metrics"
+        ctx = FakeCtx()
+        setup_fanout_job(ctx, team, job, ["rule_a", "rule_b"], ["창업 3년 미만", "매출 성장률 10% 이상"])
+
+        with patch("ralph.condition_checker.check_conditions_nova", _mock_check_nova_summary):
+            process_fanout_task(ctx, team, job, "000", "rule_a")
+            process_fanout_task(ctx, team, job, "001", "rule_b")
+
+        j = get_job(ctx, team, job)
+        assert int(j["metrics"]["rule_condition_count"]) == 2
+        assert int(j["metrics"]["llm_condition_count"]) == 2
+
+        csv_art = next(a for a in j["artifacts"] if a["artifactId"] == "condition_check_csv")
+        csv_rows = list(csv.DictReader(io.StringIO(
+            ctx.s3.objects[(ctx.bucket, csv_art["s3Key"])].decode("utf-8-sig"),
+        )))
+        assert csv_rows[0]["rule_conditions"] == "1"
+        assert csv_rows[0]["llm_conditions"] == "1"
+
+        cleanup(team, job)
+
+
+class TestFanoutCompanyGrouping:
+    """Recognized company variants should be grouped in metrics and JSON artifacts."""
+
+    def test_company_groups_are_aggregated(self):
+        team, job = "t_grouping", "j_grouping"
+        ctx = FakeCtx()
+        setup_fanout_job(
+            ctx,
+            team,
+            job,
+            ["ga", "gb", "gc"],
+            ["업력 3년 미만"],
+            pdf_texts={
+                "ga": "법인명: 주식회사 테스트랩\n개업연월일: 2024년 03월 01일\n",
+                "gb": "회사명: ㈜ 테스트랩\n개업연월일: 2024년 03월 01일\n",
+                "gc": "문서 본문에 회사명이 없습니다.\n",
+            },
+        )
+
+        text_map = {
+            "ga": "법인명: 주식회사 테스트랩\n개업연월일: 2024년 03월 01일\n",
+            "gb": "회사명: ㈜ 테스트랩\n개업연월일: 2024년 03월 01일\n",
+            "gc": "문서 본문에 회사명이 없습니다.\n",
+        }
+
+        def _fake_extract_text(pdf_path: str):
+            key = Path(pdf_path).stem
+            return text_map.get(key, ""), 1, []
+
+        with patch("ralph.condition_checker.check_conditions_nova", _mock_check_nova_grouping), \
+             patch("ralph.playground_parser.extract_text", side_effect=_fake_extract_text), \
+             patch("ralph.playground_parser.assess_text_quality", return_value=(0.0, False, False)):
+            process_fanout_task(ctx, team, job, "000", "ga")
+            process_fanout_task(ctx, team, job, "001", "gb")
+            process_fanout_task(ctx, team, job, "002", "gc")
+
+        j = get_job(ctx, team, job)
+        assert int(j["metrics"]["company_group_count"]) == 1
+        assert int(j["metrics"]["recognized_company_files"]) == 2
+        assert int(j["metrics"]["unrecognized_company_files"]) == 1
+
+        csv_art = next(a for a in j["artifacts"] if a["artifactId"] == "condition_check_csv")
+        csv_rows = list(csv.DictReader(io.StringIO(
+            ctx.s3.objects[(ctx.bucket, csv_art["s3Key"])].decode("utf-8-sig"),
+        )))
+        assert csv_rows[0]["company_group"] == "테스트랩"
+        assert csv_rows[1]["company_group"] == "테스트랩"
+        assert csv_rows[2]["company_group"] == ""
+
+        json_art = next(a for a in j["artifacts"] if a["artifactId"] == "condition_check_json")
+        data = json.loads(ctx.s3.objects[(ctx.bucket, json_art["s3Key"])].decode("utf-8"))
+        assert len(data["company_groups"]) == 1
+        assert data["company_groups"][0]["company_group_name"] == "테스트랩"
+        assert data["company_groups"][0]["file_count"] == 2
+
+        cleanup(team, job)
+
+    def test_truncated_aliases_merge_into_dominant_company_group(self):
+        team, job = "t_group_alias", "j_group_alias"
+        ctx = FakeCtx()
+        setup_fanout_job(
+            ctx,
+            team,
+            job,
+            ["full", "short"],
+            ["업력 3년 미만"],
+            pdf_texts={
+                "full": "법인명: 주식회사 스트레스솔루션\n",
+                "short": "회사명: 주식회사스트레\n",
+            },
+        )
+
+        text_map = {
+            "full": "법인명: 주식회사 스트레스솔루션\n",
+            "short": "회사명: 주식회사스트레\n",
+        }
+
+        def _fake_extract_text(pdf_path: str):
+            key = Path(pdf_path).stem
+            return text_map.get(key, ""), 1, []
+
+        with patch("ralph.condition_checker.check_conditions_nova", _mock_check_nova_grouping), \
+             patch("ralph.playground_parser.extract_text", side_effect=_fake_extract_text), \
+             patch("ralph.playground_parser.assess_text_quality", return_value=(0.0, False, False)):
+            process_fanout_task(ctx, team, job, "000", "full")
+            process_fanout_task(ctx, team, job, "001", "short")
+
+        j = get_job(ctx, team, job)
+        assert int(j["metrics"]["company_group_count"]) == 1
+        assert int(j["metrics"]["company_alias_merge_count"]) == 1
+        assert int(j["metrics"]["company_alias_merged_files"]) == 1
+
+        csv_art = next(a for a in j["artifacts"] if a["artifactId"] == "condition_check_csv")
+        csv_rows = list(csv.DictReader(io.StringIO(
+            ctx.s3.objects[(ctx.bucket, csv_art["s3Key"])].decode("utf-8-sig"),
+        )))
+        assert all(row["company_group"] == "스트레스솔루션" for row in csv_rows)
+
+        json_art = next(a for a in j["artifacts"] if a["artifactId"] == "condition_check_json")
+        data = json.loads(ctx.s3.objects[(ctx.bucket, json_art["s3Key"])].decode("utf-8"))
+        assert data["company_groups"][0]["company_group_name"] == "스트레스솔루션"
+        short_row = next(row for row in data["results"] if row["filename"] == "doc_1.pdf")
+        assert short_row["company_group_alias_from"] == "스트레"
+
+        cleanup(team, job)
+
+
+class TestFanoutScale:
+    """Large fan-out batches should finish with visible cache savings."""
+
+    def test_800_files_complete_with_result_cache_observability(self):
+        team, job = "t_scale", "j_scale_800"
+        ctx = FakeCtx()
+        conditions = ["업력 3년 미만", "매출 10억 미만"]
+        unique_docs = 8
+        repeats_per_doc = 100
+        total_files = unique_docs * repeats_per_doc
+        file_ids = [f"scale_{i:03d}" for i in range(total_files)]
+        pdf_texts = {
+            fid: (
+                f"개업연월일 2024년 03월 01일\n"
+                f"2025년 매출액 {((i % unique_docs) + 1)}억원\n"
+                f"GROUP {i % unique_docs}\n"
+            )
+            for i, fid in enumerate(file_ids)
+        }
+
+        original_make_pdf_bytes = make_pdf_bytes
+        pdf_cache: Dict[str, bytes] = {}
+
+        def cached_make_pdf_bytes(text: str) -> bytes:
+            if text not in pdf_cache:
+                pdf_cache[text] = original_make_pdf_bytes(text)
+            return pdf_cache[text]
+
+        with patch(f"{__name__}.make_pdf_bytes", cached_make_pdf_bytes):
+            setup_fanout_job(ctx, team, job, file_ids, conditions, pdf_texts=pdf_texts)
+
+        with patch("ralph.condition_checker.check_conditions_nova", _mock_check_nova_summary):
+            for i, fid in enumerate(file_ids):
+                process_fanout_task(ctx, team, job, f"{i:03d}", fid)
+
+        j = get_job(ctx, team, job)
+        metrics = j.get("metrics", {})
+        assert j["status"] == "succeeded"
+        assert j["fanout_status"] == "succeeded"
+        assert int(j.get("processed_count", 0)) == total_files
+        assert int(j.get("failed_count", 0)) == 0
+        assert int(metrics["result_cache_hits"]) == total_files - unique_docs
+        assert int(metrics["parse_cache_hits"]) == 0
+        assert int(metrics["saved_total_tokens"]) > 0
+        assert int(metrics["rule_condition_count"]) == total_files
+        assert int(metrics["llm_condition_count"]) == total_files
+
+        csv_art = next(a for a in j["artifacts"] if a["artifactId"] == "condition_check_csv")
+        csv_rows = list(csv.DictReader(io.StringIO(
+            ctx.s3.objects[(ctx.bucket, csv_art["s3Key"])].decode("utf-8-sig"),
+        )))
+        assert len(csv_rows) == total_files
+        assert sum(1 for row in csv_rows if row["cache"] == "result") == total_files - unique_docs
+        assert sum(1 for row in csv_rows if row["cache"] == "") == unique_docs
 
         cleanup(team, job)
