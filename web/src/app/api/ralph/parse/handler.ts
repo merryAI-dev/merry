@@ -1,15 +1,10 @@
 import { randomUUID } from "crypto";
-import { spawn } from "child_process";
 import { writeFile, unlink } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 
-const PROJECT_ROOT = join(process.cwd(), "..");
 export const MAX_PDF_BYTES = 50 * 1024 * 1024;
 export const PARSE_TIMEOUT_MS = 45_000;
-const MAX_STDOUT_BYTES = 256 * 1024;
-const MAX_STDERR_BYTES = 64 * 1024;
-const KILL_GRACE_MS = 1_000;
 
 export type ParserErrorCode =
   | "PARSE_TIMEOUT"
@@ -105,87 +100,45 @@ export async function runParser(
   pdfPath: string,
   forcePro = false,
 ): Promise<Record<string, unknown>> {
-  return await new Promise((resolve, reject) => {
-    const scriptPath = join(PROJECT_ROOT, "ralph", "playground_parser.py");
-    const proc = spawn("python3", [scriptPath, pdfPath], {
-      cwd: PROJECT_ROOT,
-      env: {
-        ...process.env,
-        PYTHONPATH: PROJECT_ROOT,
-        ...(forcePro ? { RALPH_FORCE_PRO: "true" } : {}),
+  const parserUrl = process.env.PARSER_INTERNAL_URL;
+  if (!parserUrl) {
+    throw parserError("PARSER_SPAWN_FAILED", "Missing env PARSER_INTERNAL_URL");
+  }
+
+  const secret = process.env.PARSER_INTERNAL_SECRET ?? "";
+  const pdfBytes = await import("fs/promises").then((fs) => fs.readFile(pdfPath));
+
+  const url = `${parserUrl}/parse${forcePro ? "?force_pro=true" : ""}`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PARSE_TIMEOUT_MS);
+
+  let resp: Response;
+  try {
+    resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/pdf",
+        "Content-Length": String(pdfBytes.length),
+        ...(secret ? { "X-Parse-Token": secret } : {}),
       },
+      body: pdfBytes,
+      signal: controller.signal,
     });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw parserError(
+      msg.includes("abort") ? "PARSE_TIMEOUT" : "PARSER_SPAWN_FAILED",
+      msg,
+    );
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
-    let settled = false;
-    const stdoutChunks: Buffer[] = [];
-    const stderrChunks: Buffer[] = [];
-    let stdoutBytes = 0;
-    let stderrBytes = 0;
-
-    const settleResolve = (value: Record<string, unknown>) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeoutId);
-      resolve(value);
-    };
-
-    const settleReject = (err: Error) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timeoutId);
-      reject(err);
-    };
-
-    const terminate = (err: Error) => {
-      if (settled) return;
-      proc.kill("SIGTERM");
-      const killId = setTimeout(() => {
-        proc.kill("SIGKILL");
-      }, KILL_GRACE_MS);
-      killId.unref();
-      settleReject(err);
-    };
-
-    const timeoutId = setTimeout(() => {
-      terminate(parserError("PARSE_TIMEOUT"));
-    }, PARSE_TIMEOUT_MS);
-    timeoutId.unref();
-
-    proc.stdout.on("data", (chunk: Buffer) => {
-      const next = pushCappedChunk(stdoutChunks, chunk, stdoutBytes, MAX_STDOUT_BYTES);
-      stdoutBytes = next.bytes;
-      if (next.overflow) {
-        terminate(parserError("PARSE_STDOUT_LIMIT"));
-      }
-    });
-
-    proc.stderr.on("data", (chunk: Buffer) => {
-      const next = pushCappedChunk(stderrChunks, chunk, stderrBytes, MAX_STDERR_BYTES);
-      stderrBytes = next.bytes;
-      if (next.overflow) {
-        terminate(parserError("PARSE_STDERR_LIMIT"));
-      }
-    });
-
-    proc.on("close", (code, signal) => {
-      if (settled) return;
-      const stdout = Buffer.concat(stdoutChunks).toString("utf8");
-      const stderr = Buffer.concat(stderrChunks).toString("utf8");
-      if (code !== 0) {
-        settleReject(parserError("PARSER_EXITED", `${code ?? signal ?? "unknown"}:${stderr.slice(0, 300)}`));
-        return;
-      }
-      try {
-        settleResolve(parseParserOutput(stdout));
-      } catch (err) {
-        settleReject(err instanceof Error ? err : parserError("PARSE_OUTPUT_INVALID"));
-      }
-    });
-
-    proc.on("error", (err) => {
-      settleReject(parserError("PARSER_SPAWN_FAILED", err.message));
-    });
-  });
+  const text = await resp.text();
+  if (!resp.ok) {
+    throw parserError("PARSER_EXITED", `HTTP ${resp.status}: ${text.slice(0, 300)}`);
+  }
+  return parseParserOutput(text);
 }
 
 function defaultTempPath() {

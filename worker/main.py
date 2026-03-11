@@ -3396,6 +3396,79 @@ def worker_loop() -> None:
     log.info("Worker shut down")
 
 
+def _run_parser(pdf_path: str, force_pro: bool = False) -> dict:
+    """playground_parser.main() 로직을 인라인으로 실행하여 JSON dict 반환."""
+    from ralph.playground_parser import (
+        extract_text, assess_text_quality, classify_no_vlm,
+        call_nova_visual, render_first_page, render_pages,
+        build_presentation_prompt, _PROMPT_OCR,
+    )
+
+    model_pro  = os.getenv("RALPH_VLM_NOVA_MODEL_ID",      "us.amazon.nova-pro-v1:0")
+    model_lite = os.getenv("RALPH_VLM_NOVA_LITE_MODEL_ID", "us.amazon.nova-lite-v1:0")
+    region     = os.getenv("RALPH_VLM_NOVA_REGION",        "us-east-1")
+    use_vlm    = os.getenv("RALPH_USE_VLM", "true").lower() != "false"
+
+    text, pages, blocks = extract_text(pdf_path)
+    quality, is_poor, is_fragmented = assess_text_quality(text, blocks, page_count=pages)
+    filename = os.path.basename(pdf_path)
+    clf = classify_no_vlm(pdf_path, filename)
+
+    method = "pymupdf"
+    text_structure = "document"
+    visual_description = None
+
+    if force_pro and use_vlm:
+        try:
+            img_bytes = render_first_page(pdf_path, dpi=150)
+            visual_description = call_nova_visual(img_bytes, model_pro, region, _PROMPT_OCR)
+            method = "nova_pro"
+            text_structure = "image"
+        except Exception as e:
+            visual_description = {"error": str(e)}
+            method = "nova_error"
+            text_structure = "image"
+    elif is_poor and use_vlm:
+        try:
+            img_bytes = render_first_page(pdf_path)
+            visual_description = call_nova_visual(img_bytes, model_lite, region, _PROMPT_OCR)
+            method = "nova_hybrid"
+            text_structure = "image"
+        except Exception as e:
+            visual_description = {"error": str(e)}
+            method = "nova_error"
+            text_structure = "image"
+    elif is_fragmented and use_vlm:
+        try:
+            imgs = render_pages(pdf_path)
+            prompt = build_presentation_prompt(
+                [{"page": i + 1} for i in range(len(imgs))]
+            )
+            visual_description = call_nova_visual(imgs, model_pro, region, prompt, max_tokens=5000)
+            method = "nova_presentation"
+            text_structure = "presentation"
+        except Exception as e:
+            visual_description = {"error": str(e)}
+            method = "nova_error"
+            text_structure = "presentation"
+
+    return {
+        "ok": True,
+        "text": text,
+        "pages": pages,
+        "method": method,
+        "text_quality": round(quality, 3),
+        "is_poor": is_poor,
+        "is_fragmented": is_fragmented,
+        "text_structure": text_structure,
+        "doc_type": clf.get("doc_type"),
+        "confidence": clf.get("confidence", 0.0),
+        "detection_method": clf.get("detection_method", "none"),
+        "description": clf.get("description"),
+        "visual_description": visual_description,
+    }
+
+
 def _start_health_server(
     in_flight: Dict[str, Future],
     shutdown_event: threading.Event,
@@ -3427,6 +3500,68 @@ def _start_health_server(
             else:
                 self.send_response(404)
                 self.end_headers()
+
+        def do_POST(self) -> None:
+            import urllib.parse
+            parsed_path = urllib.parse.urlparse(self.path)
+            if parsed_path.path == "/parse":
+                self._handle_parse(parsed_path.query)
+            else:
+                self.send_response(404)
+                self.end_headers()
+
+        def _handle_parse(self, query_string: str) -> None:
+            import tempfile
+            import urllib.parse
+
+            # Auth
+            secret = os.getenv("PARSER_INTERNAL_SECRET", "")
+            if secret and self.headers.get("X-Parse-Token", "") != secret:
+                self._json_response(401, {"ok": False, "error": "UNAUTHORIZED"})
+                return
+
+            # Query params
+            params = urllib.parse.parse_qs(query_string)
+            force_pro = params.get("force_pro", ["false"])[0].lower() == "true"
+
+            # Read PDF bytes
+            try:
+                content_length = int(self.headers.get("Content-Length", 0))
+            except ValueError:
+                content_length = 0
+            MAX_PDF_BYTES = 50 * 1024 * 1024
+            if content_length <= 0 or content_length > MAX_PDF_BYTES:
+                self._json_response(413, {"ok": False, "error": "INVALID_SIZE"})
+                return
+
+            pdf_bytes = self.rfile.read(content_length)
+
+            # Write to temp and parse
+            tmp_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+                    f.write(pdf_bytes)
+                    tmp_path = f.name
+
+                result = _run_parser(tmp_path, force_pro)
+                self._json_response(200, result)
+            except Exception as e:
+                log.warning("[parse] error: %s", e)
+                self._json_response(500, {"ok": False, "error": str(e)})
+            finally:
+                if tmp_path:
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+
+        def _json_response(self, code: int, data: dict) -> None:
+            body = json.dumps(data).encode()
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
         def _handle_health(self) -> None:
             is_shutting_down = shutdown_event.is_set()
