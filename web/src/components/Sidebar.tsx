@@ -2,22 +2,12 @@
 
 import * as React from "react";
 import {
-  AlertTriangle,
   ChevronLeft,
   ChevronRight,
   ClipboardList,
-  FileSpreadsheet,
-  FileText,
   Files,
-  FlaskConical,
-  History,
-  LayoutDashboard,
-  LineChart,
   LogOut,
-  ScanSearch,
   Settings,
-  TrendingUp,
-  UploadCloud,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -26,18 +16,8 @@ import { cn } from "@/lib/cn";
 import type { WorkspaceSession } from "@/lib/workspace";
 
 const nav = [
-  { href: "/hub",             label: "협업 허브",      icon: LayoutDashboard, group: "main" },
-  { href: "/analysis",        label: "분석",           icon: UploadCloud,     group: "main" },
   { href: "/report",          label: "투자심사",       icon: ClipboardList,   group: "main" },
-  { href: "/funds",           label: "펀드",           icon: LineChart,       group: "main" },
-  { href: "/exit-projection", label: "Exit 프로젝션",  icon: TrendingUp,      group: "tools" },
-  { href: "/check",           label: "조건 검사",      icon: ScanSearch,      group: "tools" },
-  { href: "/documents",       label: "문서 추출",      icon: Files,           group: "tools" },
-  { href: "/extract",         label: "재무 일괄 추출", icon: FileSpreadsheet, group: "tools" },
-  { href: "/drafts",          label: "드래프트",       icon: FileText,        group: "manage" },
-  { href: "/review",          label: "검토 큐",        icon: AlertTriangle,   group: "manage" },
-  { href: "/history",         label: "작업 이력",      icon: History,         group: "manage" },
-  { href: "/playground",      label: "플레이그라운드", icon: FlaskConical,    group: "dev" },
+  { href: "/documents",       label: "문서 추출",      icon: Files,           group: "main" },
   { href: "/admin",           label: "관리자",         icon: Settings,        group: "dev" },
 ];
 
