@@ -9,11 +9,12 @@ import remarkGfm from "remark-gfm";
 
 import {
   DecisionTree,
-  DECISION_QUESTIONS,
   buildDecisionContext,
   parseDecisionsFromMessages,
   formatDecisionMessage,
+  formatCustomBranchMessage,
   type DecisionRecord,
+  type DecisionQuestion,
 } from "@/components/report/DecisionTree";
 import { PresenceBar } from "@/components/report/PresenceBar";
 import { Badge } from "@/components/ui/Badge";
@@ -95,9 +96,18 @@ function buildSectionPrompt(section: TocSection, meta: ReportSessionMeta | null)
 }
 
 const DECISION_PREFIX = "[의사결정]";
+const BRANCH_PREFIX = "[새분기]";
 
 function isDecisionMessage(content: string): boolean {
   return content.startsWith(DECISION_PREFIX);
+}
+
+function isBranchMessage(content: string): boolean {
+  return content.startsWith(BRANCH_PREFIX);
+}
+
+function isSystemMessage(content: string): boolean {
+  return isDecisionMessage(content) || isBranchMessage(content);
 }
 
 export default function ReportSessionPage() {
@@ -116,6 +126,7 @@ export default function ReportSessionPage() {
   // Decision tree state
   const [showTree, setShowTree] = React.useState(false);
   const [decisions, setDecisions] = React.useState<DecisionRecord[]>([]);
+  const [customQuestions, setCustomQuestions] = React.useState<DecisionQuestion[]>([]);
   const [rememberedToast, setRememberedToast] = React.useState<string | null>(null);
 
   const loadMeta = React.useCallback(async () => {
@@ -133,8 +144,10 @@ export default function ReportSessionPage() {
       const res = await apiFetch<{ messages: ReportMessage[] }>(`/api/report/${sessionId}/messages`);
       const msgs = res.messages || [];
       setMessages(msgs);
-      // Extract decisions from message history
-      setDecisions(parseDecisionsFromMessages(msgs));
+      // Extract decisions and custom branches from message history
+      const parsed = parseDecisionsFromMessages(msgs);
+      setDecisions(parsed.decisions);
+      setCustomQuestions(parsed.customQuestions);
     } catch {
       setError("메시지를 불러오지 못했습니다.");
     }
@@ -171,7 +184,7 @@ export default function ReportSessionPage() {
 
     // Inject decision context into the message if decisions exist
     const decisionCtx = buildDecisionContext(decisions);
-    const enrichedMessage = decisionCtx && !isDecisionMessage(text)
+    const enrichedMessage = decisionCtx && !isSystemMessage(text)
       ? `${text}\n\n---\n${decisionCtx}`
       : text;
 
@@ -230,6 +243,47 @@ export default function ReportSessionPage() {
     }
   }
 
+  // Fetch next autoregressive branch question from LLM
+  async function fetchNextBranch(allDecisions: DecisionRecord[]) {
+    try {
+      const res = await fetch("/api/report/next-branch", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sessionId,
+          decisions: allDecisions.map((d) => ({ question: d.question, answer: d.answer })),
+          companyName: meta?.companyName,
+          fundName: meta?.fundName,
+        }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.ok || !data.question) return;
+
+      const qId = `auto_${Date.now()}`;
+      const newQ: DecisionQuestion = {
+        id: qId,
+        question: data.question,
+        merryComment: data.merryComment || "메리가 추천하는 다음 질문이에요.",
+        options: (data.options || []).map((label: string) => ({ label, value: label })),
+        allowCustom: true,
+        userCreated: false,
+      };
+      setCustomQuestions((prev) => [...prev, newQ]);
+
+      // Persist the auto-generated branch so it's restored on reload
+      const msg = formatCustomBranchMessage(qId, data.question, data.options || []);
+      // Save silently — don't trigger full chat flow, just persist
+      await fetch("/api/report/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId, message: msg }),
+      });
+    } catch {
+      // Silently fail — autoregressive branch is optional
+    }
+  }
+
   // Decision tree handler
   function handleDecision(
     questionId: string,
@@ -237,6 +291,7 @@ export default function ReportSessionPage() {
     answer: string,
     _value: string,
     custom?: boolean,
+    userCreated?: boolean,
   ) {
     const record: DecisionRecord = {
       questionId,
@@ -244,15 +299,40 @@ export default function ReportSessionPage() {
       answer,
       value: _value,
       custom,
+      userCreated,
       timestamp: new Date().toISOString(),
     };
-    setDecisions((prev) => [...prev, record]);
+
+    const updatedDecisions = [...decisions, record];
+    setDecisions(updatedDecisions);
 
     // Show "remembered" toast
     setRememberedToast(answer);
 
     // Send as a message so it persists and the LLM sees it
     const msg = formatDecisionMessage(questionId, question, answer, custom);
+    sendMessage(msg);
+
+    // Auto-generate next branch question after a short delay
+    // (give sendMessage time to start so we don't conflict)
+    setTimeout(() => fetchNextBranch(updatedDecisions), 1500);
+  }
+
+  // Custom branch creation handler (manual)
+  function handleAddBranch(question: string, options: string[]) {
+    const qId = `custom_${Date.now()}`;
+    const newQ: DecisionQuestion = {
+      id: qId,
+      question,
+      merryComment: "심사역이 추가한 커스텀 분기에요.",
+      options: options.map((label) => ({ label, value: label })),
+      allowCustom: true,
+      userCreated: true,
+    };
+    setCustomQuestions((prev) => [...prev, newQ]);
+
+    // Persist as a message so it's restored on reload
+    const msg = formatCustomBranchMessage(qId, question, options);
     sendMessage(msg);
   }
 
@@ -344,6 +424,11 @@ export default function ReportSessionPage() {
           <div className="mx-auto max-w-3xl space-y-4">
             {messages.length ? (
               messages.map((m, idx) => {
+                // Hide branch definition messages (internal bookkeeping)
+                if (m.role === "user" && isBranchMessage(m.content)) {
+                  return null;
+                }
+
                 // Render decision messages differently
                 if (m.role === "user" && isDecisionMessage(m.content)) {
                   const body = m.content.slice(DECISION_PREFIX.length).trim();
@@ -548,7 +633,9 @@ export default function ReportSessionPage() {
 
           <DecisionTree
             decisions={decisions}
+            customQuestions={customQuestions}
             onDecision={handleDecision}
+            onAddBranch={handleAddBranch}
             sending={sending}
           />
         </div>

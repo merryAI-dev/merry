@@ -1,8 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronRight, GitBranch, MessageCircle, Sparkles } from "lucide-react";
-import { Button } from "@/components/ui/Button";
+import { Check, ChevronRight, GitBranch, MessageCircle, Plus, Sparkles, X } from "lucide-react";
 
 /* ── Decision tree schema ── */
 
@@ -14,9 +13,10 @@ export type DecisionOption = {
 export type DecisionQuestion = {
   id: string;
   question: string;
-  merryComment: string; // Merry's personality comment
+  merryComment: string;
   options: DecisionOption[];
   allowCustom?: boolean;
+  userCreated?: boolean; // 사용자가 직접 만든 분기
 };
 
 export type DecisionRecord = {
@@ -25,10 +25,11 @@ export type DecisionRecord = {
   answer: string;
   value: string;
   custom?: boolean;
+  userCreated?: boolean;
   timestamp: string;
 };
 
-export const DECISION_QUESTIONS: DecisionQuestion[] = [
+const DEFAULT_QUESTIONS: DecisionQuestion[] = [
   {
     id: "startup_type",
     question: "이 스타트업의 주요 특성은 무엇인가요?",
@@ -50,6 +51,7 @@ export const DECISION_QUESTIONS: DecisionQuestion[] = [
       { label: "Series A", value: "series_a" },
       { label: "Series B 이상", value: "series_b_plus" },
     ],
+    allowCustom: true,
   },
   {
     id: "impact_area",
@@ -87,6 +89,7 @@ export const DECISION_QUESTIONS: DecisionQuestion[] = [
       { label: "세컨더리 매각", value: "secondary" },
       { label: "아직 불명확", value: "unclear" },
     ],
+    allowCustom: true,
   },
   {
     id: "risk_priority",
@@ -107,7 +110,8 @@ export const DECISION_QUESTIONS: DecisionQuestion[] = [
 export function buildDecisionContext(decisions: DecisionRecord[]): string {
   if (!decisions.length) return "";
   const lines = decisions.map(
-    (d) => `- ${d.question}: ${d.answer}${d.custom ? " (심사역 직접 입력)" : ""}`
+    (d) =>
+      `- ${d.question}: ${d.answer}${d.custom ? " (심사역 직접 입력)" : ""}${d.userCreated ? " [커스텀 분기]" : ""}`
   );
   return (
     "[의사결정 분기 기록]\n" +
@@ -118,14 +122,40 @@ export function buildDecisionContext(decisions: DecisionRecord[]): string {
 
 /* ── Helper: parse decisions from message history ── */
 const DECISION_PREFIX = "[의사결정]";
+const CUSTOM_BRANCH_PREFIX = "[새분기]";
 
 export function parseDecisionsFromMessages(
   messages: { role: string; content: string }[]
-): DecisionRecord[] {
-  const records: DecisionRecord[] = [];
+): { decisions: DecisionRecord[]; customQuestions: DecisionQuestion[] } {
+  const decisions: DecisionRecord[] = [];
+  const customQuestions: DecisionQuestion[] = [];
+
   for (const m of messages) {
-    if (m.role !== "user" || !m.content.startsWith(DECISION_PREFIX)) continue;
-    // Format: [의사결정] questionId | question: answer
+    if (m.role !== "user") continue;
+
+    // Parse custom branch definitions
+    if (m.content.startsWith(CUSTOM_BRANCH_PREFIX)) {
+      const body = m.content.slice(CUSTOM_BRANCH_PREFIX.length).trim();
+      // Format: [새분기] questionId | question | opt1, opt2, opt3
+      const parts = body.split("|").map((s) => s.trim());
+      if (parts.length >= 2) {
+        const qId = parts[0];
+        const question = parts[1];
+        const optLabels = parts[2] ? parts[2].split(",").map((s) => s.trim()).filter(Boolean) : [];
+        customQuestions.push({
+          id: qId,
+          question,
+          merryComment: "심사역이 추가한 커스텀 분기에요.",
+          options: optLabels.map((label) => ({ label, value: label })),
+          allowCustom: true,
+          userCreated: true,
+        });
+      }
+      continue;
+    }
+
+    // Parse decisions
+    if (!m.content.startsWith(DECISION_PREFIX)) continue;
     const body = m.content.slice(DECISION_PREFIX.length).trim();
     const pipeIdx = body.indexOf("|");
     if (pipeIdx < 0) continue;
@@ -136,16 +166,19 @@ export function parseDecisionsFromMessages(
     const question = rest.slice(0, colonIdx).trim();
     const answer = rest.slice(colonIdx + 1).trim();
     const isCustom = answer.endsWith("(직접입력)");
-    records.push({
+    const isUserCreated = questionId.startsWith("custom_");
+    decisions.push({
       questionId,
       question,
       answer: isCustom ? answer.replace("(직접입력)", "").trim() : answer,
       value: answer,
       custom: isCustom,
+      userCreated: isUserCreated,
       timestamp: new Date().toISOString(),
     });
   }
-  return records;
+
+  return { decisions, customQuestions };
 }
 
 export function formatDecisionMessage(
@@ -157,36 +190,75 @@ export function formatDecisionMessage(
   return `${DECISION_PREFIX} ${questionId} | ${question}: ${answer}${custom ? " (직접입력)" : ""}`;
 }
 
+export function formatCustomBranchMessage(
+  questionId: string,
+  question: string,
+  options: string[]
+): string {
+  return `${CUSTOM_BRANCH_PREFIX} ${questionId} | ${question} | ${options.join(", ")}`;
+}
+
 /* ── Props ── */
 type Props = {
   decisions: DecisionRecord[];
-  onDecision: (questionId: string, question: string, answer: string, value: string, custom?: boolean) => void;
+  customQuestions: DecisionQuestion[];
+  onDecision: (questionId: string, question: string, answer: string, value: string, custom?: boolean, userCreated?: boolean) => void;
+  onAddBranch: (question: string, options: string[]) => void;
   sending?: boolean;
-  compact?: boolean;
 };
 
 /* ── Component ── */
-export function DecisionTree({ decisions, onDecision, sending, compact }: Props) {
+export function DecisionTree({ decisions, customQuestions, onDecision, onAddBranch, sending }: Props) {
   const [customInput, setCustomInput] = React.useState("");
   const [showCustom, setShowCustom] = React.useState(false);
 
+  // New branch creation state
+  const [showNewBranch, setShowNewBranch] = React.useState(false);
+  const [newQuestion, setNewQuestion] = React.useState("");
+  const [newOptions, setNewOptions] = React.useState<string[]>([""]);
+
+  // Merge default + custom questions
+  const allQuestions = React.useMemo(
+    () => [...DEFAULT_QUESTIONS, ...customQuestions],
+    [customQuestions]
+  );
+
   const answeredIds = new Set(decisions.map((d) => d.questionId));
-  const nextQuestion = DECISION_QUESTIONS.find((q) => !answeredIds.has(q.id));
-  const allDone = !nextQuestion;
+  const nextQuestion = allQuestions.find((q) => !answeredIds.has(q.id));
+  const allDefaultDone = DEFAULT_QUESTIONS.every((q) => answeredIds.has(q.id));
+  const allDone = allQuestions.every((q) => answeredIds.has(q.id));
   const progress = decisions.length;
-  const total = DECISION_QUESTIONS.length;
+  const total = allQuestions.length;
 
   function handleSelect(q: DecisionQuestion, opt: DecisionOption) {
     setShowCustom(false);
     setCustomInput("");
-    onDecision(q.id, q.question, opt.label, opt.value, false);
+    onDecision(q.id, q.question, opt.label, opt.value, false, q.userCreated);
   }
 
   function handleCustomSubmit(q: DecisionQuestion) {
     if (!customInput.trim()) return;
-    onDecision(q.id, q.question, customInput.trim(), customInput.trim(), true);
+    onDecision(q.id, q.question, customInput.trim(), customInput.trim(), true, q.userCreated);
     setCustomInput("");
     setShowCustom(false);
+  }
+
+  function handleAddOption() {
+    setNewOptions((prev) => [...prev, ""]);
+  }
+
+  function handleRemoveOption(idx: number) {
+    setNewOptions((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function handleSubmitBranch() {
+    const q = newQuestion.trim();
+    const opts = newOptions.map((o) => o.trim()).filter(Boolean);
+    if (!q) return;
+    onAddBranch(q, opts);
+    setNewQuestion("");
+    setNewOptions([""]);
+    setShowNewBranch(false);
   }
 
   return (
@@ -207,7 +279,7 @@ export function DecisionTree({ decisions, onDecision, sending, compact }: Props)
             <div
               className="h-full rounded-full transition-all duration-500"
               style={{
-                width: `${(progress / total) * 100}%`,
+                width: total > 0 ? `${(progress / total) * 100}%` : "0%",
                 background: allDone
                   ? "var(--accent)"
                   : "linear-gradient(90deg, var(--accent), #34D399)",
@@ -223,7 +295,7 @@ export function DecisionTree({ decisions, onDecision, sending, compact }: Props)
       {/* Tree nodes */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
         <div className="space-y-1">
-          {DECISION_QUESTIONS.map((q, i) => {
+          {allQuestions.map((q, i) => {
             const decision = decisions.find((d) => d.questionId === q.id);
             const isNext = nextQuestion?.id === q.id;
             const isFuture = !decision && !isNext;
@@ -280,21 +352,28 @@ export function DecisionTree({ decisions, onDecision, sending, compact }: Props)
                       {decision ? <Check className="h-3 w-3" /> : i + 1}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div
-                        className="text-[12.5px] font-semibold leading-snug"
-                        style={{ color: isFuture ? "var(--muted)" : "var(--ink)" }}
-                      >
-                        {q.question}
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className="text-[12.5px] font-semibold leading-snug"
+                          style={{ color: isFuture ? "var(--muted)" : "var(--ink)" }}
+                        >
+                          {q.question}
+                        </span>
+                        {q.userCreated && (
+                          <span
+                            className="shrink-0 rounded px-1 py-0.5 text-[9px] font-medium"
+                            style={{ background: "var(--accent-dim)", color: "var(--accent)" }}
+                          >
+                            커스텀
+                          </span>
+                        )}
                       </div>
 
                       {/* Answered */}
                       {decision && (
                         <div className="mt-1 flex items-center gap-1.5">
                           <ChevronRight className="h-3 w-3 shrink-0" style={{ color: "var(--accent)" }} />
-                          <span
-                            className="text-[12px] font-medium"
-                            style={{ color: "var(--accent)" }}
-                          >
+                          <span className="text-[12px] font-medium" style={{ color: "var(--accent)" }}>
                             {decision.answer}
                           </span>
                           {decision.custom && (
@@ -347,7 +426,7 @@ export function DecisionTree({ decisions, onDecision, sending, compact }: Props)
                         ))}
                       </div>
 
-                      {/* Custom input */}
+                      {/* Custom input for answer */}
                       {q.allowCustom && (
                         <div className="mt-1">
                           {showCustom ? (
@@ -375,10 +454,7 @@ export function DecisionTree({ decisions, onDecision, sending, compact }: Props)
                                 onClick={() => handleCustomSubmit(q)}
                                 disabled={!customInput.trim()}
                                 className="rounded-lg px-2.5 py-1.5 text-[11px] font-medium disabled:opacity-40"
-                                style={{
-                                  background: "var(--accent)",
-                                  color: "#fff",
-                                }}
+                                style={{ background: "var(--accent)", color: "#fff" }}
                               >
                                 확인
                               </button>
@@ -411,8 +487,141 @@ export function DecisionTree({ decisions, onDecision, sending, compact }: Props)
           })}
         </div>
 
-        {/* Completion */}
-        {allDone && (
+        {/* ── Add custom branch ── */}
+        <div className="mt-4">
+          {showNewBranch ? (
+            <div
+              className="rounded-xl p-3.5 space-y-3"
+              style={{
+                background: "var(--bg-subtle)",
+                border: "1.5px dashed var(--accent)",
+              }}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-[12px] font-bold" style={{ color: "var(--ink)" }}>
+                  새 분기 추가
+                </span>
+                <button
+                  onClick={() => {
+                    setShowNewBranch(false);
+                    setNewQuestion("");
+                    setNewOptions([""]);
+                  }}
+                  className="rounded p-0.5"
+                >
+                  <X className="h-3.5 w-3.5" style={{ color: "var(--ink-light)" }} />
+                </button>
+              </div>
+
+              {/* Question input */}
+              <div>
+                <label className="block text-[11px] font-medium mb-1" style={{ color: "var(--ink-light)" }}>
+                  질문
+                </label>
+                <input
+                  value={newQuestion}
+                  onChange={(e) => setNewQuestion(e.target.value)}
+                  placeholder="예: 이 기업의 핵심 경쟁우위는?"
+                  className="w-full rounded-lg px-2.5 py-2 text-[12px] outline-none"
+                  style={{
+                    background: "var(--bg-elevated)",
+                    border: "1px solid var(--card-border)",
+                    color: "var(--ink)",
+                  }}
+                  onFocus={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; }}
+                  onBlur={(e) => { e.currentTarget.style.borderColor = "var(--card-border)"; }}
+                />
+              </div>
+
+              {/* Options */}
+              <div>
+                <label className="block text-[11px] font-medium mb-1" style={{ color: "var(--ink-light)" }}>
+                  선택지 (없으면 자유입력만 가능)
+                </label>
+                <div className="space-y-1.5">
+                  {newOptions.map((opt, idx) => (
+                    <div key={idx} className="flex gap-1.5">
+                      <input
+                        value={opt}
+                        onChange={(e) => {
+                          const next = [...newOptions];
+                          next[idx] = e.target.value;
+                          setNewOptions(next);
+                        }}
+                        placeholder={`선택지 ${idx + 1}`}
+                        className="flex-1 rounded-lg px-2.5 py-1.5 text-[12px] outline-none"
+                        style={{
+                          background: "var(--bg-elevated)",
+                          border: "1px solid var(--card-border)",
+                          color: "var(--ink)",
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleAddOption();
+                          }
+                        }}
+                      />
+                      {newOptions.length > 1 && (
+                        <button
+                          onClick={() => handleRemoveOption(idx)}
+                          className="rounded p-1 hover:bg-[var(--bg-overlay)]"
+                        >
+                          <X className="h-3 w-3" style={{ color: "var(--ink-light)" }} />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                <button
+                  onClick={handleAddOption}
+                  className="mt-1.5 flex items-center gap-1 text-[11px] font-medium"
+                  style={{ color: "var(--ink-light)" }}
+                >
+                  <Plus className="h-3 w-3" />
+                  선택지 추가
+                </button>
+              </div>
+
+              {/* Submit */}
+              <button
+                onClick={handleSubmitBranch}
+                disabled={!newQuestion.trim()}
+                className="w-full rounded-lg py-2 text-[12px] font-bold disabled:opacity-40 transition-all"
+                style={{
+                  background: "var(--accent)",
+                  color: "#fff",
+                }}
+              >
+                분기 추가하기
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setShowNewBranch(true)}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl py-2.5 text-[12px] font-medium transition-all hover:scale-[1.01]"
+              style={{
+                border: "1.5px dashed var(--card-border)",
+                color: "var(--ink-light)",
+                background: "transparent",
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = "var(--accent)";
+                e.currentTarget.style.color = "var(--accent)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = "var(--card-border)";
+                e.currentTarget.style.color = "var(--ink-light)";
+              }}
+            >
+              <Plus className="h-3.5 w-3.5" />
+              새 분기 추가
+            </button>
+          )}
+        </div>
+
+        {/* Completion (only when all done and no new branch form open) */}
+        {allDone && !showNewBranch && (
           <div
             className="mt-4 rounded-xl px-4 py-3 text-center"
             style={{
@@ -423,13 +632,13 @@ export function DecisionTree({ decisions, onDecision, sending, compact }: Props)
             <div className="flex items-center justify-center gap-2">
               <Sparkles className="h-4 w-4" style={{ color: "var(--accent)" }} />
               <span className="text-[13px] font-bold" style={{ color: "var(--accent)" }}>
-                분기 완료!
+                {allDefaultDone && customQuestions.length === 0 ? "기본 분기 완료!" : "모든 분기 완료!"}
               </span>
             </div>
             <p className="mt-1.5 text-[11px]" style={{ color: "var(--ink-light)" }}>
               메리가 모든 의사결정을 기억하고 있어요.
               <br />
-              보고서 작성에 반영할게요.
+              새 분기를 추가하면 더 세밀한 심사가 가능해요.
             </p>
           </div>
         )}
