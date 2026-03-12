@@ -16,17 +16,11 @@ import { cn } from "@/lib/cn";
 import type { WorkspaceSession } from "@/lib/workspace";
 
 const nav = [
-  { href: "/report",          label: "투자심사",       icon: ClipboardList,   group: "main" },
-  { href: "/documents",       label: "문서 추출",      icon: Files,           group: "main" },
-  { href: "/admin",           label: "관리자",         icon: Settings,        group: "dev" },
+  { href: "/report",          label: "투자심사",       icon: ClipboardList },
+  { href: "/documents",       label: "문서 추출",      icon: Files },
+  { href: "/admin",           label: "관리자",         icon: Settings },
 ];
 
-const groupLabels: Record<string, string> = {
-  main: "메인",
-  tools: "도구",
-  manage: "관리",
-  dev: "개발",
-};
 
 const STORAGE_KEY = "merry-sidebar-collapsed";
 
@@ -58,8 +52,6 @@ export function Sidebar({ workspace }: { workspace: WorkspaceSession }) {
       setBusy(false);
     }
   }
-
-  const groups = ["main", "tools", "manage", "dev"];
 
   return (
     <aside
@@ -139,77 +131,60 @@ export function Sidebar({ workspace }: { workspace: WorkspaceSession }) {
           className="flex-1 px-2 py-3 flex flex-col overflow-y-auto"
           style={{ gap: "1px" }}
         >
-          {groups.map((group) => {
-            const items = nav.filter((n) => n.group === group);
+          {nav.map((item) => {
+            const Icon = item.icon;
+            const active = pathname === item.href || pathname.startsWith(item.href + "/");
             return (
-              <div key={group} className="mb-1">
-                {/* Group label */}
-                {!collapsed && (
-                  <div
-                    className="px-3 py-1 text-[10px] font-semibold tracking-widest uppercase"
-                    style={{ color: "var(--muted)" }}
-                  >
-                    {groupLabels[group]}
-                  </div>
+              <Link
+                key={item.href}
+                href={item.href}
+                title={collapsed ? item.label : undefined}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "group relative flex items-center rounded-xl text-[13px] font-medium",
+                  "transition-all duration-150",
+                  collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2",
                 )}
-                {items.map((item) => {
-                  const Icon = item.icon;
-                  const active = pathname === item.href || pathname.startsWith(item.href + "/");
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      title={collapsed ? item.label : undefined}
-                      aria-current={active ? "page" : undefined}
-                      className={cn(
-                        "group relative flex items-center rounded-xl text-[13px] font-medium",
-                        "transition-all duration-150",
-                        collapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2",
-                      )}
-                      style={
-                        active
-                          ? {
-                              background: "rgba(124, 58, 237, 0.15)",
-                              color: "#A78BFA",
-                            }
-                          : {}
+                style={
+                  active
+                    ? {
+                        background: "rgba(124, 58, 237, 0.15)",
+                        color: "#A78BFA",
                       }
-                      onMouseEnter={(e) => {
-                        if (!active) {
-                          (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.05)";
-                          (e.currentTarget as HTMLElement).style.color = "var(--ink)";
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!active) {
-                          (e.currentTarget as HTMLElement).style.background = "";
-                          (e.currentTarget as HTMLElement).style.color = "";
-                        }
-                      }}
-                    >
-                      {/* Left border */}
-                      {!collapsed && (
-                        <span
-                          className={cn(
-                            "absolute left-0 top-1 bottom-1 w-[3px] rounded-full transition-all duration-150",
-                            active ? "opacity-100" : "opacity-0 group-hover:opacity-40",
-                          )}
-                          style={{ background: "#7C3AED" }}
-                        />
-                      )}
-                      <Icon
-                        className="h-[17px] w-[17px] shrink-0 transition-colors duration-150"
-                        style={{ color: active ? "#A78BFA" : "var(--muted)" }}
-                      />
-                      {!collapsed && (
-                        <span style={{ color: active ? "#A78BFA" : "var(--ink-light)" }}>
-                          {item.label}
-                        </span>
-                      )}
-                    </Link>
-                  );
-                })}
-              </div>
+                    : {}
+                }
+                onMouseEnter={(e) => {
+                  if (!active) {
+                    (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.05)";
+                    (e.currentTarget as HTMLElement).style.color = "var(--ink)";
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!active) {
+                    (e.currentTarget as HTMLElement).style.background = "";
+                    (e.currentTarget as HTMLElement).style.color = "";
+                  }
+                }}
+              >
+                {!collapsed && (
+                  <span
+                    className={cn(
+                      "absolute left-0 top-1 bottom-1 w-[3px] rounded-full transition-all duration-150",
+                      active ? "opacity-100" : "opacity-0 group-hover:opacity-40",
+                    )}
+                    style={{ background: "#7C3AED" }}
+                  />
+                )}
+                <Icon
+                  className="h-[17px] w-[17px] shrink-0 transition-colors duration-150"
+                  style={{ color: active ? "#A78BFA" : "var(--muted)" }}
+                />
+                {!collapsed && (
+                  <span style={{ color: active ? "#A78BFA" : "var(--ink-light)" }}>
+                    {item.label}
+                  </span>
+                )}
+              </Link>
             );
           })}
         </nav>
