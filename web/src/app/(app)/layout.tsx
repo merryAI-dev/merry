@@ -17,17 +17,21 @@ export default async function AppLayout({
   const _ws = ws ?? { teamId: "dev", memberName: "dev" };
 
   return (
-    <>
-      {/* Mobile: top header + slide-out drawer */}
-      <MobileNav workspace={_ws} />
-
-      <div className="flex gap-4 px-3 py-3 max-md:px-0 max-md:py-0">
-        {/* Desktop sidebar — hidden on mobile */}
-        <div className="hidden md:block">
-          <Sidebar workspace={_ws} />
-        </div>
-        <main className="min-w-0 flex-1 pb-8 max-md:px-4 max-md:pt-4">{children}</main>
+    <div className="flex h-screen overflow-hidden" style={{ background: "var(--bg)" }}>
+      {/* Desktop sidebar — hidden on mobile */}
+      <div className="hidden md:flex md:flex-col md:shrink-0">
+        <Sidebar workspace={_ws} />
       </div>
-    </>
+
+      {/* Right side: mobile topbar + scrollable content */}
+      <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
+        {/* Mobile: top header + slide-out drawer */}
+        <MobileNav workspace={_ws} />
+
+        <main className="flex-1 overflow-y-auto">
+          {children}
+        </main>
+      </div>
+    </div>
   );
 }

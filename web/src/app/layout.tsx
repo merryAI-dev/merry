@@ -44,10 +44,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko" className="light" style={{ colorScheme: "light" }}>
+    <html lang="ko" style={{ colorScheme: "dark" }}>
       <body
         className={`${fontSans.variable} ${fontDisplay.variable} ${fontMono.variable} ${fontKorean.variable} antialiased`}
-        style={{ background: "#ffffff", color: "#001e46" }}
+        style={{ background: "var(--bg)", color: "var(--ink)" }}
       >
         <NetworkBanner />
         <ToastProvider>{children}</ToastProvider>
