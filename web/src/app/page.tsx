@@ -99,21 +99,6 @@ export default async function Home({
         {/* Hero */}
         <div className="text-center mb-12 max-w-lg">
           {/* Eyebrow */}
-          <div
-            className="inline-flex items-center gap-2 text-xs font-semibold tracking-[0.12em] uppercase mb-6 px-4 py-2 rounded-full"
-            style={{
-              background: "rgba(20,184,166,0.08)",
-              border: "1px solid rgba(20,184,166,0.2)",
-              color: "#2DD4BF",
-            }}
-          >
-            <span
-              className="w-1.5 h-1.5 rounded-full"
-              style={{ background: "#2DD4BF", boxShadow: "0 0 6px #2DD4BF" }}
-            />
-            VC 투자 분석 워크스페이스
-          </div>
-
           <h1
             className="text-[52px] font-black leading-[1.1] tracking-[-0.03em] mb-4"
             style={{
@@ -138,7 +123,7 @@ export default async function Home({
             className="text-base leading-relaxed"
             style={{ color: "var(--ink-light)", fontFamily: "var(--font-korean, system-ui)" }}
           >
-            심사역과 AI가 함께 만드는 협업 분석 워크스페이스
+            AI 심사역 동료 메리와 함께 하는 투자 여정
           </p>
         </div>
 

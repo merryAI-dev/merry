@@ -171,22 +171,6 @@ export function LoginPanel({
 
       {googleEnabled ? (
         <>
-          {/* Domain badge */}
-          <div
-            className="flex items-center gap-2 px-3 py-2 rounded-xl mb-4 text-xs"
-            style={{
-              background: "rgba(124,58,237,0.06)",
-              border: "1px solid rgba(124,58,237,0.15)",
-              color: "#A78BFA",
-            }}
-          >
-            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
-            <span>
-              도메인 제한:{" "}
-              <span className="font-semibold text-white">@mysc.co.kr</span>
-            </span>
-          </div>
-
           <button
             onClick={loginWithGoogle}
             className="w-full h-12 rounded-xl font-semibold text-sm flex items-center justify-center gap-2.5 transition-all duration-150 active:scale-[0.98]"
