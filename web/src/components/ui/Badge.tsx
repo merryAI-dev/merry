@@ -6,24 +6,23 @@ export type BadgeProps = React.HTMLAttributes<HTMLSpanElement> & {
   tone?: "neutral" | "success" | "warn" | "danger" | "accent";
 };
 
-const tones: Record<NonNullable<BadgeProps["tone"]>, string> = {
-  neutral: "bg-[#F2F4F6] text-[#4E5968] border border-[#E5E8EB]",
-  success: "bg-emerald-50 text-emerald-700 border border-emerald-200",
-  warn:    "bg-amber-50 text-amber-700 border border-amber-200",
-  danger:  "bg-rose-50 text-rose-700 border border-rose-200",
-  accent:  "bg-[#EBF3FF] text-[#3182F6] border border-[#C0D8FF]",
+const tones: Record<NonNullable<BadgeProps["tone"]>, React.CSSProperties> = {
+  neutral: { background: "rgba(255,255,255,0.06)", color: "#A0A0BC", border: "1px solid rgba(255,255,255,0.1)" },
+  success: { background: "rgba(20,184,166,0.15)",  color: "#2DD4BF", border: "1px solid rgba(20,184,166,0.3)" },
+  warn:    { background: "rgba(251,191,36,0.12)",  color: "#FCD34D", border: "1px solid rgba(251,191,36,0.25)" },
+  danger:  { background: "rgba(244,63,94,0.12)",   color: "#FB7185", border: "1px solid rgba(244,63,94,0.25)" },
+  accent:  { background: "rgba(124,58,237,0.15)",  color: "#A78BFA", border: "1px solid rgba(124,58,237,0.3)" },
 };
 
-export function Badge({ className, tone = "neutral", ...props }: BadgeProps) {
+export function Badge({ className, tone = "neutral", style, ...props }: BadgeProps) {
   return (
     <span
       className={cn(
         "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium transition-all duration-200",
-        tones[tone],
         className,
       )}
+      style={{ ...tones[tone], ...style }}
       {...props}
     />
   );
 }
-

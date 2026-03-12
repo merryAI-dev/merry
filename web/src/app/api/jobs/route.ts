@@ -8,20 +8,26 @@ import { getSqsQueueUrl } from "@/lib/aws/env";
 import { withCache } from "@/lib/cache";
 import { paginate } from "@/lib/pagination";
 import { sanitizeSearchQuery } from "@/lib/validation";
+import { GetObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { getS3Client } from "@/lib/aws/s3";
+import { getS3BucketName } from "@/lib/aws/env";
 import {
   batchCreateTasks,
+  completeJobWithArtifact,
   countRunningFanoutJobs,
   createJob,
   getUploadFile,
   listRecentJobs,
   padTaskIndex,
   updateJobFanoutStatus,
+  type JobArtifact,
   type JobType,
   type TaskRecord,
 } from "@/lib/jobStore";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export const runtime = "nodejs";
+export const maxDuration = 150;
 
 /* ── Fan-out registry: job types that fan out to per-file tasks ── */
 const FANOUT_JOB_TYPES: ReadonlySet<string> = new Set(["condition_check", "document_extraction", "financial_extraction"]);
@@ -246,6 +252,90 @@ export async function POST(req: Request) {
       const fanoutRes = NextResponse.json({ ok: true, jobId });
       fanoutRes.headers.set("x-correlation-id", correlationId);
       return fanoutRes;
+    }
+
+    /* ═══════════════════════════════════════════
+       PDF PARSE PATH: process synchronously via Lambda parser
+       ═══════════════════════════════════════════ */
+
+    if (body.jobType === "pdf_parse") {
+      const fileId = body.fileIds[0];
+      const file = await getUploadFile(ws.teamId, fileId);
+      if (!file) return NextResponse.json({ ok: false, error: "FILE_NOT_FOUND" }, { status: 404 });
+
+      await createJob({
+        jobId,
+        teamId: ws.teamId,
+        type,
+        status: "running",
+        title,
+        createdBy: ws.memberName,
+        createdAt,
+        inputFileIds: body.fileIds,
+        params: body.params ?? {},
+      });
+      jobCreated = true;
+
+      try {
+        // Download PDF from S3
+        const s3 = getS3Client();
+        const s3Bucket = getS3BucketName();
+        const s3Obj = await s3.send(new GetObjectCommand({ Bucket: file.s3Bucket, Key: file.s3Key }));
+        const pdfBytes = Buffer.from(await s3Obj.Body!.transformToByteArray());
+
+        // Call Lambda parser
+        const parserUrl = process.env.PARSER_INTERNAL_URL;
+        if (!parserUrl) throw new Error("Missing env PARSER_INTERNAL_URL");
+        const apiKey = process.env.PARSER_API_KEY ?? "";
+        const forcePro = body.params?.force_pro === true || body.params?.force_pro === "true";
+        const parseUrl = `${parserUrl}/parse${forcePro ? "?force_pro=true" : ""}`;
+
+        const controller = new AbortController();
+        const tid = setTimeout(() => controller.abort(), 120_000);
+        let parseResult: Record<string, unknown>;
+        try {
+          const resp = await fetch(parseUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/pdf",
+              "Content-Length": String(pdfBytes.length),
+              ...(apiKey ? { "x-api-key": apiKey } : {}),
+            },
+            body: pdfBytes,
+            signal: controller.signal,
+          });
+          const text = await resp.text();
+          if (!resp.ok) throw new Error(`Parser HTTP ${resp.status}: ${text.slice(0, 200)}`);
+          parseResult = JSON.parse(text) as Record<string, unknown>;
+        } finally {
+          clearTimeout(tid);
+        }
+
+        // Upload result JSON as artifact to S3
+        const artifactId = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
+        const artifactKey = `artifacts/${ws.teamId}/${jobId}/${artifactId}.json`;
+        await s3.send(new PutObjectCommand({
+          Bucket: s3Bucket,
+          Key: artifactKey,
+          Body: JSON.stringify(parseResult),
+          ContentType: "application/json",
+        }));
+
+        const artifact: JobArtifact = {
+          artifactId,
+          s3Bucket,
+          s3Key: artifactKey,
+          contentType: "application/json",
+        };
+        await completeJobWithArtifact(ws.teamId, jobId, "succeeded", [artifact]);
+      } catch (parseErr) {
+        const errMsg = parseErr instanceof Error ? parseErr.message : "PARSE_FAILED";
+        await completeJobWithArtifact(ws.teamId, jobId, "failed", [], errMsg);
+      }
+
+      const parseRes = NextResponse.json({ ok: true, jobId });
+      parseRes.headers.set("x-correlation-id", correlationId);
+      return parseRes;
     }
 
     /* ═══════════════════════════════════════════

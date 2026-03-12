@@ -561,6 +561,38 @@ export async function listTasksByJob(teamId: string, jobId: string): Promise<Tas
   return tasks;
 }
 
+/** Finalize a simple (non-fanout) job with result artifacts and terminal status. */
+export async function completeJobWithArtifact(
+  teamId: string,
+  jobId: string,
+  status: "succeeded" | "failed",
+  artifacts: JobArtifact[],
+  error?: string,
+): Promise<void> {
+  const ddb = getDdbDocClient();
+  const TableName = getDdbTableName();
+  const now = new Date().toISOString();
+
+  // Update main job record
+  await ddb.send(
+    new UpdateCommand({
+      TableName,
+      Key: { pk: pkTeam(teamId), sk: skJob(jobId) },
+      UpdateExpression: "SET #status = :status, artifacts = :artifacts, updated_at = :now, ended_at = :now, #error = :error",
+      ExpressionAttributeNames: { "#status": "status", "#error": "error" },
+      ExpressionAttributeValues: {
+        ":status": status,
+        ":artifacts": artifacts,
+        ":now": now,
+        ":error": error ?? "",
+      },
+    }),
+  );
+
+  // Update job index
+  await updateJobIndexState(teamId, jobId, { status });
+}
+
 /** Update JOB fanout_status (and optionally status). */
 export async function updateJobFanoutStatus(
   teamId: string,

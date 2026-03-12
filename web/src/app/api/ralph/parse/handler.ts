@@ -105,7 +105,7 @@ export async function runParser(
     throw parserError("PARSER_SPAWN_FAILED", "Missing env PARSER_INTERNAL_URL");
   }
 
-  const secret = process.env.PARSER_INTERNAL_SECRET ?? "";
+  const apiKey = process.env.PARSER_API_KEY ?? "";
   const pdfBytes = await import("fs/promises").then((fs) => fs.readFile(pdfPath));
 
   const url = `${parserUrl}/parse${forcePro ? "?force_pro=true" : ""}`;
@@ -119,7 +119,7 @@ export async function runParser(
       headers: {
         "Content-Type": "application/pdf",
         "Content-Length": String(pdfBytes.length),
-        ...(secret ? { "X-Parse-Token": secret } : {}),
+        ...(apiKey ? { "x-api-key": apiKey } : {}),
       },
       body: pdfBytes,
       signal: controller.signal,

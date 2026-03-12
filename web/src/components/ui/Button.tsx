@@ -11,22 +11,22 @@ export type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
 
 const base =
   "inline-flex items-center justify-center gap-2 rounded-xl font-semibold " +
-  "transition-colors duration-150 " +
+  "transition-all duration-150 " +
   "disabled:opacity-40 disabled:pointer-events-none " +
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3182F6] focus-visible:ring-offset-2";
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C3AED] focus-visible:ring-offset-2 focus-visible:ring-offset-[#0A0A0F]";
 
 const variants: Record<ButtonVariant, string> = {
   primary:
-    "bg-[#3182F6] text-white hover:bg-[#1B6AE4] active:bg-[#1460CC] " +
-    "shadow-[0_2px_8px_rgba(49,130,246,0.25)]",
+    "text-white " +
+    "shadow-[0_2px_12px_rgba(124,58,237,0.4)] hover:shadow-[0_4px_20px_rgba(124,58,237,0.5)] active:scale-[0.98]",
   secondary:
-    "bg-white text-[#191F28] border border-[#E5E8EB] " +
-    "hover:bg-[#F8F9FA] hover:border-[#D1D6DC] active:bg-[#F2F4F6]",
+    "border text-[#A0A0BC] " +
+    "hover:text-[#F0F0F8] active:scale-[0.98]",
   ghost:
-    "text-[#4E5968] hover:bg-[#F2F4F6] active:bg-[#E5E8EB]",
+    "hover:text-[#F0F0F8] active:scale-[0.98]",
   danger:
-    "bg-[#F03E3E] text-white hover:bg-[#D63030] active:bg-[#BE2A2A] " +
-    "shadow-[0_2px_8px_rgba(240,62,62,0.25)]",
+    "bg-[#F43F5E] text-white hover:bg-[#E11D48] active:bg-[#BE123C] active:scale-[0.98] " +
+    "shadow-[0_2px_12px_rgba(244,63,94,0.35)]",
 };
 
 const sizes: Record<ButtonSize, string> = {
@@ -40,12 +40,23 @@ export function Button({
   variant = "secondary",
   size = "md",
   type,
+  style,
   ...props
 }: ButtonProps) {
+  const variantStyle: React.CSSProperties =
+    variant === "primary"
+      ? { background: "linear-gradient(135deg, #7C3AED, #6D28D9)" }
+      : variant === "secondary"
+      ? { background: "var(--bg-elevated)", borderColor: "var(--card-border)" }
+      : variant === "ghost"
+      ? { color: "var(--ink-light)" }
+      : {};
+
   return (
     <button
       className={cn(base, variants[variant], sizes[size], className)}
       type={type ?? "button"}
+      style={{ ...variantStyle, ...style }}
       {...props}
     />
   );

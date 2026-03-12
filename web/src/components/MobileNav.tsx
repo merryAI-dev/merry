@@ -6,6 +6,7 @@ import {
   Menu,
   X,
   ClipboardList,
+  FileSpreadsheet,
   FileText,
   Files,
   FlaskConical,
@@ -25,18 +26,19 @@ import { cn } from "@/lib/cn";
 import type { WorkspaceSession } from "@/lib/workspace";
 
 const nav = [
-  { href: "/hub",             label: "협업 허브",     icon: LayoutDashboard },
-  { href: "/analysis",        label: "분석",          icon: UploadCloud },
-  { href: "/documents",       label: "문서 추출",     icon: Files },
-  { href: "/playground",      label: "플레이그라운드", icon: FlaskConical },
+  { href: "/hub",             label: "협업 허브",      icon: LayoutDashboard },
+  { href: "/analysis",        label: "분석",           icon: UploadCloud },
+  { href: "/report",          label: "투자심사",       icon: ClipboardList },
+  { href: "/funds",           label: "펀드",           icon: LineChart },
+  { href: "/exit-projection", label: "Exit 프로젝션",  icon: TrendingUp },
   { href: "/check",           label: "조건 검사",      icon: ScanSearch },
-  { href: "/exit-projection", label: "Exit 프로젝션", icon: TrendingUp },
-  { href: "/funds",           label: "펀드",          icon: LineChart },
-  { href: "/drafts",          label: "드래프트",      icon: FileText },
-  { href: "/report",          label: "투자심사",      icon: ClipboardList },
-  { href: "/review",          label: "검토 큐",       icon: AlertTriangle },
-  { href: "/history",         label: "작업 이력",     icon: History },
-  { href: "/admin",           label: "관리자",        icon: Settings },
+  { href: "/documents",       label: "문서 추출",      icon: Files },
+  { href: "/extract",         label: "재무 일괄 추출", icon: FileSpreadsheet },
+  { href: "/drafts",          label: "드래프트",       icon: FileText },
+  { href: "/review",          label: "검토 큐",        icon: AlertTriangle },
+  { href: "/history",         label: "작업 이력",      icon: History },
+  { href: "/playground",      label: "플레이그라운드", icon: FlaskConical },
+  { href: "/admin",           label: "관리자",         icon: Settings },
 ];
 
 export function MobileNav({ workspace }: { workspace: WorkspaceSession }) {
@@ -45,7 +47,6 @@ export function MobileNav({ workspace }: { workspace: WorkspaceSession }) {
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
 
-  // Close on route change.
   React.useEffect(() => {
     setOpen(false);
   }, [pathname]);
@@ -63,18 +64,30 @@ export function MobileNav({ workspace }: { workspace: WorkspaceSession }) {
   return (
     <>
       {/* Mobile header bar */}
-      <header className="sticky top-0 z-40 flex items-center justify-between border-b border-[#E5E8EB] bg-white px-4 py-3 md:hidden">
-        <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-[#3182F6]">
+      <header
+        className="sticky top-0 z-40 flex items-center justify-between px-4 py-3 md:hidden"
+        style={{
+          background: "var(--sidebar-bg)",
+          borderBottom: "1px solid rgba(255,255,255,0.06)",
+        }}
+      >
+        <div className="flex items-center gap-2.5">
+          <div
+            className="flex h-7 w-7 items-center justify-center rounded-lg"
+            style={{ background: "linear-gradient(135deg, #7C3AED, #6D28D9)" }}
+          >
             <span className="text-xs font-black text-white">M</span>
           </div>
-          <span className="text-[15px] font-bold tracking-tight text-[#191F28]">Merry</span>
+          <span className="text-[15px] font-bold tracking-tight" style={{ color: "var(--ink)" }}>
+            Merry
+          </span>
         </div>
         <button
           onClick={() => setOpen(!open)}
           aria-label={open ? "메뉴 닫기" : "메뉴 열기"}
           aria-expanded={open}
-          className="rounded-lg p-2 text-[#4E5968] hover:bg-[#F2F4F6]"
+          className="rounded-lg p-2 transition-colors"
+          style={{ color: "var(--ink-light)" }}
         >
           {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
         </button>
@@ -84,29 +97,41 @@ export function MobileNav({ workspace }: { workspace: WorkspaceSession }) {
       {open && (
         <>
           <div
-            className="fixed inset-0 z-40 bg-black/30 md:hidden"
+            className="fixed inset-0 z-40 md:hidden"
+            style={{ background: "rgba(0,0,0,0.7)" }}
             onClick={() => setOpen(false)}
           />
           <nav
             aria-label="모바일 내비게이션"
-            className="fixed right-0 top-0 z-50 flex h-full w-72 flex-col bg-white shadow-xl md:hidden"
+            className="fixed right-0 top-0 z-50 flex h-full w-72 flex-col md:hidden"
+            style={{
+              background: "var(--sidebar-bg)",
+              boxShadow: "-8px 0 40px rgba(0,0,0,0.6)",
+            }}
           >
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-[#F2F4F6] px-4 py-4">
-              <div className="text-xs text-[#8B95A1]">
-                {workspace.teamId} · <span className="font-medium text-[#4E5968]">{workspace.memberName}</span>
+            <div
+              className="flex items-center justify-between px-4 py-4"
+              style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+            >
+              <div className="text-xs" style={{ color: "var(--muted)" }}>
+                {workspace.teamId} ·{" "}
+                <span className="font-medium" style={{ color: "var(--ink-light)" }}>
+                  {workspace.memberName}
+                </span>
               </div>
               <button
                 onClick={() => setOpen(false)}
                 aria-label="메뉴 닫기"
-                className="rounded-lg p-1 text-[#8B95A1] hover:bg-[#F2F4F6]"
+                className="rounded-lg p-1 transition-colors"
+                style={{ color: "var(--muted)" }}
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
             {/* Links */}
-            <div className="flex-1 overflow-y-auto px-2 py-3">
+            <div className="flex-1 overflow-y-auto px-2 py-3 flex flex-col gap-0.5">
               {nav.map((item) => {
                 const Icon = item.icon;
                 const active = pathname === item.href || pathname.startsWith(item.href + "/");
@@ -116,13 +141,18 @@ export function MobileNav({ workspace }: { workspace: WorkspaceSession }) {
                     href={item.href}
                     aria-current={active ? "page" : undefined}
                     className={cn(
-                      "flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13.5px] font-medium",
-                      active
-                        ? "bg-[#EBF3FF] text-[#3182F6]"
-                        : "text-[#4E5968] hover:bg-[#F2F4F6]",
+                      "flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium transition-all duration-150",
                     )}
+                    style={
+                      active
+                        ? { background: "rgba(124,58,237,0.15)", color: "#A78BFA" }
+                        : { color: "var(--ink-light)" }
+                    }
                   >
-                    <Icon className={cn("h-[18px] w-[18px]", active ? "text-[#3182F6]" : "text-[#B0B8C1]")} />
+                    <Icon
+                      className="h-[17px] w-[17px] shrink-0"
+                      style={{ color: active ? "#A78BFA" : "var(--muted)" }}
+                    />
                     <span>{item.label}</span>
                   </Link>
                 );
@@ -130,14 +160,18 @@ export function MobileNav({ workspace }: { workspace: WorkspaceSession }) {
             </div>
 
             {/* Logout */}
-            <div className="border-t border-[#F2F4F6] px-2 py-3">
+            <div
+              className="px-2 py-3"
+              style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }}
+            >
               <button
                 onClick={logout}
                 disabled={busy}
                 aria-busy={busy}
-                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium text-[#B0B8C1] hover:bg-[#F2F4F6] hover:text-[#4E5968] disabled:opacity-40"
+                className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium transition-all duration-150 disabled:opacity-40"
+                style={{ color: "var(--muted)" }}
               >
-                <LogOut className="h-[18px] w-[18px]" />
+                <LogOut className="h-[17px] w-[17px]" />
                 <span>로그아웃</span>
               </button>
             </div>

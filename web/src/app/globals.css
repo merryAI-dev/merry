@@ -2,39 +2,45 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  /* ── Toss Design System ── */
+  /* ── Spotify-dark Design System ── */
 
-  /* Backgrounds */
-  --bg: #F2F4F6;
-  --bg-subtle: #FFFFFF;
+  /* Backgrounds — 3단계 깊이 */
+  --bg:          #0A0A0F;
+  --bg-subtle:   #111118;
+  --bg-elevated: #1A1A24;
+  --bg-overlay:  #222230;
+
+  /* Sidebar */
+  --sidebar-bg:  #060608;
 
   /* Text */
-  --ink: #191F28;
-  --ink-light: #3E4A5A;
-  --muted: #8B95A1;
+  --ink:         #F0F0F8;
+  --ink-light:   #A0A0BC;
+  --muted:       #52526A;
 
   /* Surfaces */
-  --card: #FFFFFF;
-  --card-strong: #FFFFFF;
-  --card-border: #E5E8EB;
-  --line: #E5E8EB;
+  --card:        #111118;
+  --card-strong: #1A1A24;
+  --card-border: #2A2A3C;
+  --line:        #1E1E2E;
 
-  /* Brand — Toss Blue */
-  --accent: #3182F6;
-  --accent-purple: #3182F6;
-  --accent-cyan: #3182F6;
-  --accent-pink: #3182F6;
-  --accent-blue: #3182F6;
+  /* Brand — Electric Indigo */
+  --accent:        #7C3AED;
+  --accent-purple: #7C3AED;
+  --accent-cyan:   #14B8A6;
+  --accent-pink:   #F43F5E;
+  --accent-blue:   #3B82F6;
+  --accent-dim:    #4C1D95;
 
-  /* Subtle glow (kept for focus rings only) */
-  --glow-purple: rgba(49, 130, 246, 0.2);
-  --glow-cyan: rgba(49, 130, 246, 0.2);
-  --glow-pink: rgba(49, 130, 246, 0.2);
+  /* Glow */
+  --glow-purple: rgba(124, 58, 237, 0.35);
+  --glow-cyan:   rgba(20, 184, 166, 0.30);
+  --glow-pink:   rgba(244, 63, 94, 0.30);
 
   /* Shadows */
-  --shadow:    0 1px 4px rgba(0, 0, 0, 0.06);
-  --shadow-md: 0 2px 12px rgba(0, 0, 0, 0.08);
-  --shadow-lg: 0 4px 24px rgba(0, 0, 0, 0.10);
+  --shadow:    0 1px 6px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.6);
 
   /* Fonts */
   --font-display: var(--font-merry-display);
@@ -46,16 +52,15 @@
   --font-sans: var(--font-merry-sans);
   --font-mono: var(--font-merry-mono);
 
-  --color-agent-purple: var(--accent);
-  --color-agent-cyan:   var(--accent);
-  --color-agent-pink:   var(--accent);
-  --color-agent-blue:   var(--accent);
+  --color-agent-purple: var(--accent-purple);
+  --color-agent-cyan:   var(--accent-cyan);
+  --color-agent-pink:   var(--accent-pink);
+  --color-agent-blue:   var(--accent-blue);
 }
 
-/* Force light mode */
-@media (prefers-color-scheme: dark) {
-  :root { color-scheme: light; }
-  body { background: var(--bg) !important; color: var(--ink) !important; }
+/* Force dark mode */
+@media (prefers-color-scheme: light) {
+  :root { color-scheme: dark; }
 }
 
 body {
@@ -70,12 +75,13 @@ body {
   background: var(--card);
   border: 1px solid var(--card-border);
   box-shadow: var(--shadow);
-  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
 }
 
 .m-card:hover {
-  box-shadow: var(--shadow-md);
-  border-color: #D1D6DC;
+  box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.25), var(--shadow-md);
+  border-color: rgba(124, 58, 237, 0.4);
+  transform: translateY(-1px);
 }
 
 .m-card-strong {
@@ -86,7 +92,7 @@ body {
 
 /* ── Selection ── */
 ::selection {
-  background: rgba(49, 130, 246, 0.15);
+  background: rgba(124, 58, 237, 0.3);
   color: var(--ink);
 }
 
@@ -99,10 +105,10 @@ body {
 /* ── Scrollbar ── */
 ::-webkit-scrollbar       { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #D1D6DC; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #B0B8C1; }
+::-webkit-scrollbar-thumb { background: #2A2A3C; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #3A3A50; }
 
-/* ── Typing indicator (kept for chat) ── */
+/* ── Typing indicator ── */
 .typing-indicator { display: inline-flex; gap: 4px; }
 .typing-indicator span {
   width: 6px; height: 6px;
@@ -118,12 +124,12 @@ body {
   30%           { transform: translateY(-6px); opacity: 1; }
 }
 
-/* ── Shimmer (kept for loading states) ── */
+/* ── Shimmer (dark) ── */
 .shimmer {
   background: linear-gradient(90deg,
-    rgba(0,0,0,0.02) 0%,
-    rgba(0,0,0,0.05) 50%,
-    rgba(0,0,0,0.02) 100%);
+    rgba(255,255,255,0.02) 0%,
+    rgba(255,255,255,0.06) 50%,
+    rgba(255,255,255,0.02) 100%);
   background-size: 200% 100%;
   animation: shimmer 1.6s infinite;
 }
@@ -133,19 +139,27 @@ body {
   100% { background-position:  200% 0; }
 }
 
-/* ── Gradient text (kept for hero) ── */
+/* ── Gradient text ── */
 .gradient-text {
-  color: var(--accent);
+  background: linear-gradient(135deg, #7C3AED, #14B8A6);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
-/* ── Smooth transitions for interactive elements only ── */
+/* ── Glow effect for accent elements ── */
+.glow-accent {
+  box-shadow: 0 0 20px var(--glow-purple);
+}
+
+/* ── Smooth transitions ── */
 button, a, input, select, textarea {
-  transition-property: background-color, border-color, color, box-shadow, opacity;
+  transition-property: background-color, border-color, color, box-shadow, opacity, transform;
   transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   transition-duration: 150ms;
 }
 
-/* ── Respect reduced motion preference ── */
+/* ── Respect reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
