@@ -56,12 +56,15 @@ type TocSection = {
 };
 
 const TOC_SECTIONS: TocSection[] = [
-  { key: "executive_summary", index: 1, title: "Executive Summary (요약)" },
+  { key: "executive_summary", index: 1, title: "Executive Summary" },
   { key: "company_overview", index: 2, title: "회사 개요" },
   { key: "market_competition", index: 3, title: "시장/경쟁" },
-  { key: "gtm_b2g", index: 4, title: "B2G/조달 전략" },
-  { key: "investment_points", index: 5, title: "투자 포인트" },
-  { key: "risks", index: 6, title: "리스크 (법무/재무/사업/시장)" },
+  { key: "business_financials", index: 4, title: "사업 모델 및 재무" },
+  { key: "team_org", index: 5, title: "팀 및 조직" },
+  { key: "risks_issues", index: 6, title: "리스크 및 이슈" },
+  { key: "valuation", index: 7, title: "밸류에이션" },
+  { key: "impact_analysis", index: 8, title: "임팩트 분석" },
+  { key: "investment_opinion", index: 9, title: "투자 의견" },
 ];
 
 function sectionLabel(section?: { title: string; index?: number }): string | null {
@@ -78,10 +81,34 @@ function buildSectionPrompt(section: TocSection, meta: ReportSessionMeta | null)
   const fund = meta?.fundName ? `- 펀드: ${meta.fundName}\n` : meta?.fundId ? `- 펀드: ${meta.fundId}\n` : "";
   const context = `${company}${author}${reportDate}${fileTitle}${fund}`.trim();
 
-  const extra =
-    section.key === "gtm_b2g"
-      ? "\n특히 아래 항목을 구체적으로 포함:\n- B2G 시장 진입 전략\n- 조달청 계약 전략(조달 프로세스 관점)\n- 실증(PoC) 모델 설계(교육기관/지자체 대상으로 확장)\n- 글로벌 정신건강 플랫폼과 파트너십 탐색 포인트\n"
-      : "";
+  const extras: Record<string, string> = {
+    impact_analysis:
+      "\n반드시 아래 3가지 프레임워크를 포함하여 작성:\n" +
+      "### 8-1. SDGs 기반 분석\n" +
+      "- 해당 기업이 기여하는 UN SDGs 목표 (1~17번 중 해당되는 것)\n" +
+      "- 각 SDGs별 기여 경로 및 근거\n" +
+      "- SDGs 타겟 레벨까지 매핑 (예: SDG 3.4)\n\n" +
+      "### 8-2. 이해관계자 분석\n" +
+      "- 핵심 이해관계자 식별 (수혜자, 고객, 지역사회, 투자자, 정부 등)\n" +
+      "- 이해관계자별 임팩트 경로 (어떤 변화가, 어떻게 발생하는지)\n" +
+      "- 의도하지 않은 부정적 영향 가능성\n\n" +
+      "### 8-3. IRIS+ 지표 분석\n" +
+      "- GIIN IRIS+ 카탈로그에서 해당 기업에 적용 가능한 핵심 지표 선정\n" +
+      "- 각 지표별 현재 측정 가능 여부 및 데이터 확보 방안\n" +
+      "- 임팩트 측정 프레임워크 제안 (IMP 5 Dimensions 참고)\n",
+    risks_issues:
+      "\n아래 영역별로 구분하여 작성:\n" +
+      "- 법무 리스크 (규제, IP, 계약)\n" +
+      "- 재무 리스크 (번레이트, 유동성, 자금조달)\n" +
+      "- 사업 리스크 (경쟁, 기술, 시장변화)\n" +
+      "- 시장 리스크 (거시경제, 산업 사이클)\n",
+    valuation:
+      "\n아래 항목을 포함:\n" +
+      "- 밸류에이션 방법론 (PER, PSR, DCF 등 적용 가능한 것)\n" +
+      "- Peer 기업 비교 기반 적정 밸류에이션 범위\n" +
+      "- 투자 라운드 조건 대비 적정성 평가\n",
+  };
+  const extra = extras[section.key] || "";
 
   return (
     `다음 목차만 작성해줘: ${section.index}. ${section.title}\n` +
