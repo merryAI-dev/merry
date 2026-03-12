@@ -2,45 +2,44 @@
 @plugin "@tailwindcss/typography";
 
 :root {
-  /* ── Spotify-dark Design System ── */
+  /* ── Robinhood-inspired Light Design System ── */
 
-  /* Backgrounds — 3단계 깊이 */
-  --bg:          #0A0A0F;
-  --bg-subtle:   #111118;
-  --bg-elevated: #1A1A24;
-  --bg-overlay:  #222230;
+  /* Backgrounds */
+  --bg:          #FFFFFF;
+  --bg-subtle:   #F7F8F9;
+  --bg-elevated: #FFFFFF;
+  --bg-overlay:  #F0F1F3;
 
-  /* Sidebar */
-  --sidebar-bg:  #060608;
+  /* Sidebar — stays dark for contrast */
+  --sidebar-bg:  #1A1D21;
 
-  /* Text */
-  --ink:         #F0F0F8;
-  --ink-light:   #A0A0BC;
-  --muted:       #52526A;
+  /* Text — high contrast */
+  --ink:         #1A1D21;
+  --ink-light:   #6F7780;
+  --muted:       #9DA5AE;
 
   /* Surfaces */
-  --card:        #111118;
-  --card-strong: #1A1A24;
-  --card-border: #2A2A3C;
-  --line:        #1E1E2E;
+  --card:        #FFFFFF;
+  --card-strong: #F7F8F9;
+  --card-border: #E3E5E8;
+  --line:        #ECEDF0;
 
-  /* Brand — Electric Indigo */
-  --accent:        #7C3AED;
-  --accent-purple: #7C3AED;
-  --accent-cyan:   #14B8A6;
-  --accent-pink:   #F43F5E;
+  /* Brand — Robinhood Green */
+  --accent:        #00C805;
+  --accent-hover:  #00B005;
+  --accent-purple: #00C805;
+  --accent-cyan:   #00C805;
+  --accent-pink:   #FF5252;
   --accent-blue:   #3B82F6;
-  --accent-dim:    #4C1D95;
+  --accent-dim:    #E8FAE8;
 
   /* Glow */
-  --glow-purple: rgba(124, 58, 237, 0.35);
-  --glow-cyan:   rgba(20, 184, 166, 0.30);
-  --glow-pink:   rgba(244, 63, 94, 0.30);
+  --glow-green: rgba(0, 200, 5, 0.15);
 
   /* Shadows */
-  --shadow:    0 1px 6px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 20px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 8px 40px rgba(0, 0, 0, 0.6);
+  --shadow:    0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.12);
 
   /* Fonts */
   --font-display: var(--font-merry-display);
@@ -52,15 +51,10 @@
   --font-sans: var(--font-merry-sans);
   --font-mono: var(--font-merry-mono);
 
-  --color-agent-purple: var(--accent-purple);
-  --color-agent-cyan:   var(--accent-cyan);
+  --color-agent-purple: var(--accent);
+  --color-agent-cyan:   var(--accent);
   --color-agent-pink:   var(--accent-pink);
   --color-agent-blue:   var(--accent-blue);
-}
-
-/* Force dark mode */
-@media (prefers-color-scheme: light) {
-  :root { color-scheme: dark; }
 }
 
 body {
@@ -79,20 +73,20 @@ body {
 }
 
 .m-card:hover {
-  box-shadow: 0 0 0 1px rgba(124, 58, 237, 0.25), var(--shadow-md);
-  border-color: rgba(124, 58, 237, 0.4);
+  box-shadow: var(--shadow-md);
+  border-color: #D1D5DB;
   transform: translateY(-1px);
 }
 
 .m-card-strong {
   background: var(--card-strong);
   border: 1px solid var(--card-border);
-  box-shadow: var(--shadow-md);
+  box-shadow: var(--shadow);
 }
 
 /* ── Selection ── */
 ::selection {
-  background: rgba(124, 58, 237, 0.3);
+  background: rgba(0, 200, 5, 0.2);
   color: var(--ink);
 }
 
@@ -105,8 +99,8 @@ body {
 /* ── Scrollbar ── */
 ::-webkit-scrollbar       { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #2A2A3C; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #3A3A50; }
+::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
 
 /* ── Typing indicator ── */
 .typing-indicator { display: inline-flex; gap: 4px; }
@@ -124,12 +118,12 @@ body {
   30%           { transform: translateY(-6px); opacity: 1; }
 }
 
-/* ── Shimmer (dark) ── */
+/* ── Shimmer ── */
 .shimmer {
   background: linear-gradient(90deg,
-    rgba(255,255,255,0.02) 0%,
-    rgba(255,255,255,0.06) 50%,
-    rgba(255,255,255,0.02) 100%);
+    rgba(0,0,0,0.02) 0%,
+    rgba(0,0,0,0.05) 50%,
+    rgba(0,0,0,0.02) 100%);
   background-size: 200% 100%;
   animation: shimmer 1.6s infinite;
 }
@@ -141,15 +135,10 @@ body {
 
 /* ── Gradient text ── */
 .gradient-text {
-  background: linear-gradient(135deg, #7C3AED, #14B8A6);
+  background: linear-gradient(135deg, #00C805, #00A604);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-}
-
-/* ── Glow effect for accent elements ── */
-.glow-accent {
-  box-shadow: 0 0 20px var(--glow-purple);
 }
 
 /* ── Smooth transitions ── */

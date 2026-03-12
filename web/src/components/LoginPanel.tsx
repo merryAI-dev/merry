@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowRight, Loader2, ShieldCheck } from "lucide-react";
+import { ArrowRight, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 
@@ -25,15 +25,15 @@ function prettyError(code: string): string | null {
 function GoogleIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-      <path d="M17.64 9.205c0-.639-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z" fill="#fff" fillOpacity=".9"/>
-      <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18Z" fill="#fff" fillOpacity=".75"/>
-      <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332Z" fill="#fff" fillOpacity=".6"/>
-      <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58Z" fill="#fff" fillOpacity=".85"/>
+      <path d="M17.64 9.205c0-.639-.057-1.252-.164-1.841H9v3.481h4.844a4.14 4.14 0 0 1-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615Z" fill="#4285F4"/>
+      <path d="M9 18c2.43 0 4.467-.806 5.956-2.18l-2.908-2.259c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332A8.997 8.997 0 0 0 9 18Z" fill="#34A853"/>
+      <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332Z" fill="#FBBC05"/>
+      <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58Z" fill="#EA4335"/>
     </svg>
   );
 }
 
-function DarkInput({
+function CleanInput({
   label,
   ...props
 }: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
@@ -41,8 +41,8 @@ function DarkInput({
   return (
     <div>
       <label
-        className="block text-xs font-medium mb-1.5"
-        style={{ color: "var(--ink-light)" }}
+        className="block text-xs font-semibold mb-1.5 tracking-wide uppercase"
+        style={{ color: "#6F7780", letterSpacing: "0.04em" }}
       >
         {label}
       </label>
@@ -50,12 +50,12 @@ function DarkInput({
         {...props}
         onFocus={(e) => { setFocused(true); props.onFocus?.(e); }}
         onBlur={(e) => { setFocused(false); props.onBlur?.(e); }}
-        className="w-full h-11 rounded-xl px-3 text-sm outline-none transition-all duration-150"
+        className="w-full h-12 rounded-lg px-3.5 text-sm outline-none transition-all duration-150"
         style={{
-          background: "rgba(255,255,255,0.04)",
-          border: `1px solid ${focused ? "rgba(124,58,237,0.6)" : "rgba(255,255,255,0.08)"}`,
-          boxShadow: focused ? "0 0 0 3px rgba(124,58,237,0.15)" : "none",
-          color: "var(--ink)",
+          background: "#FFFFFF",
+          border: `1.5px solid ${focused ? "#00C805" : "#E3E5E8"}`,
+          boxShadow: focused ? "0 0 0 3px rgba(0,200,5,0.1)" : "none",
+          color: "#1A1D21",
           fontFamily: "var(--font-korean, var(--font-merry-sans), system-ui)",
         }}
       />
@@ -63,7 +63,7 @@ function DarkInput({
   );
 }
 
-function DarkSelect({
+function CleanSelect({
   label,
   options,
   value,
@@ -77,16 +77,19 @@ function DarkSelect({
   const [focused, setFocused] = React.useState(false);
   return (
     <div>
-      <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--ink-light)" }}>
+      <label
+        className="block text-xs font-semibold mb-1.5 tracking-wide uppercase"
+        style={{ color: "#6F7780", letterSpacing: "0.04em" }}
+      >
         {label}
       </label>
       <select
-        className="w-full h-11 rounded-xl px-3 text-sm outline-none transition-all duration-150 appearance-none"
+        className="w-full h-12 rounded-lg px-3.5 text-sm outline-none transition-all duration-150 appearance-none"
         style={{
-          background: "rgba(255,255,255,0.04)",
-          border: `1px solid ${focused ? "rgba(124,58,237,0.6)" : "rgba(255,255,255,0.08)"}`,
-          boxShadow: focused ? "0 0 0 3px rgba(124,58,237,0.15)" : "none",
-          color: "var(--ink)",
+          background: "#FFFFFF",
+          border: `1.5px solid ${focused ? "#00C805" : "#E3E5E8"}`,
+          boxShadow: focused ? "0 0 0 3px rgba(0,200,5,0.1)" : "none",
+          color: "#1A1D21",
           fontFamily: "var(--font-korean, var(--font-merry-sans), system-ui)",
         }}
         value={value}
@@ -95,7 +98,7 @@ function DarkSelect({
         onBlur={() => setFocused(false)}
       >
         {options.map((o) => (
-          <option key={o.value} value={o.value} style={{ background: "#1A1A24" }}>
+          <option key={o.value} value={o.value}>
             {o.label}
           </option>
         ))}
@@ -147,65 +150,63 @@ export function LoginPanel({
 
   return (
     <div
-      className="w-full rounded-2xl p-6"
+      className="w-full rounded-2xl p-7"
       style={{
-        background: "rgba(17,17,24,0.8)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        backdropFilter: "blur(20px)",
-        boxShadow: "0 8px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(124,58,237,0.06) inset",
+        background: "#FFFFFF",
+        border: "1px solid #E3E5E8",
+        boxShadow: "0 4px 24px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)",
         fontFamily: "var(--font-korean, var(--font-merry-sans), system-ui)",
       }}
     >
       {/* Card header */}
-      <div className="mb-5">
+      <div className="mb-6">
         <p
-          className="text-sm font-semibold mb-1"
-          style={{ color: "var(--ink)" }}
+          className="text-base font-bold mb-1"
+          style={{ color: "#1A1D21" }}
         >
           워크스페이스 로그인
         </p>
-        <p className="text-xs" style={{ color: "var(--ink-light)" }}>
+        <p className="text-sm" style={{ color: "#9DA5AE" }}>
           {googleEnabled ? "회사 Google 계정으로 로그인합니다." : "팀 코드로 로그인하세요."}
         </p>
       </div>
 
       {googleEnabled ? (
-        <>
-          <button
-            onClick={loginWithGoogle}
-            className="w-full h-12 rounded-xl font-semibold text-sm flex items-center justify-center gap-2.5 transition-all duration-150 active:scale-[0.98]"
-            style={{
-              background: "linear-gradient(135deg, #7C3AED, #6D28D9)",
-              color: "#fff",
-              boxShadow: "0 2px 20px rgba(124,58,237,0.45)",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = "0 4px 28px rgba(124,58,237,0.6)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = "0 2px 20px rgba(124,58,237,0.45)";
-            }}
-          >
-            <GoogleIcon />
-            Google로 로그인
-          </button>
-        </>
+        <button
+          onClick={loginWithGoogle}
+          className="w-full h-12 rounded-lg font-semibold text-sm flex items-center justify-center gap-2.5 active:scale-[0.98]"
+          style={{
+            background: "#1A1D21",
+            color: "#FFFFFF",
+            border: "none",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.12)",
+          }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = "#2D3139";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = "#1A1D21";
+          }}
+        >
+          <GoogleIcon />
+          Google로 로그인
+        </button>
       ) : (
-        <form className="space-y-3" onSubmit={loginWithPasscode}>
-          <DarkSelect
+        <form className="space-y-3.5" onSubmit={loginWithPasscode}>
+          <CleanSelect
             label="팀"
             options={TEAM_OPTIONS}
             value={teamId}
             onChange={setTeamId}
           />
-          <DarkInput
+          <CleanInput
             label="닉네임"
             value={memberName}
             onChange={(e) => setMemberName(e.target.value)}
             placeholder="이름 또는 닉네임"
             autoComplete="name"
           />
-          <DarkInput
+          <CleanInput
             label="팀 코드"
             value={passcode}
             onChange={(e) => setPasscode(e.target.value)}
@@ -217,11 +218,12 @@ export function LoginPanel({
           <button
             type="submit"
             disabled={busy || !memberName || !passcode}
-            className="w-full h-12 mt-1 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all duration-150 active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none"
+            className="w-full h-12 mt-1.5 rounded-lg font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none"
             style={{
-              background: "linear-gradient(135deg, #7C3AED, #6D28D9)",
-              color: "#fff",
-              boxShadow: "0 2px 20px rgba(124,58,237,0.35)",
+              background: "#00C805",
+              color: "#FFFFFF",
+              border: "none",
+              boxShadow: "0 1px 3px rgba(0,200,5,0.2)",
             }}
           >
             {busy ? (
@@ -238,11 +240,11 @@ export function LoginPanel({
 
       {error && (
         <div
-          className="mt-4 rounded-xl px-4 py-3 text-xs"
+          className="mt-4 rounded-lg px-4 py-3 text-xs font-medium"
           style={{
-            background: "rgba(244,63,94,0.08)",
-            border: "1px solid rgba(244,63,94,0.2)",
-            color: "#FB7185",
+            background: "#FEF2F2",
+            border: "1px solid #FECACA",
+            color: "#DC2626",
           }}
         >
           {error}

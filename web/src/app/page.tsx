@@ -16,112 +16,53 @@ export default async function Home({
 
   return (
     <div
-      className="relative min-h-screen overflow-hidden flex flex-col"
-      style={{ background: "var(--bg)" }}
+      className="relative min-h-screen flex flex-col"
+      style={{ background: "#FFFFFF" }}
     >
-      {/* ── Ambient orbs ── */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 overflow-hidden"
-      >
-        {/* Top-left orb */}
-        <div
-          className="absolute -top-40 -left-40 w-[600px] h-[600px] rounded-full opacity-[0.12]"
-          style={{
-            background: "radial-gradient(circle, #7C3AED 0%, transparent 70%)",
-            filter: "blur(60px)",
-          }}
-        />
-        {/* Bottom-right orb */}
-        <div
-          className="absolute -bottom-60 -right-20 w-[700px] h-[700px] rounded-full opacity-[0.08]"
-          style={{
-            background: "radial-gradient(circle, #14B8A6 0%, transparent 70%)",
-            filter: "blur(80px)",
-          }}
-        />
-        {/* Center subtle glow */}
-        <div
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[400px] opacity-[0.04]"
-          style={{
-            background: "radial-gradient(ellipse, #7C3AED 0%, transparent 60%)",
-            filter: "blur(40px)",
-          }}
-        />
-        {/* Fine grid overlay */}
-        <div
-          className="absolute inset-0 opacity-[0.025]"
-          style={{
-            backgroundImage: `
-              linear-gradient(rgba(255,255,255,0.5) 1px, transparent 1px),
-              linear-gradient(90deg, rgba(255,255,255,0.5) 1px, transparent 1px)
-            `,
-            backgroundSize: "60px 60px",
-          }}
-        />
-      </div>
-
       {/* ── Header ── */}
-      <header className="relative z-10 flex items-center justify-between px-8 py-6">
-        <div className="flex items-center gap-3">
-          {/* Logo mark */}
+      <header className="relative z-10 flex items-center justify-between px-8 py-5">
+        <div className="flex items-center gap-2.5">
           <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center"
-            style={{
-              background: "linear-gradient(135deg, #7C3AED, #5B21B6)",
-              boxShadow: "0 0 20px rgba(124,58,237,0.4)",
-            }}
+            className="w-8 h-8 rounded-lg flex items-center justify-center"
+            style={{ background: "#00C805" }}
           >
             <span className="text-white font-black text-sm leading-none">M</span>
           </div>
           <span
             className="font-bold text-lg tracking-tight"
-            style={{ color: "var(--ink)", fontFamily: "var(--font-korean, var(--font-merry-sans))" }}
+            style={{
+              color: "#1A1D21",
+              fontFamily: "var(--font-korean, var(--font-merry-sans))",
+            }}
           >
             Merry
           </span>
         </div>
-
-        <div
-          className="text-xs font-medium px-3 py-1.5 rounded-full"
-          style={{
-            background: "rgba(124,58,237,0.1)",
-            border: "1px solid rgba(124,58,237,0.2)",
-            color: "#A78BFA",
-          }}
-        >
-          MYSC AX
-        </div>
       </header>
 
       {/* ── Main ── */}
-      <main className="relative z-10 flex flex-1 flex-col items-center justify-center px-6 py-12">
+      <main className="relative z-10 flex flex-1 flex-col items-center justify-center px-6 pb-20">
         {/* Hero */}
-        <div className="text-center mb-12 max-w-lg">
-          {/* Eyebrow */}
+        <div className="text-center mb-10 max-w-xl">
           <h1
-            className="text-[52px] font-black leading-[1.1] tracking-[-0.03em] mb-4"
+            className="text-[56px] font-black leading-[1.08] tracking-[-0.035em] mb-5"
             style={{
               fontFamily: "var(--font-merry-display, var(--font-korean))",
-              color: "var(--ink)",
+              color: "#1A1D21",
             }}
           >
             투자 분석을{" "}
-            <span
-              style={{
-                background: "linear-gradient(135deg, #A78BFA 0%, #7C3AED 50%, #14B8A6 100%)",
-                WebkitBackgroundClip: "text",
-                WebkitTextFillColor: "transparent",
-                backgroundClip: "text",
-              }}
-            >
+            <span style={{ color: "#00C805" }}>
               함께
             </span>
           </h1>
 
           <p
-            className="text-base leading-relaxed"
-            style={{ color: "var(--ink-light)", fontFamily: "var(--font-korean, system-ui)" }}
+            className="text-lg leading-relaxed"
+            style={{
+              color: "#6F7780",
+              fontFamily: "var(--font-korean, system-ui)",
+            }}
           >
             AI 심사역 동료 메리와 함께 하는 투자 여정
           </p>
@@ -133,25 +74,25 @@ export default async function Home({
         </div>
 
         {/* Feature chips */}
-        <div className="mt-10 flex items-center gap-3 flex-wrap justify-center">
+        <div className="mt-10 flex items-center gap-2.5 flex-wrap justify-center">
           {[
-            { label: "투자 분석 AI", color: "#A78BFA" },
-            { label: "서류 자동화", color: "#2DD4BF" },
-            { label: "팀 협업", color: "#FB7185" },
-            { label: "Exit 프로젝션", color: "#FCD34D" },
-          ].map(({ label, color }) => (
+            { label: "투자 분석 AI", dot: "#00C805" },
+            { label: "서류 자동화", dot: "#3B82F6" },
+            { label: "팀 협업", dot: "#F59E0B" },
+            { label: "Exit 프로젝션", dot: "#8B5CF6" },
+          ].map(({ label, dot }) => (
             <div
               key={label}
               className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full"
               style={{
-                background: "rgba(255,255,255,0.04)",
-                border: "1px solid rgba(255,255,255,0.08)",
-                color: "var(--ink-light)",
+                background: "#F7F8F9",
+                border: "1px solid #E3E5E8",
+                color: "#6F7780",
               }}
             >
               <span
                 className="w-1.5 h-1.5 rounded-full"
-                style={{ background: color }}
+                style={{ background: dot }}
               />
               {label}
             </div>
@@ -161,7 +102,7 @@ export default async function Home({
 
       {/* ── Footer ── */}
       <footer className="relative z-10 text-center pb-6">
-        <p className="text-xs" style={{ color: "var(--muted)" }}>
+        <p className="text-xs" style={{ color: "#9DA5AE" }}>
           © 2025 MYSC · Merry AX Platform
         </p>
       </footer>

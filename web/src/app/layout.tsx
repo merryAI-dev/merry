@@ -44,7 +44,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="ko" style={{ colorScheme: "dark" }}>
+    <html lang="ko" style={{ colorScheme: "light" }}>
       <body
         className={`${fontSans.variable} ${fontDisplay.variable} ${fontMono.variable} ${fontKorean.variable} antialiased`}
         style={{ background: "var(--bg)", color: "var(--ink)" }}
