@@ -3,7 +3,7 @@
 import * as React from "react";
 import { ArrowRight, Loader2, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
-
+import { signIn } from "next-auth/react";
 
 const TEAM_OPTIONS = [
   { label: "Team 1", value: "team_1" },
@@ -18,7 +18,7 @@ function prettyError(code: string): string | null {
   if (code === "OAuthSignin") return "Google 로그인 설정을 확인하세요.";
   if (code === "OAuthCallback") return "로그인 콜백 처리에 실패했습니다. 잠시 후 다시 시도하세요.";
   if (code === "Configuration") return "로그인 설정이 누락되었습니다. 환경변수를 확인하세요.";
-  if (code === "UseGoogleButton") return "홈 화면에서 'Google로 로그인' 버튼을 눌러 로그인하세요.";
+  if (code === "UseGoogleButton") return "Google 로그인을 다시 시도해주세요.";
   return "로그인에 실패했습니다.";
 }
 
@@ -142,7 +142,7 @@ export function LoginPanel({
   }
 
   function loginWithGoogle() {
-    window.location.href = "/api/auth/signin/google?callbackUrl=/hub";
+    signIn("google", { callbackUrl: "/hub" });
   }
 
   return (
