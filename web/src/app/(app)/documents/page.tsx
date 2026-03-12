@@ -217,9 +217,24 @@ export default function DocumentsPage() {
     try {
       let data = await callParse(file, forcePro);
 
-      // Auto-retry with Nova Pro if initial parse failed or quality is poor
-      if (!forcePro && data.ok && (data.is_poor || data.is_fragmented)) {
-        data = await callParse(file, true);
+      // Auto-retry with Nova Pro if quality is poor or text looks broken
+      const needsRetry =
+        data.ok &&
+        !forcePro &&
+        (data.is_poor ||
+          data.is_fragmented ||
+          (typeof data.text_quality === "number" && data.text_quality < 0.5) ||
+          data.text_structure === "image" ||
+          data.text_structure === "presentation" ||
+          data.method === "pymupdf"); // pymupdf alone often produces garbage on scanned docs
+
+      if (needsRetry) {
+        try {
+          const retried = await callParse(file, true);
+          if (retried.ok) data = retried;
+        } catch {
+          // keep original data if retry fails
+        }
       }
 
       setEntries((prev) =>
