@@ -145,7 +145,7 @@ export function parseDecisionsFromMessages(
         customQuestions.push({
           id: qId,
           question,
-          merryComment: "심사역이 추가한 커스텀 분기에요.",
+          merryComment: "메리가 추가한 커스텀 분기에요.",
           options: optLabels.map((label) => ({ label, value: label })),
           allowCustom: true,
           userCreated: true,

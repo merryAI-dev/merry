@@ -3,7 +3,7 @@
 import Link from "next/link";
 import * as React from "react";
 import { useParams } from "next/navigation";
-import { ArrowRight, GitBranch, PanelRightClose, PanelRightOpen, RefreshCw, Sparkles } from "lucide-react";
+import { ArrowRight, BookOpen, Check, ClipboardCopy, Download, FileText, GitBranch, PanelRightClose, RefreshCw, Sparkles, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -137,6 +137,421 @@ function isSystemMessage(content: string): boolean {
   return isDecisionMessage(content) || isBranchMessage(content);
 }
 
+/* ── 합본 생성 ── */
+
+type CompiledSection = {
+  key: string;
+  index: number;
+  title: string;
+  content: string;
+};
+
+function compileReport(
+  messages: ReportMessage[],
+  meta: ReportSessionMeta | null,
+  decisions: DecisionRecord[],
+): { markdown: string; sections: CompiledSection[]; missingSections: TocSection[] } {
+  // For each TOC section, find the LAST assistant message tagged with that section
+  const sectionMap = new Map<string, string>();
+  for (const m of messages) {
+    if (m.role !== "assistant" || !m.section?.key || !m.content.trim()) continue;
+    sectionMap.set(m.section.key, m.content);
+  }
+
+  const sections: CompiledSection[] = [];
+  const missingSections: TocSection[] = [];
+
+  for (const sec of TOC_SECTIONS) {
+    const content = sectionMap.get(sec.key);
+    if (content) {
+      sections.push({ key: sec.key, index: sec.index, title: sec.title, content });
+    } else {
+      missingSections.push(sec);
+    }
+  }
+
+  // Build markdown document
+  const lines: string[] = [];
+
+  // Title page
+  const title = meta?.title || "투자심사 보고서";
+  lines.push(`# ${title}`);
+  lines.push("");
+  if (meta?.companyName) lines.push(`**대상 기업:** ${meta.companyName}`);
+  if (meta?.fundName) lines.push(`**펀드:** ${meta.fundName}`);
+  if (meta?.author) lines.push(`**작성자:** ${meta.author}`);
+  if (meta?.reportDate) lines.push(`**작성일:** ${meta.reportDate}`);
+  lines.push(`**생성일:** ${new Date().toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })}`);
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+
+  // Table of contents
+  lines.push("## 목차");
+  lines.push("");
+  for (const sec of TOC_SECTIONS) {
+    const done = sectionMap.has(sec.key);
+    lines.push(`${done ? "- [x]" : "- [ ]"} ${sec.index}. ${sec.title}`);
+  }
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+
+  // Section contents
+  for (const sec of sections) {
+    lines.push(sec.content.trim());
+    lines.push("");
+    lines.push("---");
+    lines.push("");
+  }
+
+  // Decision summary (if any)
+  if (decisions.length > 0) {
+    lines.push("## 부록: 의사결정 분기 기록");
+    lines.push("");
+    lines.push("| # | 질문 | 답변 |");
+    lines.push("|---|------|------|");
+    for (let i = 0; i < decisions.length; i++) {
+      const d = decisions[i];
+      lines.push(`| ${i + 1} | ${d.question} | **${d.answer}**${d.custom ? " (직접입력)" : ""} |`);
+    }
+    lines.push("");
+  }
+
+  lines.push("---");
+  lines.push(`*MERRY 투자심사 AI · ${new Date().toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}*`);
+
+  return { markdown: lines.join("\n"), sections, missingSections };
+}
+
+function downloadFile(content: string, filename: string, mime: string) {
+  const blob = new Blob([content], { type: `${mime};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function markdownToHtml(md: string, title: string): string {
+  // Simple markdown → HTML for .doc export
+  let html = md
+    .replace(/^### (.+)$/gm, "<h3>$1</h3>")
+    .replace(/^## (.+)$/gm, "<h2>$1</h2>")
+    .replace(/^# (.+)$/gm, "<h1>$1</h1>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+    .replace(/^- \[x\] (.+)$/gm, "<li>✅ $1</li>")
+    .replace(/^- \[ \] (.+)$/gm, "<li>⬜ $1</li>")
+    .replace(/^- (.+)$/gm, "<li>$1</li>")
+    .replace(/^\|(.+)\|$/gm, (row) => {
+      const cells = row.split("|").filter(Boolean).map((c) => c.trim());
+      if (cells.every((c) => /^-+$/.test(c))) return "";
+      const tag = cells.some((c) => c.startsWith("**")) ? "td" : "td";
+      return "<tr>" + cells.map((c) => `<${tag}>${c}</${tag}>`).join("") + "</tr>";
+    })
+    .replace(/^---$/gm, "<hr/>")
+    .replace(/\n\n/g, "</p><p>")
+    .replace(/\n/g, "<br/>");
+
+  return `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8"/>
+<title>${title}</title>
+<style>
+  body { font-family: 'Malgun Gothic', '맑은 고딕', sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #1a1a1a; line-height: 1.7; font-size: 11pt; }
+  h1 { font-size: 22pt; margin-bottom: 8px; }
+  h2 { font-size: 16pt; margin-top: 28px; border-bottom: 2px solid #00C805; padding-bottom: 4px; }
+  h3 { font-size: 13pt; margin-top: 20px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; }
+  td, th { border: 1px solid #ddd; padding: 8px 12px; text-align: left; font-size: 10pt; }
+  tr:nth-child(even) { background: #f9f9f9; }
+  hr { border: none; border-top: 1px solid #e0e0e0; margin: 24px 0; }
+  li { margin: 4px 0; }
+  strong { color: #00C805; }
+</style>
+</head><body><p>${html}</p></body></html>`;
+}
+
+/* ── Compile Modal Component ── */
+
+function CompileModal({
+  messages,
+  meta,
+  decisions,
+  onClose,
+}: {
+  messages: ReportMessage[];
+  meta: ReportSessionMeta | null;
+  decisions: DecisionRecord[];
+  onClose: () => void;
+}) {
+  const compiled = compileReport(messages, meta, decisions);
+  const filename = `${meta?.companyName || "report"}_투자심사보고서`;
+
+  // Editable section contents — initialized from compiled
+  const [editSections, setEditSections] = React.useState<Record<string, string>>(() => {
+    const map: Record<string, string> = {};
+    for (const s of compiled.sections) {
+      map[s.key] = s.content;
+    }
+    return map;
+  });
+
+  const [editingKey, setEditingKey] = React.useState<string | null>(null);
+  const [copied, setCopied] = React.useState(false);
+
+  // Rebuild markdown from edited sections
+  function buildEditedMarkdown(): string {
+    const lines: string[] = [];
+    const title = meta?.title || "투자심사 보고서";
+    lines.push(`# ${title}`);
+    lines.push("");
+    if (meta?.companyName) lines.push(`**대상 기업:** ${meta.companyName}`);
+    if (meta?.fundName) lines.push(`**펀드:** ${meta.fundName}`);
+    if (meta?.author) lines.push(`**작성자:** ${meta.author}`);
+    if (meta?.reportDate) lines.push(`**작성일:** ${meta.reportDate}`);
+    lines.push(`**생성일:** ${new Date().toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })}`);
+    lines.push("");
+    lines.push("---");
+    lines.push("");
+
+    // TOC
+    lines.push("## 목차");
+    lines.push("");
+    for (const sec of TOC_SECTIONS) {
+      const done = !!editSections[sec.key];
+      lines.push(`${done ? "- [x]" : "- [ ]"} ${sec.index}. ${sec.title}`);
+    }
+    lines.push("");
+    lines.push("---");
+    lines.push("");
+
+    // Sections
+    for (const sec of TOC_SECTIONS) {
+      const content = editSections[sec.key];
+      if (content) {
+        lines.push(content.trim());
+        lines.push("");
+        lines.push("---");
+        lines.push("");
+      }
+    }
+
+    // Decisions
+    if (decisions.length > 0) {
+      lines.push("## 부록: 의사결정 분기 기록");
+      lines.push("");
+      lines.push("| # | 질문 | 답변 |");
+      lines.push("|---|------|------|");
+      for (let i = 0; i < decisions.length; i++) {
+        const d = decisions[i];
+        lines.push(`| ${i + 1} | ${d.question} | **${d.answer}**${d.custom ? " (직접입력)" : ""} |`);
+      }
+      lines.push("");
+    }
+
+    lines.push("---");
+    lines.push(`*MERRY 투자심사 AI · ${new Date().toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}*`);
+    return lines.join("\n");
+  }
+
+  const editedMd = buildEditedMarkdown();
+  const completedCount = Object.values(editSections).filter(Boolean).length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.4)" }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div
+        className="relative mx-4 flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl shadow-2xl"
+        style={{ background: "var(--bg)" }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b px-6 py-4" style={{ borderColor: "var(--line)" }}>
+          <div>
+            <h2 className="text-base font-bold" style={{ color: "var(--ink)" }}>합본 생성</h2>
+            <p className="mt-0.5 text-[12px]" style={{ color: "var(--ink-light)" }}>
+              {completedCount}/{TOC_SECTIONS.length} 섹션 · 클릭하여 편집, 다운로드로 내보내기
+            </p>
+          </div>
+          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-[var(--bg-subtle)]">
+            <X className="h-4 w-4" style={{ color: "var(--ink-light)" }} />
+          </button>
+        </div>
+
+        {/* Section editor */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+          {TOC_SECTIONS.map((sec) => {
+            const content = editSections[sec.key] || "";
+            const isEditing = editingKey === sec.key;
+            const hasContent = !!content.trim();
+
+            return (
+              <div
+                key={sec.key}
+                className="rounded-xl transition-all"
+                style={{
+                  border: isEditing
+                    ? "1.5px solid var(--accent)"
+                    : hasContent
+                      ? "1px solid var(--card-border)"
+                      : "1px dashed var(--card-border)",
+                  background: isEditing ? "var(--accent-dim)" : hasContent ? "var(--bg)" : "var(--bg-subtle)",
+                }}
+              >
+                {/* Section header */}
+                <div
+                  className="flex items-center justify-between px-4 py-2.5 cursor-pointer"
+                  onClick={() => {
+                    if (isEditing) {
+                      setEditingKey(null);
+                    } else if (hasContent) {
+                      setEditingKey(sec.key);
+                    }
+                  }}
+                >
+                  <div className="flex items-center gap-2">
+                    <div
+                      className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold"
+                      style={{
+                        background: hasContent ? "var(--accent)" : "var(--card-border)",
+                        color: hasContent ? "#fff" : "var(--ink-light)",
+                      }}
+                    >
+                      {hasContent ? <Check className="h-3 w-3" /> : sec.index}
+                    </div>
+                    <span
+                      className="text-[13px] font-semibold"
+                      style={{ color: hasContent ? "var(--ink)" : "var(--muted)" }}
+                    >
+                      {sec.index}. {sec.title}
+                    </span>
+                  </div>
+                  {hasContent && (
+                    <span className="text-[10px]" style={{ color: "var(--ink-light)" }}>
+                      {isEditing ? "편집 중" : "클릭하여 편집"}
+                    </span>
+                  )}
+                  {!hasContent && (
+                    <span className="text-[10px]" style={{ color: "var(--muted)" }}>미작성</span>
+                  )}
+                </div>
+
+                {/* Editor */}
+                {isEditing && (
+                  <div className="px-4 pb-3">
+                    <textarea
+                      value={content}
+                      onChange={(e) =>
+                        setEditSections((prev) => ({ ...prev, [sec.key]: e.target.value }))
+                      }
+                      className="w-full rounded-lg px-3 py-2.5 text-[12.5px] leading-relaxed outline-none resize-y font-mono"
+                      style={{
+                        background: "var(--bg)",
+                        border: "1px solid var(--card-border)",
+                        color: "var(--ink)",
+                        minHeight: 200,
+                        maxHeight: 500,
+                      }}
+                      onFocus={(e) => { e.currentTarget.style.borderColor = "var(--accent)"; }}
+                      onBlur={(e) => { e.currentTarget.style.borderColor = "var(--card-border)"; }}
+                    />
+                    <div className="mt-2 flex items-center gap-2">
+                      <button
+                        onClick={() => setEditingKey(null)}
+                        className="rounded-lg px-3 py-1.5 text-[11px] font-medium"
+                        style={{ background: "var(--accent)", color: "#fff" }}
+                      >
+                        완료
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditSections((prev) => ({ ...prev, [sec.key]: "" }));
+                          setEditingKey(null);
+                        }}
+                        className="rounded-lg px-3 py-1.5 text-[11px] font-medium"
+                        style={{ color: "var(--accent-pink)" }}
+                      >
+                        섹션 제거
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Collapsed preview */}
+                {!isEditing && hasContent && (
+                  <div
+                    className="px-4 pb-3 text-[11.5px] leading-relaxed line-clamp-3"
+                    style={{ color: "var(--ink-light)" }}
+                  >
+                    {content.slice(0, 200).replace(/^#{1,3}\s.+/gm, "").trim()}
+                    {content.length > 200 && "..."}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Decision summary */}
+          {decisions.length > 0 && (
+            <div
+              className="rounded-xl px-4 py-3"
+              style={{ background: "var(--accent-dim)", border: "1px solid var(--accent)" }}
+            >
+              <div className="flex items-center gap-2 text-[12px] font-semibold" style={{ color: "var(--accent)" }}>
+                <GitBranch className="h-3.5 w-3.5" />
+                부록: 의사결정 분기 ({decisions.length}건)
+              </div>
+              <div className="mt-1 text-[11px]" style={{ color: "var(--ink-light)" }}>
+                합본에 자동 포함됩니다
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="flex flex-wrap items-center gap-2 border-t px-6 py-4" style={{ borderColor: "var(--line)" }}>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => {
+              const html = markdownToHtml(editedMd, meta?.title || "투자심사 보고서");
+              downloadFile(html, `${filename}.doc`, "application/msword");
+            }}
+          >
+            <FileText className="h-3.5 w-3.5" />
+            Word (.doc)
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => downloadFile(editedMd, `${filename}.md`, "text/markdown")}
+          >
+            <Download className="h-3.5 w-3.5" />
+            Markdown
+          </Button>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={async () => {
+              await navigator.clipboard.writeText(editedMd);
+              setCopied(true);
+              setTimeout(() => setCopied(false), 2000);
+            }}
+          >
+            {copied ? <Check className="h-3.5 w-3.5" /> : <ClipboardCopy className="h-3.5 w-3.5" />}
+            {copied ? "복사됨!" : "복사"}
+          </Button>
+          <div className="ml-auto text-[11px]" style={{ color: "var(--ink-light)" }}>
+            {compiled.missingSections.length > 0 && (
+              <span>미작성 {compiled.missingSections.length}개</span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ReportSessionPage() {
   const params = useParams<{ slug: string }>();
   const slug = (params.slug ?? "").trim();
@@ -155,6 +570,8 @@ export default function ReportSessionPage() {
   const [decisions, setDecisions] = React.useState<DecisionRecord[]>([]);
   const [customQuestions, setCustomQuestions] = React.useState<DecisionQuestion[]>([]);
   const [rememberedToast, setRememberedToast] = React.useState<string | null>(null);
+  const [showCompile, setShowCompile] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
 
   const loadMeta = React.useCallback(async () => {
     try {
@@ -351,7 +768,7 @@ export default function ReportSessionPage() {
     const newQ: DecisionQuestion = {
       id: qId,
       question,
-      merryComment: "심사역이 추가한 커스텀 분기에요.",
+      merryComment: "메리가 추가한 커스텀 분기에요.",
       options: options.map((label) => ({ label, value: label })),
       allowCustom: true,
       userCreated: true,
@@ -385,6 +802,16 @@ export default function ReportSessionPage() {
             </div>
 
             <div className="flex items-center gap-2">
+              {/* Compile report */}
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setShowCompile(true)}
+                title="합본 생성"
+              >
+                <BookOpen className="h-3.5 w-3.5" />
+                <span className="hidden sm:inline">합본</span>
+              </Button>
               {/* Decision tree toggle */}
               <Button
                 variant={showTree ? "primary" : "secondary"}
@@ -581,29 +1008,6 @@ export default function ReportSessionPage() {
         {/* ── Input area ── */}
         <div className="shrink-0 border-t border-[var(--line)] px-6 py-4">
           <div className="mx-auto max-w-3xl">
-            {/* Quick prompts */}
-            <div className="mb-3 flex flex-wrap gap-1.5">
-              {[
-                { label: "시장규모 근거", msg: "시장규모/성장률 근거를 정리해줘. 근거가 없으면 필요한 자료를 질문해줘." },
-                { label: "인수인의견 초안", msg: "인수인의견 스타일로 투자심사 보고서 초안 문단을 작성해줘. 부족한 정보는 질문해줘." },
-                { label: "리스크 강화", msg: "리스크 섹션을 더 날카롭게 써줘. 법무/재무/사업/시장 측면으로 나눠줘." },
-              ].map(({ label, msg }) => (
-                <button
-                  key={label}
-                  onClick={() => sendMessage(msg)}
-                  disabled={sending}
-                  className="rounded-full px-3 py-1 text-xs font-medium transition-colors disabled:opacity-40"
-                  style={{
-                    background: "var(--bg-subtle)",
-                    border: "1px solid var(--card-border)",
-                    color: "var(--ink-light)",
-                  }}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
             <div className="flex gap-3">
               <Textarea
                 value={prompt}
@@ -672,6 +1076,14 @@ export default function ReportSessionPage() {
           />
         </div>
       )}
+
+      {/* ── Compile modal ── */}
+      {showCompile && <CompileModal
+        messages={messages}
+        meta={meta}
+        decisions={decisions}
+        onClose={() => setShowCompile(false)}
+      />}
 
       {/* ── "Remembered" toast ── */}
       {rememberedToast && (
