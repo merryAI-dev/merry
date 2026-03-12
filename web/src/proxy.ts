@@ -9,8 +9,14 @@ const ALLOWED_ORIGINS = new Set(
     .filter(Boolean),
 );
 
-function isOriginAllowed(origin: string | null): boolean {
+function isOriginAllowed(origin: string | null, request: NextRequest): boolean {
   if (!origin) return true; // same-origin requests
+  // Same-origin: Origin matches the request host
+  const host = request.headers.get("host") ?? "";
+  try {
+    const originHost = new URL(origin).host;
+    if (originHost === host) return true;
+  } catch { /* invalid origin, fall through */ }
   return ALLOWED_ORIGINS.has(origin) || ALLOWED_ORIGINS.has("*");
 }
 
@@ -101,7 +107,7 @@ export function proxy(request: NextRequest) {
     const requestStartMs = Date.now();
 
     // Block cross-origin requests from disallowed origins.
-    if (origin && !isOriginAllowed(origin)) {
+    if (origin && !isOriginAllowed(origin, request)) {
       const res = NextResponse.json({ ok: false, error: "CORS_DENIED" }, { status: 403 });
       res.headers.set("x-request-id", requestId);
       if (correlationId) res.headers.set("x-correlation-id", correlationId);
@@ -111,7 +117,7 @@ export function proxy(request: NextRequest) {
     // Handle preflight.
     if (request.method === "OPTIONS") {
       const res = new NextResponse(null, { status: 204 });
-      if (origin && isOriginAllowed(origin)) {
+      if (origin && isOriginAllowed(origin, request)) {
         res.headers.set("Access-Control-Allow-Origin", origin);
         res.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
         res.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Request-Id, X-Correlation-Id");
@@ -149,7 +155,7 @@ export function proxy(request: NextRequest) {
       response.headers.set("X-RateLimit-Limit", String(RATE_LIMIT_MAX));
       response.headers.set("X-RateLimit-Remaining", String(remaining));
       if (isMutation) response.headers.set("Cache-Control", "no-store");
-      if (origin && isOriginAllowed(origin)) {
+      if (origin && isOriginAllowed(origin, request)) {
         response.headers.set("Access-Control-Allow-Origin", origin);
         response.headers.set("Access-Control-Expose-Headers", "x-request-id, x-correlation-id, x-request-start, X-RateLimit-Remaining");
       }
@@ -162,7 +168,7 @@ export function proxy(request: NextRequest) {
     response.headers.set("x-request-start", String(requestStartMs));
     if (correlationId) response.headers.set("x-correlation-id", correlationId);
     if (isMutation) response.headers.set("Cache-Control", "no-store");
-    if (origin && isOriginAllowed(origin)) {
+    if (origin && isOriginAllowed(origin, request)) {
       response.headers.set("Access-Control-Allow-Origin", origin);
       response.headers.set("Access-Control-Expose-Headers", "x-request-id, x-correlation-id, x-request-start");
     }
