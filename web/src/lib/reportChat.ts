@@ -67,7 +67,7 @@ export async function createReportSession(args: {
   reportDate?: string;
   fileTitle?: string;
   author?: string;
-}): Promise<{ sessionId: string }> {
+}): Promise<{ sessionId: string; slug: string }> {
   const slug = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
   const sessionId = reportSessionId(slug);
   const title = (args.title ?? args.fileTitle ?? "투자심사 보고서").trim();
@@ -92,7 +92,7 @@ export async function createReportSession(args: {
     author,
   });
 
-  return { sessionId };
+  return { sessionId, slug };
 }
 
 export async function getReportMessages(teamId: string, sessionId: string, maxMessages?: number): Promise<ReportMessage[]> {

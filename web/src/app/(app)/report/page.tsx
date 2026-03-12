@@ -32,7 +32,16 @@ function SessionCard({ s }: { s: ReportSession }) {
           <div className="min-w-0 flex-1">
             <div className="truncate text-[14px] font-bold text-[#191F28]">{s.title}</div>
             <div className="mt-1 text-[11.5px] text-[#8B95A1]">
-              {s.createdAt ? s.createdAt.slice(0, 16).replace("T", " ") : "—"}
+              {s.createdAt
+                ? new Date(s.createdAt).toLocaleString("ko-KR", {
+                    timeZone: "Asia/Seoul",
+                    year: "numeric",
+                    month: "2-digit",
+                    day: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
+                : "—"}
             </div>
           </div>
           <Badge tone="accent">열기</Badge>

@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { handleApiError } from "@/lib/apiError";
 import { paginate } from "@/lib/pagination";
-import { createReportSession, listReportSessions } from "@/lib/reportChat";
+import { addReportMessage, createReportSession, listReportSessions } from "@/lib/reportChat";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export const runtime = "nodejs";
@@ -17,6 +17,7 @@ const CreateSchema = z.object({
   reportDate: z.string().optional(),
   fileTitle: z.string().optional(),
   author: z.string().optional(),
+  context: z.string().optional(),
 });
 
 export async function GET(req: Request) {
@@ -46,6 +47,19 @@ export async function POST(req: Request) {
       fileTitle: body.fileTitle,
       author: body.author,
     });
+
+    // Seed with extraction context as first user message
+    if (body.context?.trim()) {
+      await addReportMessage({
+        teamId: ws.teamId,
+        sessionId: created.sessionId,
+        role: "user",
+        content: body.context.trim(),
+        memberName: ws.memberName,
+        metadata: { type: "extraction_context" },
+      });
+    }
+
     return NextResponse.json({ ok: true, ...created });
   } catch (err) {
     const status = err instanceof Error && err.message === "UNAUTHORIZED" ? 401 : 400;

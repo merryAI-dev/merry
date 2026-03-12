@@ -297,7 +297,16 @@ export default function ReportSessionPage() {
                     </>
                   )}
                   <div className="mt-2 text-[10px] opacity-50">
-                    {m.role === "user" ? "you" : "merry"} · {m.createdAt?.slice(0, 16).replace("T", " ") || ""}
+                    {m.role === "user" ? "you" : "merry"} ·{" "}
+                    {m.createdAt
+                      ? new Date(m.createdAt).toLocaleString("ko-KR", {
+                          timeZone: "Asia/Seoul",
+                          month: "2-digit",
+                          day: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : ""}
                   </div>
                 </div>
               </div>
