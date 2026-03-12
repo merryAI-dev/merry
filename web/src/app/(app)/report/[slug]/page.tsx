@@ -637,6 +637,11 @@ export default function ReportSessionPage() {
             onDecision={handleDecision}
             onAddBranch={handleAddBranch}
             sending={sending}
+            meta={{
+              title: meta?.title,
+              companyName: meta?.companyName,
+              date: meta?.reportDate,
+            }}
           />
         </div>
       )}

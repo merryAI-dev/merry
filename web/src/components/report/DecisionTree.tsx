@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Check, ChevronRight, GitBranch, MessageCircle, Plus, Sparkles, X } from "lucide-react";
+import { Check, ChevronRight, Download, GitBranch, Image, MessageCircle, Plus, Sparkles, X } from "lucide-react";
 
 /* ── Decision tree schema ── */
 
@@ -198,6 +198,160 @@ export function formatCustomBranchMessage(
   return `${CUSTOM_BRANCH_PREFIX} ${questionId} | ${question} | ${options.join(", ")}`;
 }
 
+/* ── SVG Generation ── */
+
+function escSvg(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
+/** Wrap text into lines of maxChars width */
+function wrapText(text: string, maxChars: number): string[] {
+  const words = text.split(" ");
+  const lines: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    if (cur && cur.length + 1 + w.length > maxChars) {
+      lines.push(cur);
+      cur = w;
+    } else {
+      cur = cur ? `${cur} ${w}` : w;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+export function generateDecisionTreeSvg(
+  decisions: DecisionRecord[],
+  allQuestions: DecisionQuestion[],
+  meta?: { title?: string; companyName?: string; date?: string },
+): string {
+  const answered = decisions.filter((d) => allQuestions.some((q) => q.id === d.questionId));
+  if (!answered.length) return "";
+
+  const nodeW = 320;
+  const nodeH = 72;
+  const gapY = 32;
+  const padX = 40;
+  const padTop = 80;
+  const padBottom = 40;
+  const connectorH = gapY;
+
+  const totalH = padTop + answered.length * (nodeH + connectorH) - connectorH + padBottom;
+  const totalW = nodeW + padX * 2;
+
+  const accent = "#00C805";
+  const accentDim = "#E8FAE8";
+  const ink = "#1A1D21";
+  const inkLight = "#6F7780";
+  const bg = "#FFFFFF";
+  const cardBorder = "#E3E5E8";
+  const bgSubtle = "#F7F8F9";
+
+  let nodes = "";
+  answered.forEach((d, i) => {
+    const x = padX;
+    const y = padTop + i * (nodeH + connectorH);
+    const q = allQuestions.find((aq) => aq.id === d.questionId);
+    const qNum = q ? allQuestions.indexOf(q) + 1 : i + 1;
+    const isCustom = d.userCreated || d.questionId.startsWith("custom_") || d.questionId.startsWith("auto_");
+
+    const questionLines = wrapText(d.question, 36);
+    const answerLines = wrapText(d.answer, 40);
+
+    // Connector line (except first)
+    if (i > 0) {
+      const lineX = padX + 24;
+      const lineY1 = y - connectorH;
+      const lineY2 = y;
+      nodes += `<line x1="${lineX}" y1="${lineY1}" x2="${lineX}" y2="${lineY2}" stroke="${accent}" stroke-width="2" stroke-dasharray="4,3"/>`;
+    }
+
+    // Node background
+    nodes += `<rect x="${x}" y="${y}" width="${nodeW}" height="${nodeH}" rx="14" fill="${bgSubtle}" stroke="${cardBorder}" stroke-width="1"/>`;
+
+    // Number circle
+    const cx = x + 24;
+    const cy = y + 22;
+    nodes += `<circle cx="${cx}" cy="${cy}" r="12" fill="${accent}"/>`;
+    nodes += `<text x="${cx}" y="${cy + 1}" text-anchor="middle" dominant-baseline="central" fill="white" font-size="11" font-weight="700" font-family="-apple-system,BlinkMacSystemFont,sans-serif">${qNum}</text>`;
+
+    // Custom badge
+    if (isCustom) {
+      nodes += `<rect x="${x + nodeW - 52}" y="${y + 8}" width="40" height="16" rx="4" fill="${accentDim}"/>`;
+      nodes += `<text x="${x + nodeW - 32}" y="${y + 18}" text-anchor="middle" fill="${accent}" font-size="8" font-weight="600" font-family="-apple-system,BlinkMacSystemFont,sans-serif">커스텀</text>`;
+    }
+
+    // Question text
+    const textX = x + 46;
+    questionLines.forEach((line, li) => {
+      nodes += `<text x="${textX}" y="${y + 18 + li * 14}" fill="${ink}" font-size="11" font-weight="600" font-family="-apple-system,BlinkMacSystemFont,sans-serif">${escSvg(line)}</text>`;
+    });
+
+    // Answer with arrow
+    const answerY = y + 18 + questionLines.length * 14 + 6;
+    nodes += `<text x="${textX}" y="${answerY}" fill="${accent}" font-size="12" font-weight="700" font-family="-apple-system,BlinkMacSystemFont,sans-serif">→ ${escSvg(answerLines[0] || "")}</text>`;
+    answerLines.slice(1).forEach((line, li) => {
+      nodes += `<text x="${textX + 14}" y="${answerY + (li + 1) * 14}" fill="${accent}" font-size="12" font-weight="700" font-family="-apple-system,BlinkMacSystemFont,sans-serif">${escSvg(line)}</text>`;
+    });
+  });
+
+  // Title area
+  const titleText = meta?.title || "투자심사 의사결정 트리";
+  const subtitle = [meta?.companyName, meta?.date].filter(Boolean).join(" · ") || "";
+
+  const header =
+    `<text x="${padX}" y="32" fill="${ink}" font-size="16" font-weight="800" font-family="-apple-system,BlinkMacSystemFont,sans-serif">${escSvg(titleText)}</text>` +
+    (subtitle
+      ? `<text x="${padX}" y="50" fill="${inkLight}" font-size="11" font-family="-apple-system,BlinkMacSystemFont,sans-serif">${escSvg(subtitle)}</text>`
+      : "") +
+    `<text x="${padX}" y="${padTop - 14}" fill="${inkLight}" font-size="10" font-family="-apple-system,BlinkMacSystemFont,sans-serif">${answered.length}개 의사결정 · MERRY 투자심사</text>`;
+
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${totalW}" height="${totalH}" viewBox="0 0 ${totalW} ${totalH}">`,
+    `<rect width="${totalW}" height="${totalH}" fill="${bg}" rx="16"/>`,
+    header,
+    nodes,
+    `</svg>`,
+  ].join("\n");
+}
+
+export function downloadSvg(svgString: string, filename: string) {
+  const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function downloadPng(svgString: string, filename: string, scale = 2) {
+  const blob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const img = new window.Image();
+  img.onload = () => {
+    const canvas = document.createElement("canvas");
+    canvas.width = img.width * scale;
+    canvas.height = img.height * scale;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.scale(scale, scale);
+    ctx.drawImage(img, 0, 0);
+    canvas.toBlob((pngBlob) => {
+      if (!pngBlob) return;
+      const pngUrl = URL.createObjectURL(pngBlob);
+      const a = document.createElement("a");
+      a.href = pngUrl;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(pngUrl);
+    }, "image/png");
+    URL.revokeObjectURL(url);
+  };
+  img.src = url;
+}
+
 /* ── Props ── */
 type Props = {
   decisions: DecisionRecord[];
@@ -205,12 +359,14 @@ type Props = {
   onDecision: (questionId: string, question: string, answer: string, value: string, custom?: boolean, userCreated?: boolean) => void;
   onAddBranch: (question: string, options: string[]) => void;
   sending?: boolean;
+  meta?: { title?: string; companyName?: string; date?: string };
 };
 
 /* ── Component ── */
-export function DecisionTree({ decisions, customQuestions, onDecision, onAddBranch, sending }: Props) {
+export function DecisionTree({ decisions, customQuestions, onDecision, onAddBranch, sending, meta }: Props) {
   const [customInput, setCustomInput] = React.useState("");
   const [showCustom, setShowCustom] = React.useState(false);
+  const [showPreview, setShowPreview] = React.useState(false);
 
   // New branch creation state
   const [showNewBranch, setShowNewBranch] = React.useState(false);
@@ -265,11 +421,47 @@ export function DecisionTree({ decisions, customQuestions, onDecision, onAddBran
     <div className="flex h-full flex-col">
       {/* Header */}
       <div className="shrink-0 border-b px-4 py-3" style={{ borderColor: "var(--line)" }}>
-        <div className="flex items-center gap-2">
-          <GitBranch className="h-4 w-4" style={{ color: "var(--accent)" }} />
-          <span className="text-sm font-bold" style={{ color: "var(--ink)" }}>
-            의사결정 트리
-          </span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <GitBranch className="h-4 w-4" style={{ color: "var(--accent)" }} />
+            <span className="text-sm font-bold" style={{ color: "var(--ink)" }}>
+              의사결정 트리
+            </span>
+          </div>
+
+          {/* Export buttons — only show when there are decisions */}
+          {decisions.length > 0 && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setShowPreview((v) => !v)}
+                className="rounded-md p-1.5 transition-colors hover:bg-[var(--bg-subtle)]"
+                title="미리보기"
+              >
+                <Image className="h-3.5 w-3.5" style={{ color: showPreview ? "var(--accent)" : "var(--ink-light)" }} />
+              </button>
+              <button
+                onClick={() => {
+                  const svg = generateDecisionTreeSvg(decisions, allQuestions, meta);
+                  if (svg) downloadSvg(svg, `decision-tree-${Date.now()}.svg`);
+                }}
+                className="rounded-md p-1.5 transition-colors hover:bg-[var(--bg-subtle)]"
+                title="SVG 다운로드"
+              >
+                <Download className="h-3.5 w-3.5" style={{ color: "var(--ink-light)" }} />
+              </button>
+              <button
+                onClick={() => {
+                  const svg = generateDecisionTreeSvg(decisions, allQuestions, meta);
+                  if (svg) downloadPng(svg, `decision-tree-${Date.now()}.png`, 3);
+                }}
+                className="rounded-md px-2 py-1 text-[10px] font-semibold transition-colors hover:bg-[var(--bg-subtle)]"
+                style={{ color: "var(--ink-light)" }}
+                title="PNG 다운로드 (고해상도)"
+              >
+                PNG
+              </button>
+            </div>
+          )}
         </div>
         <div className="mt-1.5 flex items-center gap-2">
           <div
@@ -291,6 +483,17 @@ export function DecisionTree({ decisions, customQuestions, onDecision, onAddBran
           </span>
         </div>
       </div>
+
+      {/* SVG Preview */}
+      {showPreview && decisions.length > 0 && (
+        <div className="shrink-0 border-b overflow-auto p-3" style={{ borderColor: "var(--line)", background: "var(--bg-subtle)", maxHeight: 320 }}>
+          <div
+            className="mx-auto"
+            style={{ maxWidth: 400 }}
+            dangerouslySetInnerHTML={{ __html: generateDecisionTreeSvg(decisions, allQuestions, meta) }}
+          />
+        </div>
+      )}
 
       {/* Tree nodes */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
