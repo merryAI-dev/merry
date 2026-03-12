@@ -3,7 +3,7 @@
 import * as React from "react";
 import { ArrowRight, Loader2, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { signIn } from "next-auth/react";
+
 
 const TEAM_OPTIONS = [
   { label: "Team 1", value: "team_1" },
@@ -142,7 +142,7 @@ export function LoginPanel({
   }
 
   function loginWithGoogle() {
-    signIn("google", { callbackUrl: "/hub" });
+    window.location.href = "/api/auth/signin/google?callbackUrl=/hub";
   }
 
   return (
