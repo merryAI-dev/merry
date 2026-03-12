@@ -2,15 +2,28 @@
 
 import Link from "next/link";
 import * as React from "react";
-import { ArrowLeft, ArrowRight, Check, RefreshCw, Search } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { cn } from "@/lib/cn";
 import { apiFetch } from "@/lib/apiClient";
 
-type FundSummary = { fundId: string; name: string; vintage?: string };
+type FundSummary = { fundId: string; name: string };
 type CompanySummary = { companyId: string; name: string; stage?: string; category?: string };
+
+const FUNDS: FundSummary[] = [
+  { fundId: "fund_01", name: "코리아임팩트스케일업 투자조합" },
+  { fundId: "fund_02", name: "다날-EMA 경기 시드 레벨업" },
+  { fundId: "fund_03", name: "우리강산 푸르게 푸르게 임팩트 펀드 2호" },
+  { fundId: "fund_04", name: "제주 초기스타트업 육성 펀드" },
+  { fundId: "fund_05", name: "엑스트라마일 임팩트 6호 벤처투자조합" },
+  { fundId: "fund_06", name: "카이스트-미스크 더블임팩트 펀드" },
+  { fundId: "fund_07", name: "인구활력 HGI-MYSC 투자조합" },
+  { fundId: "fund_08", name: "엑스트라마일 임팩트 7호 개인투자조합" },
+  { fundId: "fund_09", name: "엑스트라마일 라이콘 펀드" },
+  { fundId: "fund_10", name: "어 모어 뷰티풀 챌린지 펀드 2호" },
+];
 
 
 function todayIso() {
@@ -122,8 +135,7 @@ export function ReportNewWizard({ initialAuthor }: { initialAuthor: string }) {
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const [funds, setFunds] = React.useState<FundSummary[]>([]);
-  const [fundBusy, setFundBusy] = React.useState(false);
+  const [funds] = React.useState<FundSummary[]>(FUNDS);
   const [fundQ, setFundQ] = React.useState("");
   const [fundId, setFundId] = React.useState("");
   const [fundName, setFundName] = React.useState("");
@@ -140,19 +152,6 @@ export function ReportNewWizard({ initialAuthor }: { initialAuthor: string }) {
   const [fileTitle, setFileTitle] = React.useState("투자심사 보고서");
 
   const effectiveCompanyName = (companyName || manualCompanyName).trim();
-
-  async function loadFunds() {
-    setFundBusy(true);
-    setError(null);
-    try {
-      const res = await apiFetch<{ funds: FundSummary[] }>("/api/funds");
-      setFunds(res.funds || []);
-    } catch {
-      setFunds([]);
-    } finally {
-      setFundBusy(false);
-    }
-  }
 
   async function loadCompanies(selectedFundId: string) {
     const id = selectedFundId.trim();
@@ -174,7 +173,6 @@ export function ReportNewWizard({ initialAuthor }: { initialAuthor: string }) {
     }
   }
 
-  React.useEffect(() => { loadFunds(); }, []);
   React.useEffect(() => {
     loadCompanies(fundId);
     setCompanyId("");
@@ -185,9 +183,8 @@ export function ReportNewWizard({ initialAuthor }: { initialAuthor: string }) {
   const filteredFunds = React.useMemo(() => {
     const needle = fundQ.trim().toLowerCase();
     const list = funds.filter((f) =>
-      !needle || `${f.name} ${f.vintage || ""}`.toLowerCase().includes(needle)
+      !needle || f.name.toLowerCase().includes(needle)
     );
-    list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
     return list;
   }, [funds, fundQ]);
 
@@ -247,10 +244,6 @@ export function ReportNewWizard({ initialAuthor }: { initialAuthor: string }) {
           <Link href="/report">
             <Button variant="ghost" size="sm">세션 목록</Button>
           </Link>
-          <Button variant="ghost" size="sm" onClick={loadFunds} disabled={fundBusy}>
-            <RefreshCw className={cn("h-3.5 w-3.5", fundBusy && "animate-spin")} />
-            새로고침
-          </Button>
         </div>
       </div>
 
@@ -272,7 +265,7 @@ export function ReportNewWizard({ initialAuthor }: { initialAuthor: string }) {
           <div className="mb-4">
             <div className="text-[15px] font-bold text-[#191F28]">펀드를 선택하세요</div>
             <div className="mt-1 text-[13px] text-[#8B95A1]">
-              Airtable과 연동된 펀드를 고릅니다. 없으면 건너뛸 수 있어요.
+              투자심사에 연결할 펀드를 선택하세요. 없으면 건너뛸 수 있어요.
             </div>
           </div>
 
@@ -293,14 +286,10 @@ export function ReportNewWizard({ initialAuthor }: { initialAuthor: string }) {
               selected={!fundId}
               onClick={() => { setFundId(""); setFundName(""); }}
             />
-            {fundBusy && (
-              <div className="py-6 text-center text-sm text-[#8B95A1]">펀드 목록 불러오는 중...</div>
-            )}
             {filteredFunds.map((f) => (
               <SelectRow
                 key={f.fundId}
                 label={f.name}
-                sub={f.vintage ? `Vintage ${f.vintage}` : undefined}
                 selected={f.fundId === fundId}
                 onClick={() => { setFundId(f.fundId); setFundName(f.name); }}
               />

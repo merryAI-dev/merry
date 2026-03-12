@@ -335,11 +335,15 @@ export default function DocumentsPage() {
 
   /* ── Start investment review with extracted data ── */
 
+  const [startingReport, setStartingReport] = React.useState(false);
+
   async function startReportWithExtraction() {
+    if (startingReport) return; // prevent double-click
     const doneEntries = entries.filter((e) => e.status === "done" && e.result?.ok);
     if (doneEntries.length === 0) return;
 
-    // Build a summary of extracted docs to seed the report session
+    setStartingReport(true);
+
     const summary = doneEntries
       .map((entry) => {
         const docType = entry.result?.doc_type
@@ -350,7 +354,6 @@ export default function DocumentsPage() {
       })
       .join("\n\n---\n\n");
 
-    // Create a new report session via API with the extracted context
     try {
       const res = await fetch("/api/report/sessions", {
         method: "POST",
@@ -368,8 +371,9 @@ export default function DocumentsPage() {
         router.push(`/report/${slug}`);
       }
     } catch {
-      // Fallback: navigate to report list
       router.push("/report");
+    } finally {
+      setStartingReport(false);
     }
   }
 
@@ -425,14 +429,24 @@ export default function DocumentsPage() {
             </button>
             <button
               onClick={startReportWithExtraction}
-              className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors"
+              disabled={startingReport}
+              className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50"
               style={{
                 background: "var(--accent)",
                 color: "#FFFFFF",
               }}
             >
-              투자심사 시작
-              <ArrowRight className="h-4 w-4" />
+              {startingReport ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  생성 중…
+                </>
+              ) : (
+                <>
+                  투자심사 시작
+                  <ArrowRight className="h-4 w-4" />
+                </>
+              )}
             </button>
           </div>
         )}
