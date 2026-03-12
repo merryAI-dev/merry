@@ -148,6 +148,12 @@ button, a, input, select, textarea {
   transition-duration: 150ms;
 }
 
+/* ── Toast fade-in-up ── */
+@keyframes fadeInUp {
+  0%   { opacity: 0; transform: translate(-50%, 12px); }
+  100% { opacity: 1; transform: translate(-50%, 0); }
+}
+
 /* ── Respect reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
