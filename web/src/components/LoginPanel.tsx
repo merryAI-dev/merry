@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, Loader2, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 
@@ -30,6 +30,77 @@ function GoogleIcon() {
       <path d="M3.964 10.71A5.41 5.41 0 0 1 3.682 9c0-.593.102-1.17.282-1.71V4.958H.957A8.996 8.996 0 0 0 0 9c0 1.452.348 2.827.957 4.042l3.007-2.332Z" fill="#fff" fillOpacity=".6"/>
       <path d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0A8.997 8.997 0 0 0 .957 4.958L3.964 7.29C4.672 5.163 6.656 3.58 9 3.58Z" fill="#fff" fillOpacity=".85"/>
     </svg>
+  );
+}
+
+function DarkInput({
+  label,
+  ...props
+}: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+  const [focused, setFocused] = React.useState(false);
+  return (
+    <div>
+      <label
+        className="block text-xs font-medium mb-1.5"
+        style={{ color: "var(--ink-light)" }}
+      >
+        {label}
+      </label>
+      <input
+        {...props}
+        onFocus={(e) => { setFocused(true); props.onFocus?.(e); }}
+        onBlur={(e) => { setFocused(false); props.onBlur?.(e); }}
+        className="w-full h-11 rounded-xl px-3 text-sm outline-none transition-all duration-150"
+        style={{
+          background: "rgba(255,255,255,0.04)",
+          border: `1px solid ${focused ? "rgba(124,58,237,0.6)" : "rgba(255,255,255,0.08)"}`,
+          boxShadow: focused ? "0 0 0 3px rgba(124,58,237,0.15)" : "none",
+          color: "var(--ink)",
+          fontFamily: "var(--font-korean, var(--font-merry-sans), system-ui)",
+        }}
+      />
+    </div>
+  );
+}
+
+function DarkSelect({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: { label: string; value: string }[];
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [focused, setFocused] = React.useState(false);
+  return (
+    <div>
+      <label className="block text-xs font-medium mb-1.5" style={{ color: "var(--ink-light)" }}>
+        {label}
+      </label>
+      <select
+        className="w-full h-11 rounded-xl px-3 text-sm outline-none transition-all duration-150 appearance-none"
+        style={{
+          background: "rgba(255,255,255,0.04)",
+          border: `1px solid ${focused ? "rgba(124,58,237,0.6)" : "rgba(255,255,255,0.08)"}`,
+          boxShadow: focused ? "0 0 0 3px rgba(124,58,237,0.15)" : "none",
+          color: "var(--ink)",
+          fontFamily: "var(--font-korean, var(--font-merry-sans), system-ui)",
+        }}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value} style={{ background: "#1A1A24" }}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }
 
@@ -74,89 +145,125 @@ export function LoginPanel({
     signIn("google", { callbackUrl: "/hub" });
   }
 
-  const fontStyle = { fontFamily: "var(--font-korean, var(--font-merry-sans), system-ui)" };
-
   return (
     <div
-      className="w-full bg-white rounded-3xl shadow-[0_4px_24px_rgba(0,0,0,0.08)] p-6"
-      style={fontStyle}
+      className="w-full rounded-2xl p-6"
+      style={{
+        background: "rgba(17,17,24,0.8)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        backdropFilter: "blur(20px)",
+        boxShadow: "0 8px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(124,58,237,0.06) inset",
+        fontFamily: "var(--font-korean, var(--font-merry-sans), system-ui)",
+      }}
     >
-      {/* Header */}
-      <p className="text-[15px] font-semibold text-[#191F28] mb-1">워크스페이스 로그인</p>
-      <p className="text-[13px] text-[#B0B8C1] mb-5">
-        {googleEnabled ? "@mysc.co.kr 계정 전용" : "팀 코드로 로그인"}
-      </p>
+      {/* Card header */}
+      <div className="mb-5">
+        <p
+          className="text-sm font-semibold mb-1"
+          style={{ color: "var(--ink)" }}
+        >
+          워크스페이스 로그인
+        </p>
+        <p className="text-xs" style={{ color: "var(--ink-light)" }}>
+          {googleEnabled ? "회사 Google 계정으로 로그인합니다." : "팀 코드로 로그인하세요."}
+        </p>
+      </div>
 
       {googleEnabled ? (
-        <button
-          onClick={loginWithGoogle}
-          className="w-full h-[54px] bg-[#3182F6] hover:bg-[#1B6AE4] active:bg-[#1460CC] text-white rounded-2xl font-semibold text-[15px] flex items-center justify-center gap-2.5 transition-colors duration-150 shadow-[0_2px_12px_rgba(49,130,246,0.3)]"
-          style={fontStyle}
-        >
-          <GoogleIcon />
-          Google로 계속하기
-        </button>
+        <>
+          {/* Domain badge */}
+          <div
+            className="flex items-center gap-2 px-3 py-2 rounded-xl mb-4 text-xs"
+            style={{
+              background: "rgba(124,58,237,0.06)",
+              border: "1px solid rgba(124,58,237,0.15)",
+              color: "#A78BFA",
+            }}
+          >
+            <ShieldCheck className="w-3.5 h-3.5 shrink-0" />
+            <span>
+              도메인 제한:{" "}
+              <span className="font-semibold text-white">@mysc.co.kr</span>
+            </span>
+          </div>
+
+          <button
+            onClick={loginWithGoogle}
+            className="w-full h-12 rounded-xl font-semibold text-sm flex items-center justify-center gap-2.5 transition-all duration-150 active:scale-[0.98]"
+            style={{
+              background: "linear-gradient(135deg, #7C3AED, #6D28D9)",
+              color: "#fff",
+              boxShadow: "0 2px 20px rgba(124,58,237,0.45)",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.boxShadow = "0 4px 28px rgba(124,58,237,0.6)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.boxShadow = "0 2px 20px rgba(124,58,237,0.45)";
+            }}
+          >
+            <GoogleIcon />
+            Google로 로그인
+          </button>
+        </>
       ) : (
         <form className="space-y-3" onSubmit={loginWithPasscode}>
-          <div>
-            <label className="block text-[12px] font-medium text-[#8B95A1] mb-1.5">팀</label>
-            <select
-              className="w-full h-12 rounded-xl border border-[#E5E8EB] bg-white px-3 text-[14px] text-[#191F28] outline-none focus:border-[#3182F6] focus:ring-2 focus:ring-[#3182F6]/20 transition-all"
-              value={teamId}
-              onChange={(e) => setTeamId(e.target.value)}
-              style={fontStyle}
-            >
-              {TEAM_OPTIONS.map((t) => (
-                <option key={t.value} value={t.value}>{t.label}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-[12px] font-medium text-[#8B95A1] mb-1.5">닉네임</label>
-            <input
-              className="w-full h-12 rounded-xl border border-[#E5E8EB] bg-white px-3 text-[14px] text-[#191F28] placeholder:text-[#C7CDD3] outline-none focus:border-[#3182F6] focus:ring-2 focus:ring-[#3182F6]/20 transition-all"
-              value={memberName}
-              onChange={(e) => setMemberName(e.target.value)}
-              placeholder="이름 또는 닉네임"
-              autoComplete="name"
-              style={fontStyle}
-            />
-          </div>
-
-          <div>
-            <label className="block text-[12px] font-medium text-[#8B95A1] mb-1.5">팀 코드</label>
-            <input
-              className="w-full h-12 rounded-xl border border-[#E5E8EB] bg-white px-3 text-[14px] text-[#191F28] placeholder:text-[#C7CDD3] outline-none focus:border-[#3182F6] focus:ring-2 focus:ring-[#3182F6]/20 transition-all"
-              value={passcode}
-              onChange={(e) => setPasscode(e.target.value)}
-              placeholder="워크스페이스 코드"
-              type="password"
-              autoComplete="current-password"
-              style={fontStyle}
-            />
-          </div>
+          <DarkSelect
+            label="팀"
+            options={TEAM_OPTIONS}
+            value={teamId}
+            onChange={setTeamId}
+          />
+          <DarkInput
+            label="닉네임"
+            value={memberName}
+            onChange={(e) => setMemberName(e.target.value)}
+            placeholder="이름 또는 닉네임"
+            autoComplete="name"
+          />
+          <DarkInput
+            label="팀 코드"
+            value={passcode}
+            onChange={(e) => setPasscode(e.target.value)}
+            placeholder="워크스페이스 코드"
+            type="password"
+            autoComplete="current-password"
+          />
 
           <button
             type="submit"
             disabled={busy || !memberName || !passcode}
-            className="w-full h-[54px] mt-2 bg-[#3182F6] hover:bg-[#1B6AE4] active:bg-[#1460CC] disabled:opacity-40 disabled:pointer-events-none text-white rounded-2xl font-semibold text-[15px] flex items-center justify-center gap-2 transition-colors duration-150 shadow-[0_2px_12px_rgba(49,130,246,0.25)]"
-            style={fontStyle}
+            className="w-full h-12 mt-1 rounded-xl font-semibold text-sm flex items-center justify-center gap-2 transition-all duration-150 active:scale-[0.98] disabled:opacity-40 disabled:pointer-events-none"
+            style={{
+              background: "linear-gradient(135deg, #7C3AED, #6D28D9)",
+              color: "#fff",
+              boxShadow: "0 2px 20px rgba(124,58,237,0.35)",
+            }}
           >
-            워크스페이스 들어가기
-            <ArrowRight className="h-4 w-4" />
+            {busy ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <>
+                워크스페이스 들어가기
+                <ArrowRight className="h-4 w-4" />
+              </>
+            )}
           </button>
         </form>
       )}
 
-      {error ? (
+      {error && (
         <div
-          className="mt-4 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-[13px] text-red-500"
-          style={fontStyle}
+          className="mt-4 rounded-xl px-4 py-3 text-xs"
+          style={{
+            background: "rgba(244,63,94,0.08)",
+            border: "1px solid rgba(244,63,94,0.2)",
+            color: "#FB7185",
+          }}
         >
           {error}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
