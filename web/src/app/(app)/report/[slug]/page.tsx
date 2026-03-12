@@ -3,7 +3,7 @@
 import Link from "next/link";
 import * as React from "react";
 import { useParams } from "next/navigation";
-import { ArrowRight, BookOpen, Check, ClipboardCopy, Download, FileText, GitBranch, PanelRightClose, RefreshCw, Sparkles, X } from "lucide-react";
+import { ArrowRight, BookOpen, Check, ClipboardCopy, Download, FileText, GitBranch, MessageCircle, PanelRightClose, RefreshCw, Sparkles, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -46,6 +46,7 @@ type ReportMessage = {
     title: string;
     index?: number;
   };
+  perspective?: "optimistic" | "pessimistic";
 };
 
 type TocSection = {
@@ -76,10 +77,11 @@ function sectionLabel(section?: { title: string; index?: number }): string | nul
 function buildSectionPrompt(section: TocSection, meta: ReportSessionMeta | null): string {
   const company = meta?.companyName ? `- 회사명: ${meta.companyName}\n` : "";
   const author = meta?.author ? `- 작성자: ${meta.author}\n` : "";
-  const reportDate = meta?.reportDate ? `- 작성일: ${meta.reportDate}\n` : "";
+  const today = new Date().toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul", year: "numeric", month: "long", day: "numeric" });
+  const reportDate = meta?.reportDate ? `- 작성일: ${meta.reportDate}\n` : `- 작성일: ${today}\n`;
   const fileTitle = meta?.fileTitle ? `- 파일 제목: ${meta.fileTitle}\n` : "";
   const fund = meta?.fundName ? `- 펀드: ${meta.fundName}\n` : meta?.fundId ? `- 펀드: ${meta.fundId}\n` : "";
-  const context = `${company}${author}${reportDate}${fileTitle}${fund}`.trim();
+  const context = `${company}${author}${reportDate}- 오늘 날짜: ${today}\n${fileTitle}${fund}`.trim();
 
   const extras: Record<string, string> = {
     impact_analysis:
@@ -124,6 +126,10 @@ function buildSectionPrompt(section: TocSection, meta: ReportSessionMeta | null)
 
 const DECISION_PREFIX = "[의사결정]";
 const BRANCH_PREFIX = "[새분기]";
+const DEBATE_PREFIX = "[토론]";
+
+/** Max autoregressive branch questions before transitioning to debate */
+const MAX_AUTO_BRANCHES = 5;
 
 function isDecisionMessage(content: string): boolean {
   return content.startsWith(DECISION_PREFIX);
@@ -133,8 +139,12 @@ function isBranchMessage(content: string): boolean {
   return content.startsWith(BRANCH_PREFIX);
 }
 
+function isDebateMessage(content: string): boolean {
+  return content.startsWith(DEBATE_PREFIX);
+}
+
 function isSystemMessage(content: string): boolean {
-  return isDecisionMessage(content) || isBranchMessage(content);
+  return isDecisionMessage(content) || isBranchMessage(content) || isDebateMessage(content);
 }
 
 /* ── 합본 생성 ── */
@@ -279,27 +289,129 @@ function CompileModal({
   messages,
   meta,
   decisions,
+  sessionId,
   onClose,
+  onMessagesUpdate,
 }: {
   messages: ReportMessage[];
   meta: ReportSessionMeta | null;
   decisions: DecisionRecord[];
+  sessionId: string;
   onClose: () => void;
+  onMessagesUpdate: () => Promise<void>;
 }) {
-  const compiled = compileReport(messages, meta, decisions);
   const filename = `${meta?.companyName || "report"}_투자심사보고서`;
 
-  // Editable section contents — initialized from compiled
+  // Editable section contents — initialized from existing messages
   const [editSections, setEditSections] = React.useState<Record<string, string>>(() => {
     const map: Record<string, string> = {};
-    for (const s of compiled.sections) {
-      map[s.key] = s.content;
+    for (const m of messages) {
+      if (m.role !== "assistant" || !m.section?.key || !m.content.trim()) continue;
+      // Skip LLM error messages
+      if (m.content.startsWith("[LLM ERROR]")) continue;
+      map[m.section.key] = m.content;
     }
     return map;
   });
 
   const [editingKey, setEditingKey] = React.useState<string | null>(null);
   const [copied, setCopied] = React.useState(false);
+  const [generating, setGenerating] = React.useState(false);
+  const [generatingKeys, setGeneratingKeys] = React.useState<Set<string>>(new Set());
+  const [genProgress, setGenProgress] = React.useState<string | null>(null);
+
+  // Generate a single section via streaming chat API
+  async function generateSection(sec: TocSection): Promise<string | null> {
+    const prompt = buildSectionPrompt(sec, meta);
+    const sectionMeta = { key: sec.key, title: sec.title, index: sec.index };
+
+    // Build decision context
+    const decisionCtx = buildDecisionContext(decisions);
+    const enrichedMessage = decisionCtx ? `${prompt}\n\n---\n${decisionCtx}` : prompt;
+
+    try {
+      const res = await fetch("/api/report/chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId, message: enrichedMessage, section: sectionMeta }),
+      });
+
+      if (!res.ok) return null;
+
+      const reader = res.body?.getReader();
+      if (!reader) return null;
+
+      const decoder = new TextDecoder("utf-8");
+      let acc = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
+        // Live update in the modal
+        setEditSections((prev) => ({ ...prev, [sec.key]: acc }));
+      }
+
+      return acc;
+    } catch {
+      return null;
+    }
+  }
+
+  // Generate ALL missing sections sequentially
+  async function generateAll() {
+    const missing = TOC_SECTIONS.filter((sec) => !editSections[sec.key]?.trim());
+    if (missing.length === 0) return;
+
+    setGenerating(true);
+
+    for (let i = 0; i < missing.length; i++) {
+      const sec = missing[i];
+      setGenProgress(`${sec.index}. ${sec.title} 생성 중... (${i + 1}/${missing.length})`);
+      setGeneratingKeys((prev) => new Set(prev).add(sec.key));
+
+      const result = await generateSection(sec);
+
+      setGeneratingKeys((prev) => {
+        const next = new Set(prev);
+        next.delete(sec.key);
+        return next;
+      });
+
+      if (!result) {
+        // If one fails, continue to next
+        setEditSections((prev) => ({
+          ...prev,
+          [sec.key]: prev[sec.key] || "[생성 실패] 다시 시도해주세요.",
+        }));
+      }
+    }
+
+    setGenProgress(null);
+    setGenerating(false);
+
+    // Reload messages so they're persisted
+    await onMessagesUpdate();
+  }
+
+  // Generate a single missing section
+  async function generateOne(sec: TocSection) {
+    setGenerating(true);
+    setGenProgress(`${sec.index}. ${sec.title} 생성 중...`);
+    setGeneratingKeys((prev) => new Set(prev).add(sec.key));
+
+    await generateSection(sec);
+
+    setGeneratingKeys((prev) => {
+      const next = new Set(prev);
+      next.delete(sec.key);
+      return next;
+    });
+    setGenProgress(null);
+    setGenerating(false);
+
+    await onMessagesUpdate();
+  }
 
   // Rebuild markdown from edited sections
   function buildEditedMarkdown(): string {
@@ -320,7 +432,7 @@ function CompileModal({
     lines.push("## 목차");
     lines.push("");
     for (const sec of TOC_SECTIONS) {
-      const done = !!editSections[sec.key];
+      const done = !!editSections[sec.key]?.trim();
       lines.push(`${done ? "- [x]" : "- [ ]"} ${sec.index}. ${sec.title}`);
     }
     lines.push("");
@@ -330,7 +442,7 @@ function CompileModal({
     // Sections
     for (const sec of TOC_SECTIONS) {
       const content = editSections[sec.key];
-      if (content) {
+      if (content?.trim()) {
         lines.push(content.trim());
         lines.push("");
         lines.push("---");
@@ -357,10 +469,11 @@ function CompileModal({
   }
 
   const editedMd = buildEditedMarkdown();
-  const completedCount = Object.values(editSections).filter(Boolean).length;
+  const completedCount = TOC_SECTIONS.filter((s) => editSections[s.key]?.trim()).length;
+  const missingCount = TOC_SECTIONS.length - completedCount;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.4)" }} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.4)" }} onClick={(e) => { if (e.target === e.currentTarget && !generating) onClose(); }}>
       <div
         className="relative mx-4 flex max-h-[90vh] w-full max-w-3xl flex-col rounded-2xl shadow-2xl"
         style={{ background: "var(--bg)" }}
@@ -370,12 +483,37 @@ function CompileModal({
           <div>
             <h2 className="text-base font-bold" style={{ color: "var(--ink)" }}>합본 생성</h2>
             <p className="mt-0.5 text-[12px]" style={{ color: "var(--ink-light)" }}>
-              {completedCount}/{TOC_SECTIONS.length} 섹션 · 클릭하여 편집, 다운로드로 내보내기
+              {completedCount}/{TOC_SECTIONS.length} 섹션 완료
+              {genProgress && (
+                <span className="ml-2" style={{ color: "var(--accent)" }}>
+                  · {genProgress}
+                </span>
+              )}
             </p>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-[var(--bg-subtle)]">
-            <X className="h-4 w-4" style={{ color: "var(--ink-light)" }} />
-          </button>
+          <div className="flex items-center gap-2">
+            {missingCount > 0 && (
+              <button
+                onClick={generateAll}
+                disabled={generating}
+                className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-all disabled:opacity-50"
+                style={{
+                  background: "var(--accent)",
+                  color: "#fff",
+                }}
+              >
+                {generating ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="h-3.5 w-3.5" />
+                )}
+                {generating ? "생성 중..." : `전체 생성 (${missingCount}개)`}
+              </button>
+            )}
+            <button onClick={() => { if (!generating) onClose(); }} className="rounded-lg p-1.5 hover:bg-[var(--bg-subtle)]">
+              <X className="h-4 w-4" style={{ color: "var(--ink-light)" }} />
+            </button>
+          </div>
         </div>
 
         {/* Section editor */}
@@ -383,7 +521,8 @@ function CompileModal({
           {TOC_SECTIONS.map((sec) => {
             const content = editSections[sec.key] || "";
             const isEditing = editingKey === sec.key;
-            const hasContent = !!content.trim();
+            const hasContent = !!content.trim() && !content.startsWith("[생성 실패]");
+            const isGeneratingThis = generatingKeys.has(sec.key);
 
             return (
               <div
@@ -392,16 +531,25 @@ function CompileModal({
                 style={{
                   border: isEditing
                     ? "1.5px solid var(--accent)"
-                    : hasContent
-                      ? "1px solid var(--card-border)"
-                      : "1px dashed var(--card-border)",
-                  background: isEditing ? "var(--accent-dim)" : hasContent ? "var(--bg)" : "var(--bg-subtle)",
+                    : isGeneratingThis
+                      ? "1.5px solid var(--accent)"
+                      : hasContent
+                        ? "1px solid var(--card-border)"
+                        : "1px dashed var(--card-border)",
+                  background: isEditing
+                    ? "var(--bg-subtle)"
+                    : isGeneratingThis
+                      ? "var(--bg-subtle)"
+                      : hasContent
+                        ? "var(--bg)"
+                        : "var(--bg-subtle)",
                 }}
               >
                 {/* Section header */}
                 <div
                   className="flex items-center justify-between px-4 py-2.5 cursor-pointer"
                   onClick={() => {
+                    if (generating) return;
                     if (isEditing) {
                       setEditingKey(null);
                     } else if (hasContent) {
@@ -413,31 +561,73 @@ function CompileModal({
                     <div
                       className="flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold"
                       style={{
-                        background: hasContent ? "var(--accent)" : "var(--card-border)",
-                        color: hasContent ? "#fff" : "var(--ink-light)",
+                        background: isGeneratingThis
+                          ? "var(--accent)"
+                          : hasContent
+                            ? "var(--accent)"
+                            : "var(--card-border)",
+                        color: isGeneratingThis || hasContent ? "#fff" : "var(--ink-light)",
                       }}
                     >
-                      {hasContent ? <Check className="h-3 w-3" /> : sec.index}
+                      {isGeneratingThis ? (
+                        <RefreshCw className="h-3 w-3 animate-spin" />
+                      ) : hasContent ? (
+                        <Check className="h-3 w-3" />
+                      ) : (
+                        sec.index
+                      )}
                     </div>
                     <span
                       className="text-[13px] font-semibold"
-                      style={{ color: hasContent ? "var(--ink)" : "var(--muted)" }}
+                      style={{ color: hasContent || isGeneratingThis ? "var(--ink)" : "var(--muted)" }}
                     >
                       {sec.index}. {sec.title}
                     </span>
                   </div>
-                  {hasContent && (
-                    <span className="text-[10px]" style={{ color: "var(--ink-light)" }}>
-                      {isEditing ? "편집 중" : "클릭하여 편집"}
-                    </span>
-                  )}
-                  {!hasContent && (
-                    <span className="text-[10px]" style={{ color: "var(--muted)" }}>미작성</span>
-                  )}
+                  <div className="flex items-center gap-2">
+                    {isGeneratingThis && (
+                      <span className="text-[10px] animate-pulse" style={{ color: "var(--accent)" }}>생성 중...</span>
+                    )}
+                    {!isGeneratingThis && hasContent && (
+                      <span className="text-[10px]" style={{ color: "var(--ink-light)" }}>
+                        {isEditing ? "편집 중" : "클릭하여 편집"}
+                      </span>
+                    )}
+                    {!isGeneratingThis && !hasContent && !generating && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          generateOne(sec);
+                        }}
+                        className="flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium transition-colors"
+                        style={{
+                          background: "var(--accent-dim)",
+                          color: "var(--accent)",
+                          border: "1px solid var(--accent)",
+                        }}
+                      >
+                        <Sparkles className="h-2.5 w-2.5" />
+                        생성
+                      </button>
+                    )}
+                    {!isGeneratingThis && !hasContent && generating && (
+                      <span className="text-[10px]" style={{ color: "var(--muted)" }}>대기 중</span>
+                    )}
+                  </div>
                 </div>
 
+                {/* Streaming preview while generating */}
+                {isGeneratingThis && content && (
+                  <div
+                    className="px-4 pb-3 text-[11.5px] leading-relaxed line-clamp-4 animate-pulse"
+                    style={{ color: "var(--ink-light)" }}
+                  >
+                    {content.slice(-300).replace(/^#{1,3}\s.+/gm, "").trim()}...
+                  </div>
+                )}
+
                 {/* Editor */}
-                {isEditing && (
+                {isEditing && !isGeneratingThis && (
                   <div className="px-4 pb-3">
                     <textarea
                       value={content}
@@ -469,16 +659,27 @@ function CompileModal({
                           setEditingKey(null);
                         }}
                         className="rounded-lg px-3 py-1.5 text-[11px] font-medium"
-                        style={{ color: "var(--accent-pink)" }}
+                        style={{ color: "#DC2626" }}
                       >
                         섹션 제거
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingKey(null);
+                          generateOne(sec);
+                        }}
+                        className="rounded-lg px-3 py-1.5 text-[11px] font-medium"
+                        style={{ color: "var(--accent)" }}
+                      >
+                        다시 생성
                       </button>
                     </div>
                   </div>
                 )}
 
                 {/* Collapsed preview */}
-                {!isEditing && hasContent && (
+                {!isEditing && !isGeneratingThis && hasContent && (
                   <div
                     className="px-4 pb-3 text-[11.5px] leading-relaxed line-clamp-3"
                     style={{ color: "var(--ink-light)" }}
@@ -513,6 +714,7 @@ function CompileModal({
           <Button
             variant="primary"
             size="sm"
+            disabled={generating || completedCount === 0}
             onClick={() => {
               const html = markdownToHtml(editedMd, meta?.title || "투자심사 보고서");
               downloadFile(html, `${filename}.doc`, "application/msword");
@@ -524,6 +726,7 @@ function CompileModal({
           <Button
             variant="secondary"
             size="sm"
+            disabled={generating || completedCount === 0}
             onClick={() => downloadFile(editedMd, `${filename}.md`, "text/markdown")}
           >
             <Download className="h-3.5 w-3.5" />
@@ -532,6 +735,7 @@ function CompileModal({
           <Button
             variant="secondary"
             size="sm"
+            disabled={generating || completedCount === 0}
             onClick={async () => {
               await navigator.clipboard.writeText(editedMd);
               setCopied(true);
@@ -542,8 +746,8 @@ function CompileModal({
             {copied ? "복사됨!" : "복사"}
           </Button>
           <div className="ml-auto text-[11px]" style={{ color: "var(--ink-light)" }}>
-            {compiled.missingSections.length > 0 && (
-              <span>미작성 {compiled.missingSections.length}개</span>
+            {missingCount > 0 && !generating && (
+              <span>미작성 {missingCount}개</span>
             )}
           </div>
         </div>
@@ -572,6 +776,8 @@ export default function ReportSessionPage() {
   const [rememberedToast, setRememberedToast] = React.useState<string | null>(null);
   const [showCompile, setShowCompile] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
+  const [debating, setDebating] = React.useState(false);
+  const [debateStarted, setDebateStarted] = React.useState(false);
 
   const loadMeta = React.useCallback(async () => {
     try {
@@ -614,7 +820,7 @@ export default function ReportSessionPage() {
     return () => clearTimeout(t);
   }, [rememberedToast]);
 
-  async function sendMessage(message: string, section?: TocSection) {
+  async function sendMessage(message: string, section?: TocSection, perspective?: "optimistic" | "pessimistic") {
     const text = message.trim();
     if (!text || sendingRef.current) return;
 
@@ -637,12 +843,14 @@ export default function ReportSessionPage() {
       content: text,
       createdAt: new Date().toISOString(),
       section: sectionMeta,
+      perspective,
     };
     const optimisticAssistant: ReportMessage = {
       role: "assistant",
       content: "",
       createdAt: new Date().toISOString(),
       section: sectionMeta,
+      perspective,
     };
     setMessages((prev) => [...prev, optimisticUser, optimisticAssistant]);
     setPrompt("");
@@ -652,7 +860,7 @@ export default function ReportSessionPage() {
       const res = await fetch("/api/report/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sessionId, message: enrichedMessage, section: sectionMeta }),
+        body: JSON.stringify({ sessionId, message: enrichedMessage, section: sectionMeta, perspective }),
       });
 
       if (!res.ok) {
@@ -689,6 +897,10 @@ export default function ReportSessionPage() {
 
   // Fetch next autoregressive branch question from LLM
   async function fetchNextBranch(allDecisions: DecisionRecord[]) {
+    // Stop after MAX_AUTO_BRANCHES auto-generated questions
+    const autoCount = customQuestions.filter((q) => !q.userCreated).length;
+    if (autoCount >= MAX_AUTO_BRANCHES) return;
+
     try {
       const res = await fetch("/api/report/next-branch", {
         method: "POST",
@@ -778,6 +990,43 @@ export default function ReportSessionPage() {
     // Persist as a message so it's restored on reload
     const msg = formatCustomBranchMessage(qId, question, options);
     sendMessage(msg);
+  }
+
+  // Auto branches count for max check
+  const autoBranchCount = customQuestions.filter((q) => !q.userCreated).length;
+  const maxAutoReached = autoBranchCount >= MAX_AUTO_BRANCHES;
+
+  // Debate flow — 3 rounds: optimistic → pessimistic → optimistic rebuttal
+  async function startDebate() {
+    if (debating) return;
+    setDebating(true);
+    setDebateStarted(true);
+    setShowTree(false); // Close tree panel to focus on debate
+
+    const decisionSummary = decisions
+      .map((d, i) => `${i + 1}. ${d.question} → ${d.answer}`)
+      .join("\n");
+    const companyCtx = meta?.companyName ? `\n기업: ${meta.companyName}` : "";
+    const fundCtx = meta?.fundName ? `\n펀드: ${meta.fundName}` : "";
+
+    // Round 1: Optimistic Merry
+    const round1 = `${DEBATE_PREFIX} [긍정 메리 분석]\n\n의사결정 기록:\n${decisionSummary}${companyCtx}${fundCtx}\n\n위 의사결정 기록을 바탕으로 이 투자건의 긍정적 관점에서 핵심 분석을 해줘.\n- 왜 이 투자가 매력적인지\n- 핵심 성장 동력과 시장 기회\n- 팀/기술 강점\n간결하게 핵심 포인트 3-5개로 정리해줘.`;
+    await sendMessage(round1, undefined, "optimistic");
+
+    // Small delay before round 2
+    await new Promise((r) => setTimeout(r, 500));
+
+    // Round 2: Pessimistic Merry
+    const round2 = `${DEBATE_PREFIX} [비관 메리 반론]\n\n긍정 메리의 분석을 읽었어. 이제 비관적 관점에서 반론과 리스크를 분석해줘.\n- 긍정 메리가 간과한 리스크\n- 시장/경쟁/재무 위험\n- 실행 리스크와 최악의 시나리오\n간결하게 핵심 포인트 3-5개로 정리해줘.`;
+    await sendMessage(round2, undefined, "pessimistic");
+
+    await new Promise((r) => setTimeout(r, 500));
+
+    // Round 3: Optimistic rebuttal + synthesis
+    const round3 = `${DEBATE_PREFIX} [긍정 메리 재반박]\n\n비관 메리의 반론을 읽었어. 핵심 우려 사항에 대해 재반박하고, 리스크를 줄이기 위한 투자 조건(milestone, 안전장치)을 제안해줘.\n간결하게 정리해줘.`;
+    await sendMessage(round3, undefined, "optimistic");
+
+    setDebating(false);
   }
 
   const streamingAssistantIndex = sending ? messages.findLastIndex((m) => m.role === "assistant") : -1;
@@ -878,8 +1127,11 @@ export default function ReportSessionPage() {
           <div className="mx-auto max-w-3xl space-y-4">
             {messages.length ? (
               messages.map((m, idx) => {
-                // Hide branch definition messages (internal bookkeeping)
+                // Hide branch definition messages and debate prompts (internal bookkeeping)
                 if (m.role === "user" && isBranchMessage(m.content)) {
+                  return null;
+                }
+                if (m.role === "user" && isDebateMessage(m.content)) {
                   return null;
                 }
 
@@ -929,19 +1181,40 @@ export default function ReportSessionPage() {
                   );
                 }
 
+                // Perspective-aware styling for debate messages
+                const isOptimistic = m.perspective === "optimistic";
+                const isPessimistic = m.perspective === "pessimistic";
+                const hasDebatePerspective = isOptimistic || isPessimistic;
+
+                const perspectiveStyles = hasDebatePerspective && m.role === "assistant"
+                  ? {
+                      background: isOptimistic ? "#F0FDF4" : "#FEF2F2",
+                      border: isOptimistic ? "1.5px solid #22C55E" : "1.5px solid #EF4444",
+                      color: "var(--ink)",
+                    }
+                  : m.role === "assistant"
+                    ? { background: "var(--bg-subtle)", border: "1px solid var(--card-border)", color: "var(--ink)" }
+                    : { background: "var(--accent)", color: "#FFFFFF" };
+
                 return (
                   <div key={idx} className={m.role === "user" ? "flex justify-end" : "flex justify-start"}>
                     <div
-                      className="max-w-[85%] rounded-2xl px-4 py-3 text-sm"
-                      style={
-                        m.role === "user"
-                          ? { background: "var(--accent)", color: "#FFFFFF" }
-                          : { background: "var(--bg-subtle)", border: "1px solid var(--card-border)", color: "var(--ink)" }
-                      }
+                      className={`rounded-2xl px-4 py-3 text-sm ${hasDebatePerspective && m.role === "assistant" ? "max-w-[92%]" : "max-w-[85%]"}`}
+                      style={perspectiveStyles}
                     >
                       {m.role === "assistant" ? (
                         <>
-                          {m.section && (
+                          {/* Debate perspective label */}
+                          {hasDebatePerspective && (
+                            <div
+                              className="mb-2 flex items-center gap-1.5 text-[12px] font-bold"
+                              style={{ color: isOptimistic ? "#16A34A" : "#DC2626" }}
+                            >
+                              <span>{isOptimistic ? "🟢" : "🔴"}</span>
+                              {isOptimistic ? "긍정 메리" : "비관 메리"}
+                            </div>
+                          )}
+                          {m.section && !hasDebatePerspective && (
                             <div className="mb-2 text-[11px] font-semibold" style={{ color: "var(--accent)" }}>
                               {sectionLabel(m.section)}
                             </div>
@@ -965,7 +1238,9 @@ export default function ReportSessionPage() {
                         </>
                       )}
                       <div className="mt-2 text-[10px] opacity-50">
-                        {m.role === "user" ? "you" : "merry"} ·{" "}
+                        {hasDebatePerspective && m.role === "assistant"
+                          ? (isOptimistic ? "긍정 메리" : "비관 메리")
+                          : m.role === "user" ? "you" : "merry"} ·{" "}
                         {m.createdAt
                           ? new Date(m.createdAt).toLocaleString("ko-KR", {
                               timeZone: "Asia/Seoul",
@@ -998,6 +1273,52 @@ export default function ReportSessionPage() {
                 >
                   <GitBranch className="h-4 w-4" />
                   분기 심사로 시작하기
+                </button>
+              </div>
+            )}
+            {/* Debate completion — user picks perspective */}
+            {debateStarted && !debating && !sending && (
+              <div
+                className="mx-auto max-w-md rounded-2xl px-5 py-4 text-center"
+                style={{
+                  background: "var(--bg-subtle)",
+                  border: "1.5px solid var(--card-border)",
+                }}
+              >
+                <p className="text-[13px] font-bold" style={{ color: "var(--ink)" }}>
+                  어떤 관점이 더 설득력 있나요?
+                </p>
+                <p className="mt-1 text-[11px]" style={{ color: "var(--ink-light)" }}>
+                  선택한 관점을 기반으로 보고서를 작성할 수 있어요
+                </p>
+                <div className="mt-3 flex gap-2 justify-center">
+                  <button
+                    onClick={() => {
+                      sendMessage("긍정 메리의 관점을 기반으로 투자심사 보고서를 작성해줘. 긍정적 요소를 중심으로 하되 리스크도 함께 언급해줘.", undefined, "optimistic");
+                      setDebateStarted(false);
+                    }}
+                    className="flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-[12px] font-bold transition-all hover:scale-[1.02]"
+                    style={{ background: "#22C55E", color: "#fff" }}
+                  >
+                    🟢 긍정 관점 선택
+                  </button>
+                  <button
+                    onClick={() => {
+                      sendMessage("비관 메리의 관점을 기반으로 투자심사 보고서를 작성해줘. 리스크와 우려를 중심으로 하되 극복 방안도 함께 언급해줘.", undefined, "pessimistic");
+                      setDebateStarted(false);
+                    }}
+                    className="flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-[12px] font-bold transition-all hover:scale-[1.02]"
+                    style={{ background: "#EF4444", color: "#fff" }}
+                  >
+                    🔴 비관 관점 선택
+                  </button>
+                </div>
+                <button
+                  onClick={() => setDebateStarted(false)}
+                  className="mt-2 text-[11px] underline"
+                  style={{ color: "var(--ink-light)" }}
+                >
+                  선택하지 않고 자유 대화 계속
                 </button>
               </div>
             )}
@@ -1067,7 +1388,10 @@ export default function ReportSessionPage() {
             customQuestions={customQuestions}
             onDecision={handleDecision}
             onAddBranch={handleAddBranch}
+            onStartDebate={startDebate}
             sending={sending}
+            debating={debating}
+            maxAutoReached={maxAutoReached}
             meta={{
               title: meta?.title,
               companyName: meta?.companyName,
@@ -1082,7 +1406,9 @@ export default function ReportSessionPage() {
         messages={messages}
         meta={meta}
         decisions={decisions}
+        sessionId={sessionId}
         onClose={() => setShowCompile(false)}
+        onMessagesUpdate={loadMessages}
       />}
 
       {/* ── "Remembered" toast ── */}

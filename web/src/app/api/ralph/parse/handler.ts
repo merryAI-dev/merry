@@ -2,6 +2,8 @@ import { randomUUID } from "crypto";
 import { writeFile, unlink } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
+import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { getS3Client } from "@/lib/aws/s3";
 
 export const MAX_PDF_BYTES = 50 * 1024 * 1024;
 export const PARSE_TIMEOUT_MS = 45_000;
@@ -201,6 +203,75 @@ export async function handleParseFormData(
   } finally {
     if (pdfPath) {
       await removePdfFile(pdfPath);
+    }
+  }
+}
+
+/* ── S3 key-based parse (bypasses Vercel 4.5MB body limit) ── */
+
+type S3ParseBody = {
+  s3Key?: string;
+  s3Bucket?: string;
+  filename?: string;
+  force_pro?: boolean;
+};
+
+type HandleParseS3Deps = {
+  requireWorkspace: () => Promise<unknown>;
+  runParser: ParserRunner;
+};
+
+export async function handleParseFromS3(
+  body: S3ParseBody,
+  deps: HandleParseS3Deps,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  let pdfPath: string | null = null;
+
+  try {
+    await deps.requireWorkspace();
+
+    const { s3Key, s3Bucket, force_pro } = body;
+    if (!s3Key || !s3Bucket) {
+      return { status: 400, body: { ok: false, error: "S3_KEY_REQUIRED" } };
+    }
+
+    // Download from S3 to temp file
+    const s3 = getS3Client();
+    const obj = await s3.send(new GetObjectCommand({ Bucket: s3Bucket, Key: s3Key }));
+    if (!obj.Body) {
+      return { status: 404, body: { ok: false, error: "S3_OBJECT_NOT_FOUND" } };
+    }
+
+    const chunks: Buffer[] = [];
+    // @ts-expect-error — Body is a Readable stream in Node.js runtime
+    for await (const chunk of obj.Body) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    const pdfBytes = Buffer.concat(chunks);
+
+    if (pdfBytes.length > MAX_PDF_BYTES) {
+      return { status: 413, body: { ok: false, error: "FILE_TOO_LARGE" } };
+    }
+
+    pdfPath = join(tmpdir(), `ralph_s3_${randomUUID()}.pdf`);
+    await writeFile(pdfPath, pdfBytes);
+
+    const result = await deps.runParser(pdfPath, !!force_pro);
+    return { status: 200, body: result };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "PARSE_FAILED";
+    const isUnauth = message === "UNAUTHORIZED" || message.startsWith("UNAUTHORIZED:");
+    const status = isUnauth
+      ? 401
+      : message === "FILE_TOO_LARGE"
+        ? 413
+        : message === "PARSE_TIMEOUT"
+          ? 504
+          : 500;
+    return { status, body: { ok: false, error: message } };
+  } finally {
+    if (pdfPath) {
+      await unlink(pdfPath).catch(() => {});
     }
   }
 }

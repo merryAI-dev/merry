@@ -24,6 +24,7 @@ export type ReportMessage = {
     title: string;
     index?: number;
   };
+  perspective?: "optimistic" | "pessimistic";
 };
 
 function reportSessionId(sessionSlug: string) {
@@ -115,12 +116,16 @@ export async function getReportMessages(teamId: string, sessionId: string, maxMe
             index: typeof sectionObj["index"] === "number" && Number.isFinite(sectionObj["index"]) ? (sectionObj["index"] as number) : undefined,
           }
         : undefined;
+    const perspectiveRaw = meta["perspective"];
+    const perspective =
+      perspectiveRaw === "optimistic" || perspectiveRaw === "pessimistic" ? perspectiveRaw : undefined;
     out.push({
       role: m.role as "user" | "assistant",
       content: m.content,
       createdAt: m.created_at,
       member,
       section: section && section.key && section.title ? section : undefined,
+      perspective,
     });
   }
   return out;

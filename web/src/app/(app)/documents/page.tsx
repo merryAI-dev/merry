@@ -89,32 +89,78 @@ function nextId() {
   return `f_${++fileIdCounter}_${Date.now()}`;
 }
 
+/** Check if a string has meaningful content (not just whitespace/invisible chars) */
+function hasMeaningfulContent(s?: string | null): boolean {
+  if (!s) return false;
+  // Strip all whitespace, control chars, zero-width chars
+  const stripped = s.replace(/[\s\u200B-\u200D\uFEFF\u00A0]/g, "");
+  return stripped.length > 20;
+}
+
 function buildMarkdown(result: ParseResult): string {
   if (!result.ok) return `오류: ${result.error ?? "알 수 없는 오류"}`;
 
   const lines: string[] = [];
+
+  // Document type header
   const docLabel = result.doc_type
     ? (DOC_TYPE_LABELS[result.doc_type] ?? result.doc_type)
-    : "미분류 문서";
+    : result.visual_description?.document_type || "미분류 문서";
 
   lines.push(`## 문서 종류 : ${docLabel}`);
   if (!result.doc_type && result.description) {
     lines.push(`\n${result.description}`);
   }
+
+  // Metadata summary bar
+  const metaParts: string[] = [];
+  if (result.pages) metaParts.push(`${result.pages}p`);
+  if (result.method) metaParts.push(`방법: ${result.method}`);
+  if (typeof result.text_quality === "number") metaParts.push(`품질: ${(result.text_quality * 100).toFixed(0)}%`);
+  if (result.is_fragmented) metaParts.push("⚠ 파편화");
+  if (result.text_structure) metaParts.push(`구조: ${result.text_structure}`);
+  if (metaParts.length > 0) {
+    lines.push(`\n> ${metaParts.join(" · ")}`);
+  }
   lines.push("");
 
+  // Determine which text source is better
   const vd = result.visual_description;
-  if (vd && !vd.error) {
-    if (vd.structure_notes?.trim()) lines.push(`*${vd.structure_notes.trim()}*\n`);
-    if (vd.readable_text?.trim()) lines.push(vd.readable_text.trim());
-    lines.push("");
-    if (result.text_structure === "presentation" && result.text?.trim()) {
+  const vdText = vd?.readable_text;
+  const rawText = result.text;
+  const vdUseful = hasMeaningfulContent(vdText);
+  const rawUseful = hasMeaningfulContent(rawText);
+
+  // Prefer the richer text source
+  const rawLen = rawText?.replace(/\s/g, "").length ?? 0;
+  const vdLen = vdText?.replace(/[\s\u200B-\u200D\uFEFF\u00A0]/g, "").length ?? 0;
+
+  if (vdUseful && rawUseful) {
+    // Both available — use whichever is richer, show other as fallback
+    if (rawLen >= vdLen * 0.8) {
+      // Raw text is comparable or better
+      if (vd?.structure_notes?.trim()) lines.push(`*${vd.structure_notes.trim()}*\n`);
+      lines.push(rawText!.trim());
+      if (vdLen > rawLen * 1.2) {
+        lines.push("\n---\n");
+        lines.push("**Visual 추출 결과**\n");
+        lines.push(vdText!.trim());
+      }
+    } else {
+      // VD is significantly richer
+      if (vd?.structure_notes?.trim()) lines.push(`*${vd.structure_notes.trim()}*\n`);
+      lines.push(vdText!.trim());
       lines.push("\n---\n");
-      lines.push("**원문 텍스트 (PyMuPDF)**\n");
-      lines.push(result.text.trim());
+      lines.push("**원문 텍스트**\n");
+      lines.push(rawText!.trim());
     }
-  } else if (result.text?.trim()) {
-    lines.push(result.text.trim());
+  } else if (rawUseful) {
+    // Only raw text is useful
+    lines.push(rawText!.trim());
+  } else if (vdUseful) {
+    // Only VD is useful
+    if (vd?.structure_notes?.trim()) lines.push(`*${vd.structure_notes.trim()}*\n`);
+    lines.push(vdText!.trim());
   } else {
     lines.push("*추출된 텍스트가 없습니다.*");
   }
@@ -125,8 +171,11 @@ function buildMarkdown(result: ParseResult): string {
 function getExtractedText(result: ParseResult): string {
   const vd = result.visual_description;
   const parts: string[] = [];
-  if (vd && !vd.error && vd.readable_text?.trim()) parts.push(vd.readable_text.trim());
-  if (result.text?.trim()) parts.push(result.text.trim());
+  // Prefer the richer source first
+  const rawUseful = hasMeaningfulContent(result.text);
+  const vdUseful = hasMeaningfulContent(vd?.readable_text);
+  if (rawUseful) parts.push(result.text!.trim());
+  if (vdUseful && vd?.readable_text) parts.push(vd.readable_text.trim());
   return parts.join("\n\n");
 }
 
@@ -193,13 +242,49 @@ export default function DocumentsPage() {
   }
 
   async function callParse(file: File, forcePro: boolean): Promise<ParseResult> {
-    const form = new FormData();
-    form.append("file", file);
-    if (forcePro) form.append("force_pro", "true");
+    // Step 1: Get presigned URL from S3
+    const presignRes = await fetch("/api/uploads/presign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filename: file.name,
+        contentType: file.type || "application/pdf",
+        sizeBytes: file.size,
+      }),
+    });
+    if (!presignRes.ok) {
+      const err = await presignRes.json().catch(() => ({ error: "PRESIGN_FAILED" }));
+      throw new Error(err.error ?? `Presign failed: ${presignRes.status}`);
+    }
+    const presign = await presignRes.json();
 
-    const res = await fetch("/api/ralph/parse", { method: "POST", body: form });
+    // Step 2: Upload directly to S3 (bypasses Vercel 4.5MB limit)
+    const putRes = await fetch(presign.upload.url, {
+      method: "PUT",
+      headers: presign.upload.headers,
+      body: file,
+    });
+    if (!putRes.ok) throw new Error(`S3 upload failed: ${putRes.status}`);
 
-    // Handle non-JSON responses (e.g. Vercel body limit, proxy errors)
+    // Step 3: Confirm upload
+    await fetch("/api/uploads/complete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fileId: presign.file.fileId }),
+    });
+
+    // Step 4: Parse via S3 key (no file in body — just reference)
+    const res = await fetch("/api/ralph/parse", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        s3Key: presign.file.key,
+        s3Bucket: presign.file.bucket,
+        filename: file.name,
+        force_pro: forcePro,
+      }),
+    });
+
     const contentType = res.headers.get("content-type") ?? "";
     if (!contentType.includes("application/json")) {
       const text = await res.text().catch(() => "");

@@ -358,12 +358,15 @@ type Props = {
   customQuestions: DecisionQuestion[];
   onDecision: (questionId: string, question: string, answer: string, value: string, custom?: boolean, userCreated?: boolean) => void;
   onAddBranch: (question: string, options: string[]) => void;
+  onStartDebate?: () => void;
   sending?: boolean;
+  debating?: boolean;
+  maxAutoReached?: boolean;
   meta?: { title?: string; companyName?: string; date?: string };
 };
 
 /* ── Component ── */
-export function DecisionTree({ decisions, customQuestions, onDecision, onAddBranch, sending, meta }: Props) {
+export function DecisionTree({ decisions, customQuestions, onDecision, onAddBranch, onStartDebate, sending, debating, maxAutoReached, meta }: Props) {
   const [customInput, setCustomInput] = React.useState("");
   const [showCustom, setShowCustom] = React.useState(false);
   const [showPreview, setShowPreview] = React.useState(false);
@@ -823,8 +826,8 @@ export function DecisionTree({ decisions, customQuestions, onDecision, onAddBran
           )}
         </div>
 
-        {/* Completion (only when all done and no new branch form open) */}
-        {allDone && !showNewBranch && (
+        {/* Completion — when all done or max auto branches reached */}
+        {(allDone || maxAutoReached) && !showNewBranch && (
           <div
             className="mt-4 rounded-xl px-4 py-3 text-center"
             style={{
@@ -835,13 +838,40 @@ export function DecisionTree({ decisions, customQuestions, onDecision, onAddBran
             <div className="flex items-center justify-center gap-2">
               <Sparkles className="h-4 w-4" style={{ color: "var(--accent)" }} />
               <span className="text-[13px] font-bold" style={{ color: "var(--accent)" }}>
-                {allDefaultDone && customQuestions.length === 0 ? "기본 분기 완료!" : "모든 분기 완료!"}
+                분기 심사 완료!
               </span>
             </div>
             <p className="mt-1.5 text-[11px]" style={{ color: "var(--ink-light)" }}>
-              메리가 모든 의사결정을 기억하고 있어요.
-              <br />
-              새 분기를 추가하면 더 세밀한 심사가 가능해요.
+              메리가 {decisions.length}개 의사결정을 기억하고 있어요.
+            </p>
+
+            {/* Debate start button */}
+            {onStartDebate && (
+              <button
+                onClick={onStartDebate}
+                disabled={debating}
+                className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl py-2.5 text-[13px] font-bold transition-all hover:scale-[1.01] disabled:opacity-50"
+                style={{
+                  background: debating ? "var(--card-border)" : "var(--ink)",
+                  color: "#fff",
+                }}
+              >
+                {debating ? (
+                  <>
+                    <Sparkles className="h-4 w-4 animate-pulse" />
+                    투자 토론 진행 중...
+                  </>
+                ) : (
+                  <>
+                    <MessageCircle className="h-4 w-4" />
+                    🟢 긍정 vs 🔴 비관 투자 토론 시작
+                  </>
+                )}
+              </button>
+            )}
+
+            <p className="mt-2 text-[10px]" style={{ color: "var(--muted)" }}>
+              새 분기를 추가하면 더 세밀한 심사도 가능해요.
             </p>
           </div>
         )}

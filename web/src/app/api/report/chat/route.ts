@@ -34,6 +34,7 @@ const BodySchema = z.object({
       index: z.number().int().positive().optional(),
     })
     .optional(),
+  perspective: z.enum(["optimistic", "pessimistic"]).optional(),
 });
 
 function safeLlmErrorText(err: unknown): string {
@@ -152,9 +153,12 @@ function buildSystemPrompt(args: {
   section?: { key: string; title: string; index?: number };
   pack?: AssumptionPack | null;
   computeJob?: { jobId: string; status?: string; metrics?: unknown } | null;
+  perspective?: "optimistic" | "pessimistic";
 }) {
-  const base =
+  const today = new Date().toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul", year: "numeric", month: "long", day: "numeric" });
+  let base =
     buildMerryPersona("report") +
+    `- 오늘 날짜: ${today}\n` +
     "- 문서 톤: 인수인의견 스타일(근거 중심, 단정적 과장 금지)\n" +
     "- 출력: Markdown(코드펜스 금지)\n" +
     "- 숫자/지표: Locked AssumptionPack 또는 Compute Snapshot에 있는 값만 사용. 없으면 [확인 필요]로 남기고 질문\n" +
@@ -174,6 +178,26 @@ function buildSystemPrompt(args: {
       : "";
 
   const contextBlock = packBlock || computeBlock ? `\n[컨텍스트 스냅샷]\n${packBlock}${computeBlock}` : "";
+
+  // Perspective-specific instructions for debate mode
+  if (args.perspective === "optimistic") {
+    base +=
+      "\n[역할: 긍정 메리 🟢]\n" +
+      "- 당신은 이 투자건의 긍정적 관점을 대변하는 역할이에요\n" +
+      "- 시장 기회, 팀 역량, 기술 우위, 성장 잠재력에 초점을 맞춰\n" +
+      "- 리스크를 인정하되 극복 가능한 방안을 함께 제시해\n" +
+      "- 비관 메리의 의견이 맥락에 있다면 건설적으로 반박해\n" +
+      "- 간결하게, 핵심 포인트 3-5개로 정리해\n";
+  }
+  if (args.perspective === "pessimistic") {
+    base +=
+      "\n[역할: 비관 메리 🔴]\n" +
+      "- 당신은 devil's advocate 역할로 투자의 위험 요소를 심층 분석해\n" +
+      "- 경쟁 위협, 재무 리스크, 시장 불확실성, 실행 리스크에 초점\n" +
+      "- 긍정적 요소가 과대평가되었을 가능성을 지적해\n" +
+      "- 긍정 메리의 의견이 맥락에 있다면 논리적으로 반론해\n" +
+      "- 간결하게, 핵심 포인트 3-5개로 정리해\n";
+  }
 
   if (!args.section) return base + contextBlock;
 
@@ -242,6 +266,7 @@ export async function POST(req: Request) {
       memberName: ws.memberName,
       metadata: {
         ...(body.section ? { section: body.section } : {}),
+        ...(body.perspective ? { perspective: body.perspective } : {}),
         ...(pack?.packId ? { packId: pack.packId } : {}),
         ...(computeJob?.jobId ? { computeJobId: computeJob.jobId } : {}),
       },
@@ -254,7 +279,7 @@ export async function POST(req: Request) {
       .map((m) => ({ role: m.role, content: m.content })) as Array<{ role: "user" | "assistant"; content: string }>;
 
     const maxTokens = Number(process.env.ANTHROPIC_REPORT_MAX_TOKENS ?? "8192");
-    const system = buildSystemPrompt({ section: body.section, pack, computeJob });
+    const system = buildSystemPrompt({ section: body.section, pack, computeJob, perspective: body.perspective });
 
     const encoder = new TextEncoder();
     let assistantText = "";
