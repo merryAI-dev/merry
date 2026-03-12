@@ -192,18 +192,35 @@ export default function DocumentsPage() {
     }
   }
 
+  async function callParse(file: File, forcePro: boolean): Promise<ParseResult> {
+    const form = new FormData();
+    form.append("file", file);
+    if (forcePro) form.append("force_pro", "true");
+
+    const res = await fetch("/api/ralph/parse", { method: "POST", body: form });
+
+    // Handle non-JSON responses (e.g. Vercel body limit, proxy errors)
+    const contentType = res.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      const text = await res.text().catch(() => "");
+      throw new Error(text.slice(0, 100) || `HTTP ${res.status}`);
+    }
+
+    return (await res.json()) as ParseResult;
+  }
+
   async function parseFile(id: string, file: File, forcePro = false) {
     setEntries((prev) =>
       prev.map((e) => (e.id === id ? { ...e, status: "parsing", result: null } : e)),
     );
 
     try {
-      const form = new FormData();
-      form.append("file", file);
-      if (forcePro) form.append("force_pro", "true");
+      let data = await callParse(file, forcePro);
 
-      const res = await fetch("/api/ralph/parse", { method: "POST", body: form });
-      const data: ParseResult = await res.json();
+      // Auto-retry with Nova Pro if initial parse failed or quality is poor
+      if (!forcePro && data.ok && (data.is_poor || data.is_fragmented)) {
+        data = await callParse(file, true);
+      }
 
       setEntries((prev) =>
         prev.map((e) =>
@@ -212,6 +229,24 @@ export default function DocumentsPage() {
       );
     } catch (err) {
       const msg = err instanceof Error ? err.message : "UNKNOWN";
+
+      // If initial attempt failed entirely, try once with Nova Pro
+      if (!forcePro) {
+        try {
+          const retryData = await callParse(file, true);
+          setEntries((prev) =>
+            prev.map((e) =>
+              e.id === id
+                ? { ...e, status: retryData.ok ? "done" : "error", result: retryData }
+                : e,
+            ),
+          );
+          return;
+        } catch {
+          // Fall through to original error
+        }
+      }
+
       setEntries((prev) =>
         prev.map((e) =>
           e.id === id ? { ...e, status: "error", result: { ok: false, error: msg } } : e,

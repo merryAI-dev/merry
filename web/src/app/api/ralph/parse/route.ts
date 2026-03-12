@@ -7,7 +7,17 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
-  const result = await handleParseFormData(await req.formData(), {
+  let formData: FormData;
+  try {
+    formData = await req.formData();
+  } catch {
+    return NextResponse.json(
+      { ok: false, error: "REQUEST_BODY_INVALID" },
+      { status: 400 },
+    );
+  }
+
+  const result = await handleParseFormData(formData, {
     requireWorkspace: requireWorkspaceFromCookies,
     runParser,
   });
