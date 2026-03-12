@@ -242,12 +242,9 @@ export async function handleParseFromS3(
       return { status: 404, body: { ok: false, error: "S3_OBJECT_NOT_FOUND" } };
     }
 
-    const chunks: Buffer[] = [];
-    // @ts-expect-error — Body is a Readable stream in Node.js runtime
-    for await (const chunk of obj.Body) {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    }
-    const pdfBytes = Buffer.concat(chunks);
+    // AWS SDK v3 공식 방식: transformToByteArray()
+    const uint8 = await obj.Body.transformToByteArray();
+    const pdfBytes = Buffer.from(uint8);
 
     if (pdfBytes.length > MAX_PDF_BYTES) {
       return { status: 413, body: { ok: false, error: "FILE_TOO_LARGE" } };
