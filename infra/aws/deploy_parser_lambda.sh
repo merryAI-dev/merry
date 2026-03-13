@@ -68,11 +68,16 @@ echo "[parser] resolving Lambda role: $LAMBDA_ROLE_NAME"
 LAMBDA_ROLE_ARN="$(aws iam get-role --role-name "$LAMBDA_ROLE_NAME" \
   --query Role.Arn --output text)"
 
-echo "[parser] ensuring Bedrock permission on Lambda role..."
+echo "[parser] ensuring Bedrock + S3 permissions on Lambda role..."
 aws iam put-role-policy \
   --role-name "$LAMBDA_ROLE_NAME" \
   --policy-name "merry-lambda-bedrock" \
   --policy-document '{"Version":"2012-10-17","Statement":[{"Sid":"BedrockNova","Effect":"Allow","Action":["bedrock:InvokeModel","bedrock:InvokeModelWithResponseStream"],"Resource":"*"}]}' \
+  >/dev/null
+aws iam put-role-policy \
+  --role-name "$LAMBDA_ROLE_NAME" \
+  --policy-name "merry-lambda-s3-read" \
+  --policy-document '{"Version":"2012-10-17","Statement":[{"Sid":"S3ReadUploads","Effect":"Allow","Action":["s3:GetObject"],"Resource":"arn:aws:s3:::merry-*/*"}]}' \
   >/dev/null
 
 # ── 4. Lambda function ────────────────────────────────────────────────────────

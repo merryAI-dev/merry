@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { handleParseFormData, handleParseFromS3, runParser } from "./handler";
+import { handleParseFormData, handleParseFromS3, runParser, runParserS3 } from "./handler";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export const runtime = "nodejs";
-export const maxDuration = 60;
+export const maxDuration = 120;
 
 export async function POST(req: Request) {
   const contentType = req.headers.get("content-type") ?? "";
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
       const body = await req.json();
       const result = await handleParseFromS3(body, {
         requireWorkspace: requireWorkspaceFromCookies,
-        runParser,
+        runParserS3,
       });
       if (result.status >= 500 && result.body.error !== "UNAUTHORIZED") {
         console.error("[RALPH] parse route (s3) failed", { error: result.body.error });

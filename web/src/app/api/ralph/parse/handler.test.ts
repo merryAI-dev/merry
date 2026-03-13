@@ -107,7 +107,7 @@ test("handleParseFormData maps parser timeout to 504", async () => {
     },
   );
 
-  assert.equal(PARSE_TIMEOUT_MS, 45_000);
+  assert.equal(PARSE_TIMEOUT_MS, 90_000);
   assert.equal(result.status, 504);
   assert.deepEqual(result.body, { ok: false, error: "PARSE_TIMEOUT" });
 });

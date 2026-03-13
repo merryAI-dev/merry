@@ -2,11 +2,9 @@ import { randomUUID } from "crypto";
 import { writeFile, unlink } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
-import { getS3Client } from "@/lib/aws/s3";
 
 export const MAX_PDF_BYTES = 50 * 1024 * 1024;
-export const PARSE_TIMEOUT_MS = 45_000;
+export const PARSE_TIMEOUT_MS = 90_000;
 
 export type ParserErrorCode =
   | "PARSE_TIMEOUT"
@@ -143,6 +141,57 @@ export async function runParser(
   return parseParserOutput(text);
 }
 
+/**
+ * S3 키를 Lambda에 직접 전달. Lambda가 S3에서 다운로드.
+ * API Gateway 10MB 페이로드 제한을 우회하여 대용량 PDF 지원.
+ */
+export async function runParserS3(
+  s3Key: string,
+  s3Bucket: string,
+  forcePro = false,
+): Promise<Record<string, unknown>> {
+  const parserUrl = process.env.PARSER_INTERNAL_URL;
+  if (!parserUrl) {
+    throw parserError("PARSER_SPAWN_FAILED", "Missing env PARSER_INTERNAL_URL");
+  }
+
+  const apiKey = process.env.PARSER_API_KEY ?? "";
+  const url = `${parserUrl}/parse`;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PARSE_TIMEOUT_MS);
+
+  let resp: Response;
+  try {
+    resp = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(apiKey ? { "x-api-key": apiKey } : {}),
+      },
+      body: JSON.stringify({
+        s3_key: s3Key,
+        s3_bucket: s3Bucket,
+        force_pro: forcePro,
+      }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw parserError(
+      msg.includes("abort") ? "PARSE_TIMEOUT" : "PARSER_SPAWN_FAILED",
+      msg,
+    );
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  const text = await resp.text();
+  if (!resp.ok) {
+    throw parserError("PARSER_EXITED", `HTTP ${resp.status}: ${text.slice(0, 300)}`);
+  }
+  return parseParserOutput(text);
+}
+
 function defaultTempPath() {
   return join(tmpdir(), `ralph_pg_${randomUUID()}.pdf`);
 }
@@ -207,7 +256,7 @@ export async function handleParseFormData(
   }
 }
 
-/* ── S3 key-based parse (bypasses Vercel 4.5MB body limit) ── */
+/* ── S3 key-based parse (bypasses Vercel 4.5MB + API Gateway 10MB limits) ── */
 
 type S3ParseBody = {
   s3Key?: string;
@@ -218,15 +267,13 @@ type S3ParseBody = {
 
 type HandleParseS3Deps = {
   requireWorkspace: () => Promise<unknown>;
-  runParser: ParserRunner;
+  runParserS3: typeof runParserS3;
 };
 
 export async function handleParseFromS3(
   body: S3ParseBody,
   deps: HandleParseS3Deps,
 ): Promise<{ status: number; body: Record<string, unknown> }> {
-  let pdfPath: string | null = null;
-
   try {
     await deps.requireWorkspace();
 
@@ -235,25 +282,8 @@ export async function handleParseFromS3(
       return { status: 400, body: { ok: false, error: "S3_KEY_REQUIRED" } };
     }
 
-    // Download from S3 to temp file
-    const s3 = getS3Client();
-    const obj = await s3.send(new GetObjectCommand({ Bucket: s3Bucket, Key: s3Key }));
-    if (!obj.Body) {
-      return { status: 404, body: { ok: false, error: "S3_OBJECT_NOT_FOUND" } };
-    }
-
-    // AWS SDK v3 공식 방식: transformToByteArray()
-    const uint8 = await obj.Body.transformToByteArray();
-    const pdfBytes = Buffer.from(uint8);
-
-    if (pdfBytes.length > MAX_PDF_BYTES) {
-      return { status: 413, body: { ok: false, error: "FILE_TOO_LARGE" } };
-    }
-
-    pdfPath = join(tmpdir(), `ralph_s3_${randomUUID()}.pdf`);
-    await writeFile(pdfPath, pdfBytes);
-
-    const result = await deps.runParser(pdfPath, !!force_pro);
+    // Lambda가 S3에서 직접 다운로드 (Vercel ↔ S3 ↔ API Gateway 이중 전송 제거)
+    const result = await deps.runParserS3(s3Key, s3Bucket, !!force_pro);
     return { status: 200, body: result };
   } catch (err) {
     const message = err instanceof Error ? err.message : "PARSE_FAILED";
@@ -266,9 +296,5 @@ export async function handleParseFromS3(
           ? 504
           : 500;
     return { status, body: { ok: false, error: message } };
-  } finally {
-    if (pdfPath) {
-      await unlink(pdfPath).catch(() => {});
-    }
   }
 }
