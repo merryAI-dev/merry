@@ -161,6 +161,13 @@ def process_batch(
     """
     batch_start = time.perf_counter()
 
+    if not docs:
+        return BatchResult(
+            total=0, success_count=0, failed_count=0,
+            results=[], zip_path=None,
+            total_elapsed_seconds=0.0,
+        )
+
     if output_dir is None:
         output_dir = tempfile.mkdtemp(prefix="ralph_batch_")
     os.makedirs(output_dir, exist_ok=True)
