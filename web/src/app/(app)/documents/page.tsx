@@ -16,6 +16,7 @@ import {
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { ReportSessionModal } from "@/components/report/ReportSessionModal";
 
 /* ── Types ── */
 
@@ -435,16 +436,11 @@ export default function DocumentsPage() {
 
   /* ── Start investment review with extracted data ── */
 
-  const [startingReport, setStartingReport] = React.useState(false);
+  const [showStartModal, setShowStartModal] = React.useState(false);
 
-  async function startReportWithExtraction() {
-    if (startingReport) return; // prevent double-click
+  function buildExtractedContext(): { context: string; companyName: string } {
     const doneEntries = entries.filter((e) => e.status === "done" && e.result?.ok);
-    if (doneEntries.length === 0) return;
-
-    setStartingReport(true);
-
-    const summary = doneEntries
+    const context = doneEntries
       .map((entry) => {
         const docType = entry.result?.doc_type
           ? (DOC_TYPE_LABELS[entry.result.doc_type] ?? entry.result.doc_type)
@@ -454,27 +450,19 @@ export default function DocumentsPage() {
       })
       .join("\n\n---\n\n");
 
-    try {
-      const res = await fetch("/api/report/sessions", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          title: `문서 추출 기반 투자심사 (${doneEntries.length}건)`,
-          context: summary,
-        }),
-      });
-      const data = await res.json();
-      if (data?.slug) {
-        router.push(`/report/${data.slug}`);
-      } else if (data?.sessionId) {
-        const slug = (data.sessionId as string).replace("report_", "");
-        router.push(`/report/${slug}`);
-      }
-    } catch {
-      router.push("/report");
-    } finally {
-      setStartingReport(false);
-    }
+    // 사업자등록증/투자검토서에서 기업명 힌트 추출
+    const bizEntry = doneEntries.find(
+      (e) => e.result?.doc_type === "business_registration" || e.result?.doc_type === "investment_review",
+    );
+    const companyName = bizEntry?.result?.company_name ?? "";
+
+    return { context, companyName };
+  }
+
+  function startReportWithExtraction() {
+    const doneEntries = entries.filter((e) => e.status === "done" && e.result?.ok);
+    if (doneEntries.length === 0) return;
+    setShowStartModal(true);
   }
 
   /* ── Drag/drop/input ── */
@@ -498,7 +486,21 @@ export default function DocumentsPage() {
   const canCheck =
     selected?.result?.ok && !checkBusy && conditions.some((c) => c.trim());
 
+  const { context: extractedContext, companyName: extractedCompanyName } = React.useMemo(
+    () => buildExtractedContext(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [entries],
+  );
+
   return (
+    <>
+    {showStartModal && (
+      <ReportSessionModal
+        onClose={() => setShowStartModal(false)}
+        extractedContext={extractedContext}
+        initialCompanyName={extractedCompanyName}
+      />
+    )}
     <div className="flex h-[calc(100vh-5rem)] flex-col gap-4">
       {/* Header */}
       <div className="flex items-center justify-between">
@@ -529,24 +531,16 @@ export default function DocumentsPage() {
             </button>
             <button
               onClick={startReportWithExtraction}
-              disabled={startingReport}
-              className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors disabled:opacity-50"
+              className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors"
               style={{
                 background: "var(--accent)",
                 color: "#FFFFFF",
               }}
             >
-              {startingReport ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  생성 중…
-                </>
-              ) : (
-                <>
-                  투자심사 시작
-                  <ArrowRight className="h-4 w-4" />
-                </>
-              )}
+              <>
+                투자심사 시작
+                <ArrowRight className="h-4 w-4" />
+              </>
             </button>
           </div>
         )}
@@ -951,5 +945,6 @@ export default function DocumentsPage() {
         onChange={handleInputChange}
       />
     </div>
+    </>
   );
 }
