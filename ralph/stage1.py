@@ -42,8 +42,8 @@ def _classify_table(table_md: str) -> str:
 
 
 @dataclass
-class TableInfo:
-    """테이블 추출 결과 + 카테고리."""
+class ClassifiedTable:
+    """테이블 마크다운 + 키워드 기반 카테고리 분류 결과."""
     markdown: str
     category: str  # financial_statement, cap_table, investment_terms, etc.
 
@@ -54,8 +54,7 @@ class PageMarkdown:
 
     page_num: int
     text: str
-    tables_md: List[str] = field(default_factory=list)
-    tables: List[TableInfo] = field(default_factory=list)
+    tables: List[ClassifiedTable] = field(default_factory=list)
 
     def to_markdown(self) -> str:
         parts = [f"### Page {self.page_num + 1}\n"]
@@ -64,9 +63,6 @@ class PageMarkdown:
         for i, tbl in enumerate(self.tables):
             label = f" [{tbl.category}]" if tbl.category != "other" else ""
             parts.append(f"\n**Table {i + 1}{label}**\n{tbl.markdown}")
-        # Legacy: tables_md without category info
-        for i, tbl in enumerate(self.tables_md):
-            parts.append(f"\n**Table {len(self.tables) + i + 1}**\n{tbl}")
         return "\n\n".join(parts)
 
 
@@ -129,7 +125,7 @@ def extract_stage1(pdf_path: str) -> Stage1Result:
             text = page.get_text("text")
 
             # Tables with category classification
-            table_infos: List[TableInfo] = []
+            table_infos: List[ClassifiedTable] = []
             try:
                 tables = page.find_tables()
                 if tables and tables.tables:
@@ -137,7 +133,7 @@ def extract_stage1(pdf_path: str) -> Stage1Result:
                         md = _table_to_markdown(tbl)
                         if md:
                             category = _classify_table(md)
-                            table_infos.append(TableInfo(markdown=md, category=category))
+                            table_infos.append(ClassifiedTable(markdown=md, category=category))
             except Exception as e:
                 logger.debug(f"Page {page_num} 테이블 추출 실패: {e}")
 

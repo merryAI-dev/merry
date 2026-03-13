@@ -21,6 +21,34 @@ from .stage1 import Stage1Result
 
 logger = logging.getLogger(__name__)
 
+# 전체 페이지 합산 컨텍스트 한도 (토큰 비용 통제)
+TOTAL_CONTEXT_BUDGET = 12_000
+
+# 분류된 테이블 카테고리 → VLM 추출 힌트
+_CATEGORY_HINTS: Dict[str, str] = {
+    "financial_statement": "재무제표 테이블 — 숫자/금액을 정확히 추출하세요.",
+    "cap_table": "주주명부 — 주주명, 지분율, 주식수를 정확히 추출하세요.",
+    "investment_terms": "투자조건 — 투자금액, 밸류에이션을 정확히 추출하세요.",
+}
+
+
+def _truncate_at_boundary(text: str, limit: int = 2000) -> str:
+    """테이블 경계 기준으로 truncation. 테이블 행 중간 절단 방지."""
+    if len(text) <= limit:
+        return text
+    # **Table 마커로 세그먼트 분리
+    marker = "\n**Table"
+    segments = text.split(marker)
+    result = segments[0]  # 테이블 앞 텍스트
+    if len(result) > limit:
+        return result[:limit] + "\n... (truncated)"
+    for seg in segments[1:]:
+        candidate = result + marker + seg
+        if len(candidate) > limit:
+            break
+        result = candidate
+    return result + "\n... (truncated)"
+
 
 # Document-type specific extraction prompts for RALPH
 RALPH_PROMPTS: Dict[str, Dict[str, str]] = {
@@ -224,14 +252,39 @@ def extract_stage2(
     # Build message content: per-page context + images + user prompt
     content_blocks: list[dict] = []
 
-    # Per-page context propagation: pair each page's Stage 1 text with its image
-    # This gives the VLM both the raw extraction AND the visual for each page
-    for i, img_b64 in enumerate(images_b64):
-        # Page-level Stage 1 context
+    # Per-page budget: 분류된 테이블이 있는 페이지에 1.5x 가중치
+    num_pages = len(images_b64)
+    page_budgets: list[int] = []
+    for i in range(num_pages):
         if i < len(stage1.pages):
-            page_md = stage1.pages[i].to_markdown()
-            if len(page_md) > 2000:
-                page_md = page_md[:2000] + "\n... (truncated)"
+            has_classified = any(
+                t.category != "other" for t in stage1.pages[i].tables
+            )
+            page_budgets.append(1.5 if has_classified else 1.0)
+        else:
+            page_budgets.append(1.0)
+    total_weight = sum(page_budgets) or 1.0
+    page_budgets = [
+        int(TOTAL_CONTEXT_BUDGET * w / total_weight) for w in page_budgets
+    ]
+
+    # Per-page context propagation: pair each page's Stage 1 text with its image
+    for i, img_b64 in enumerate(images_b64):
+        if i < len(stage1.pages):
+            page = stage1.pages[i]
+            page_md = page.to_markdown()
+
+            # 카테고리 기반 VLM 힌트 추가
+            hints = set()
+            for tbl in page.tables:
+                if tbl.category in _CATEGORY_HINTS:
+                    hints.add(_CATEGORY_HINTS[tbl.category])
+            if hints:
+                page_md += "\n\n**참고**: " + " ".join(hints)
+
+            # 예산 내에서 테이블 경계 기준 truncation
+            page_md = _truncate_at_boundary(page_md, limit=page_budgets[i])
+
             content_blocks.append({
                 "type": "text",
                 "text": f"## Page {i + 1} — Stage 1 텍스트\n{page_md}",

@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import tempfile
+import threading
 import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -33,6 +34,10 @@ logger = logging.getLogger(__name__)
 
 # VLM 폴백 임계값
 VLM_CONFIDENCE_THRESHOLD = float(os.getenv("RALPH_VLM_THRESHOLD", "0.7"))
+
+# VLM 동시 호출 제한 (규칙 기반은 제한 없음, VLM만 throttle)
+_VLM_CONCURRENCY = int(os.getenv("RALPH_VLM_CONCURRENCY", "2"))
+_vlm_semaphore = threading.Semaphore(_VLM_CONCURRENCY)
 
 
 @dataclass
@@ -95,13 +100,14 @@ def process_single(doc: BatchDocInput) -> DocResult:
             errors=parse_result.errors,
         )
 
-    # Stage 2: VLM 폴백
+    # Stage 2: VLM 폴백 (semaphore로 동시 호출 제한)
     logger.info(
         f"VLM 폴백: {doc.filename} (규칙 confidence={parse_result.confidence:.2f})"
     )
     try:
-        vlm = get_vlm_caller()
-        vlm_result = vlm.extract(doc.pdf_path, doc.doc_type)
+        with _vlm_semaphore:
+            vlm = get_vlm_caller()
+            vlm_result = vlm.extract(doc.pdf_path, doc.doc_type)
         if vlm_result.success:
             elapsed = time.perf_counter() - start
             return DocResult(
@@ -159,35 +165,57 @@ def process_batch(
         output_dir = tempfile.mkdtemp(prefix="ralph_batch_")
     os.makedirs(output_dir, exist_ok=True)
 
-    workers = max_workers or min(len(docs), 4)
-    results: list[DocResult] = [None] * len(docs)  # type: ignore[list-item]
+    # 단건 short-circuit: ThreadPoolExecutor 오버헤드 없이 직접 호출
+    if len(docs) == 1:
+        doc = docs[0]
+        try:
+            result = process_single(doc)
+            logger.info(f"완료: {doc.filename} [{result.method}] {result.confidence:.2f}")
+        except Exception as e:
+            logger.error(f"처리 실패: {doc.filename} — {e}")
+            result = DocResult(
+                file_id=doc.file_id,
+                filename=doc.filename,
+                doc_type=doc.doc_type,
+                success=False,
+                data={},
+                natural_language=None,
+                confidence=0.0,
+                method="failed",
+                elapsed_seconds=0.0,
+                errors=[f"처리 예외: {e}"],
+            )
+        results: list[DocResult] = [result]
+    else:
+        workers = max_workers or min(len(docs), 4)
+        results: list[DocResult] = [None] * len(docs)  # type: ignore[list-item]
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        future_to_idx = {
-            executor.submit(process_single, doc): i
-            for i, doc in enumerate(docs)
-        }
-        for future in as_completed(future_to_idx):
-            idx = future_to_idx[future]
-            doc = docs[idx]
-            try:
-                result = future.result()
-                logger.info(f"완료: {doc.filename} [{result.method}] {result.confidence:.2f}")
-            except Exception as e:
-                logger.error(f"처리 실패: {doc.filename} — {e}")
-                result = DocResult(
-                    file_id=doc.file_id,
-                    filename=doc.filename,
-                    doc_type=doc.doc_type,
-                    success=False,
-                    data={},
-                    natural_language=None,
-                    confidence=0.0,
-                    method="failed",
-                    elapsed_seconds=0.0,
-                    errors=[f"워커 예외: {e}"],
-                )
-            results[idx] = result
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            future_to_idx = {
+                executor.submit(process_single, doc): i
+                for i, doc in enumerate(docs)
+            }
+            for future in as_completed(future_to_idx):
+                idx = future_to_idx[future]
+                doc = docs[idx]
+                try:
+                    result = future.result()
+                    logger.info(f"완료: {doc.filename} [{result.method}] {result.confidence:.2f}")
+                except Exception as e:
+                    logger.error(f"처리 실패: {doc.filename} — {e}")
+                    result = DocResult(
+                        file_id=doc.file_id,
+                        filename=doc.filename,
+                        doc_type=doc.doc_type,
+                        success=False,
+                        data={},
+                        natural_language=None,
+                        confidence=0.0,
+                        method="failed",
+                        elapsed_seconds=0.0,
+                        errors=[f"워커 예외: {e}"],
+                    )
+                results[idx] = result
 
     # 개별 JSON 저장
     for result in results:
