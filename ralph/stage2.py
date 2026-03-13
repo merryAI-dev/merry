@@ -9,7 +9,6 @@ import base64
 import json
 import logging
 import os
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 import fitz  # PyMuPDF
@@ -164,22 +163,31 @@ def _get_anthropic_client():
     return anthropic.Anthropic(api_key=api_key)
 
 
-def _pdf_to_base64_images(pdf_path: str, dpi: int = 150, max_pages: int = 30) -> list[str]:
-    """Convert PDF pages to base64 PNG images."""
-    doc = fitz.open(pdf_path)
-    images = []
+def _pixmap_to_b64(pix) -> str:
+    """fitz.Pixmap → base64 PNG string."""
+    return base64.standard_b64encode(pix.tobytes("png")).decode("utf-8")
+
+
+def _crop_table_image(page, bbox: tuple, mat) -> str | None:
+    """테이블 bbox 영역만 크롭하여 base64 PNG로 반환."""
     try:
-        zoom = dpi / 72
-        pages_to_read = min(len(doc), max_pages)
-        for i in range(pages_to_read):
-            page = doc[i]
-            mat = fitz.Matrix(zoom, zoom)
-            pix = page.get_pixmap(matrix=mat)
-            img_bytes = pix.tobytes("png")
-            images.append(base64.standard_b64encode(img_bytes).decode("utf-8"))
-    finally:
-        doc.close()
-    return images
+        clip = fitz.Rect(bbox)
+        pix = page.get_pixmap(clip=clip, matrix=mat)
+        return _pixmap_to_b64(pix)
+    except Exception:
+        return None
+
+
+def _extract_page_image_by_xref(doc, xref: int) -> str | None:
+    """xref로 임베디드 이미지를 추출하여 base64 PNG로 반환."""
+    try:
+        pix = fitz.Pixmap(doc, xref)
+        # CMYK → RGB 변환
+        if pix.n > 4:
+            pix = fitz.Pixmap(fitz.csRGB, pix)
+        return _pixmap_to_b64(pix)
+    except Exception:
+        return None
 
 
 def get_ralph_prompt(doc_type: str) -> Dict[str, str]:
@@ -244,69 +252,113 @@ def extract_stage2(
         system_prompt = prompts["system"]
         user_prompt = prompts["user"]
 
-    # Convert PDF to images
-    images_b64 = _pdf_to_base64_images(pdf_path, dpi=dpi)
-    if not images_b64:
-        raise ValueError(f"PDF에서 이미지를 추출할 수 없습니다: {pdf_path}")
+    # PDF를 직접 열어서 페이지별로 처리
+    doc = fitz.open(pdf_path)
+    mat = fitz.Matrix(dpi / 72, dpi / 72)
+    num_pages = len(doc)
 
-    # Build message content: per-page context + images + user prompt
-    content_blocks: list[dict] = []
+    if num_pages == 0:
+        doc.close()
+        raise ValueError(f"PDF에서 페이지를 찾을 수 없습니다: {pdf_path}")
 
-    # Per-page budget: 분류된 테이블이 있는 페이지에 1.5x 가중치
-    num_pages = len(images_b64)
-    page_budgets: list[int] = []
-    for i in range(num_pages):
-        if i < len(stage1.pages):
-            has_classified = any(
-                t.category != "other" for t in stage1.pages[i].tables
-            )
-            page_budgets.append(1.5 if has_classified else 1.0)
-        else:
-            page_budgets.append(1.0)
-    total_weight = sum(page_budgets) or 1.0
-    page_budgets = [
-        int(TOTAL_CONTEXT_BUDGET * w / total_weight) for w in page_budgets
-    ]
+    try:
+        content_blocks: list[dict] = []
 
-    # Per-page context propagation: pair each page's Stage 1 text with its image
-    for i, img_b64 in enumerate(images_b64):
-        if i < len(stage1.pages):
-            page = stage1.pages[i]
-            page_md = page.to_markdown()
+        # Per-page budget: 분류된 테이블이 있는 페이지에 1.5x 가중치
+        page_budgets: list[int] = []
+        for i in range(num_pages):
+            if i < len(stage1.pages):
+                has_classified = any(
+                    t.category != "other" for t in stage1.pages[i].tables
+                )
+                page_budgets.append(1.5 if has_classified else 1.0)
+            else:
+                page_budgets.append(1.0)
+        total_weight = sum(page_budgets) or 1.0
+        page_budgets = [
+            int(TOTAL_CONTEXT_BUDGET * w / total_weight) for w in page_budgets
+        ]
 
-            # 카테고리 기반 VLM 힌트 추가
-            hints = set()
-            for tbl in page.tables:
-                if tbl.category in _CATEGORY_HINTS:
-                    hints.add(_CATEGORY_HINTS[tbl.category])
-            if hints:
-                page_md += "\n\n**참고**: " + " ".join(hints)
+        for i in range(num_pages):
+            fitz_page = doc[i]
 
-            # 예산 내에서 테이블 경계 기준 truncation
-            page_md = _truncate_at_boundary(page_md, limit=page_budgets[i])
+            if i < len(stage1.pages):
+                page_data = stage1.pages[i]
+                page_md = page_data.to_markdown()
 
+                # 카테고리 기반 VLM 힌트 추가
+                hints = set()
+                for tbl in page_data.tables:
+                    if tbl.category in _CATEGORY_HINTS:
+                        hints.add(_CATEGORY_HINTS[tbl.category])
+                if hints:
+                    page_md += "\n\n**참고**: " + " ".join(hints)
+
+                # 예산 내에서 테이블 경계 기준 truncation
+                page_md = _truncate_at_boundary(page_md, limit=page_budgets[i])
+
+                content_blocks.append({
+                    "type": "text",
+                    "text": f"## Page {i + 1} — Stage 1 텍스트\n{page_md}",
+                })
+
+                # 분류된 테이블 크롭 이미지 (bbox 기반, 정밀 추출용)
+                for j, tbl in enumerate(page_data.tables):
+                    if tbl.category != "other" and tbl.bbox:
+                        crop_b64 = _crop_table_image(fitz_page, tbl.bbox, mat)
+                        if crop_b64:
+                            hint = _CATEGORY_HINTS.get(tbl.category, "")
+                            content_blocks.append({
+                                "type": "text",
+                                "text": f"**Table {j + 1} [{tbl.category}] 크롭** — {hint}",
+                            })
+                            content_blocks.append({
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/png",
+                                    "data": crop_b64,
+                                },
+                            })
+
+                # 필터된 임베디드 이미지 (차트/그래프 등, 로고·도장 제외)
+                for img_info in page_data.images:
+                    img_b64 = _extract_page_image_by_xref(doc, img_info.xref)
+                    if img_b64:
+                        content_blocks.append({
+                            "type": "text",
+                            "text": f"**Page {i + 1} 임베디드 이미지:**",
+                        })
+                        content_blocks.append({
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": img_b64,
+                            },
+                        })
+
+            # 전체 페이지 이미지 (항상 포함 — 전체 컨텍스트)
+            full_pix = fitz_page.get_pixmap(matrix=mat)
+            full_b64 = _pixmap_to_b64(full_pix)
             content_blocks.append({
-                "type": "text",
-                "text": f"## Page {i + 1} — Stage 1 텍스트\n{page_md}",
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": "image/png",
+                    "data": full_b64,
+                },
             })
 
-        # Page image
+        # User prompt
         content_blocks.append({
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": "image/png",
-                "data": img_b64,
-            },
+            "type": "text",
+            "text": user_prompt,
         })
+    finally:
+        doc.close()
 
-    # User prompt
-    content_blocks.append({
-        "type": "text",
-        "text": user_prompt,
-    })
-
-    logger.info(f"Stage2 호출: model={model}, pages={len(images_b64)}, doc_type={doc_type}")
+    logger.info(f"Stage2 호출: model={model}, pages={num_pages}, doc_type={doc_type}")
 
     # API call
     response = client.messages.create(

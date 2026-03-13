@@ -8,7 +8,7 @@ Classification reuses dolphin_service/classifier.py.
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
+from typing import List, Optional, Tuple
 
 import fitz  # PyMuPDF
 
@@ -46,6 +46,57 @@ class ClassifiedTable:
     """테이블 마크다운 + 키워드 기반 카테고리 분류 결과."""
     markdown: str
     category: str  # financial_statement, cap_table, investment_terms, etc.
+    bbox: Optional[Tuple[float, float, float, float]] = None  # (x0, y0, x1, y1)
+    page_num: int = 0
+
+
+@dataclass
+class PageImage:
+    """페이지 내 의미 있는 이미지 (로고/도장 제외)."""
+    bbox: Tuple[float, float, float, float]  # (x0, y0, x1, y1)
+    width: int   # px
+    height: int  # px
+    xref: int    # PyMuPDF cross-reference (이미지 추출용)
+    page_num: int
+
+
+# 이미지 필터링 임계값 (포인트 단위, 72pt = 1inch)
+_IMG_MIN_WIDTH_PTS = 100   # ~35mm
+_IMG_MIN_HEIGHT_PTS = 80   # ~28mm
+_IMG_MIN_AREA_PTS = 8000   # ~100mm²
+_IMG_MAX_PAGE_RATIO = 0.95  # 페이지 95% 이상이면 배경
+
+
+def _filter_images(page: "fitz.Page") -> List[PageImage]:
+    """페이지에서 의미 있는 이미지만 추출. 로고/도장/배경 제외."""
+    result: List[PageImage] = []
+    page_w, page_h = page.rect.width, page.rect.height
+
+    for img in page.get_images(full=True):
+        xref = img[0]
+        px_w, px_h = img[2], img[3]
+
+        rects = page.get_image_rects(xref)
+        if not rects:
+            continue
+        r = rects[0]  # 첫 번째 위치
+
+        w, h = r.width, r.height
+        # 너무 작음 → 로고/아이콘
+        if w < _IMG_MIN_WIDTH_PTS or h < _IMG_MIN_HEIGHT_PTS:
+            continue
+        if w * h < _IMG_MIN_AREA_PTS:
+            continue
+        # 페이지 거의 전체 → 배경
+        if w / page_w > _IMG_MAX_PAGE_RATIO and h / page_h > _IMG_MAX_PAGE_RATIO:
+            continue
+
+        result.append(PageImage(
+            bbox=(r.x0, r.y0, r.x1, r.y1),
+            width=px_w, height=px_h,
+            xref=xref, page_num=page.number,
+        ))
+    return result
 
 
 @dataclass
@@ -55,6 +106,7 @@ class PageMarkdown:
     page_num: int
     text: str
     tables: List[ClassifiedTable] = field(default_factory=list)
+    images: List[PageImage] = field(default_factory=list)
 
     def to_markdown(self) -> str:
         parts = [f"### Page {self.page_num + 1}\n"]
@@ -124,7 +176,7 @@ def extract_stage1(pdf_path: str) -> Stage1Result:
             # Text
             text = page.get_text("text")
 
-            # Tables with category classification
+            # Tables with category classification + bbox
             table_infos: List[ClassifiedTable] = []
             try:
                 tables = page.find_tables()
@@ -133,11 +185,26 @@ def extract_stage1(pdf_path: str) -> Stage1Result:
                         md = _table_to_markdown(tbl)
                         if md:
                             category = _classify_table(md)
-                            table_infos.append(ClassifiedTable(markdown=md, category=category))
+                            table_infos.append(ClassifiedTable(
+                                markdown=md,
+                                category=category,
+                                bbox=tbl.bbox,
+                                page_num=page_num,
+                            ))
             except Exception as e:
                 logger.debug(f"Page {page_num} 테이블 추출 실패: {e}")
 
-            pages.append(PageMarkdown(page_num=page_num, text=text, tables=table_infos))
+            # Images: 의미 있는 이미지만 (로고/도장/배경 제외)
+            page_images: List[PageImage] = []
+            try:
+                page_images = _filter_images(page)
+            except Exception as e:
+                logger.debug(f"Page {page_num} 이미지 추출 실패: {e}")
+
+            pages.append(PageMarkdown(
+                page_num=page_num, text=text,
+                tables=table_infos, images=page_images,
+            ))
     finally:
         doc.close()
 
@@ -146,10 +213,12 @@ def extract_stage1(pdf_path: str) -> Stage1Result:
 
     total_tables = sum(len(p.tables) for p in pages)
     categorized = [t for p in pages for t in p.tables if t.category != "other"]
+    total_images = sum(len(p.images) for p in pages)
     logger.info(
         f"Stage1 완료: {len(pages)}p, "
         f"{sum(len(p.text) for p in pages):,} chars, "
-        f"{total_tables} tables ({len(categorized)} categorized)"
+        f"{total_tables} tables ({len(categorized)} categorized), "
+        f"{total_images} images"
     )
 
     return Stage1Result(
