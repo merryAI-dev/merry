@@ -96,7 +96,40 @@ def _run_parser(pdf_path: str, force_pro: bool = False) -> dict:
 
 
 def handler(event: dict, context: object) -> dict:
-    # Auth
+    # Direct SDK invocation: {"s3_key": "...", "s3_bucket": "...", "force_pro": bool}
+    # This bypasses API Gateway entirely — IAM auth handles security.
+    if "s3_key" in event:
+        s3_key = event.get("s3_key")
+        s3_bucket = event.get("s3_bucket")
+        force_pro = bool(event.get("force_pro", False))
+
+        if not s3_key or not s3_bucket:
+            return {"ok": False, "error": "S3_KEY_REQUIRED"}
+
+        try:
+            pdf_bytes = _download_from_s3(s3_bucket, s3_key)
+        except Exception as e:
+            return {"ok": False, "error": f"S3_DOWNLOAD_FAILED: {e}"}
+
+        if not pdf_bytes:
+            return {"ok": False, "error": "EMPTY_BODY"}
+
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+                f.write(pdf_bytes)
+                tmp_path = f.name
+            return _run_parser(tmp_path, force_pro)
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+        finally:
+            if tmp_path:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
+    # Auth (API Gateway path only)
     secret = os.getenv("PARSER_INTERNAL_SECRET", "")
     if secret:
         headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}

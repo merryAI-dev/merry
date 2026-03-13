@@ -3,6 +3,10 @@ import { writeFile, unlink } from "fs/promises";
 import { tmpdir } from "os";
 import { join } from "path";
 
+import { InvokeCommand } from "@aws-sdk/client-lambda";
+
+import { getLambdaClient } from "@/lib/aws/lambda";
+
 export const MAX_PDF_BYTES = 50 * 1024 * 1024;
 export const PARSE_TIMEOUT_MS = 90_000;
 
@@ -142,54 +146,77 @@ export async function runParser(
 }
 
 /**
- * S3 키를 Lambda에 직접 전달. Lambda가 S3에서 다운로드.
- * API Gateway 10MB 페이로드 제한을 우회하여 대용량 PDF 지원.
+ * S3 키를 Lambda SDK로 직접 전달. API Gateway 29s 타임아웃 및 10MB 제한을 모두 우회.
+ * Lambda가 S3에서 직접 다운로드 후 파싱 결과를 반환.
  */
 export async function runParserS3(
   s3Key: string,
   s3Bucket: string,
   forcePro = false,
 ): Promise<Record<string, unknown>> {
-  const parserUrl = process.env.PARSER_INTERNAL_URL;
-  if (!parserUrl) {
-    throw parserError("PARSER_SPAWN_FAILED", "Missing env PARSER_INTERNAL_URL");
-  }
+  const functionName = process.env.PARSER_LAMBDA_FUNCTION ?? "merry-parser";
+  const client = getLambdaClient();
 
-  const apiKey = process.env.PARSER_API_KEY ?? "";
-  const url = `${parserUrl}/parse`;
+  const payload = JSON.stringify({
+    s3_key: s3Key,
+    s3_bucket: s3Bucket,
+    force_pro: forcePro,
+  });
+
+  const command = new InvokeCommand({
+    FunctionName: functionName,
+    InvocationType: "RequestResponse",
+    Payload: new TextEncoder().encode(payload),
+  });
+
+  let responsePayload: Uint8Array | undefined;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), PARSE_TIMEOUT_MS);
 
-  let resp: Response;
   try {
-    resp = await fetch(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(apiKey ? { "x-api-key": apiKey } : {}),
-      },
-      body: JSON.stringify({
-        s3_key: s3Key,
-        s3_bucket: s3Bucket,
-        force_pro: forcePro,
-      }),
-      signal: controller.signal,
-    });
+    const response = await client.send(command, { abortSignal: controller.signal });
+    if (response.FunctionError) {
+      const errText = response.Payload
+        ? new TextDecoder().decode(response.Payload).slice(0, 300)
+        : response.FunctionError;
+      throw parserError("PARSER_EXITED", errText);
+    }
+    responsePayload = response.Payload;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    throw parserError(
-      msg.includes("abort") ? "PARSE_TIMEOUT" : "PARSER_SPAWN_FAILED",
-      msg,
-    );
+    if (err instanceof Error && (err.name === "AbortError" || err.message.includes("abort"))) {
+      throw parserError("PARSE_TIMEOUT");
+    }
+    if (err && typeof err === "object" && "code" in err) {
+      throw parserError("PARSER_SPAWN_FAILED", String(err));
+    }
+    throw err;
   } finally {
     clearTimeout(timeoutId);
   }
 
-  const text = await resp.text();
-  if (!resp.ok) {
-    throw parserError("PARSER_EXITED", `HTTP ${resp.status}: ${text.slice(0, 300)}`);
+  if (!responsePayload || responsePayload.length === 0) {
+    throw parserError("PARSE_EMPTY_OUTPUT");
   }
-  return parseParserOutput(text);
+
+  const resultText = new TextDecoder().decode(responsePayload);
+  // Lambda direct invocation returns result directly (no statusCode wrapper)
+  let result: Record<string, unknown>;
+  try {
+    result = JSON.parse(resultText) as Record<string, unknown>;
+  } catch {
+    throw parserError("PARSE_OUTPUT_INVALID", resultText.slice(0, 200));
+  }
+
+  if (!result || typeof result !== "object" || Array.isArray(result)) {
+    throw parserError("PARSE_OUTPUT_INVALID", resultText.slice(0, 200));
+  }
+
+  // Lambda handler may return {ok: false, error: ...} for errors
+  if (result.ok === false && typeof result.error === "string") {
+    throw parserError("PARSER_EXITED", result.error as string);
+  }
+
+  return result;
 }
 
 function defaultTempPath() {
