@@ -13,6 +13,7 @@ import os
 import tempfile
 import time
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from datetime import datetime, date
 from pathlib import Path
@@ -139,13 +140,15 @@ def process_single(doc: BatchDocInput) -> DocResult:
 def process_batch(
     docs: list[BatchDocInput],
     output_dir: str | None = None,
+    max_workers: int | None = None,
 ) -> BatchResult:
     """
-    다건 문서 배치 처리.
+    다건 문서 배치 처리 (병렬).
 
     Args:
         docs: 처리할 문서 리스트
         output_dir: 결과 JSON/ZIP 저장 디렉토리 (None이면 임시 디렉토리)
+        max_workers: 병렬 워커 수 (None이면 min(문서수, 4))
 
     Returns:
         BatchResult
@@ -156,14 +159,39 @@ def process_batch(
         output_dir = tempfile.mkdtemp(prefix="ralph_batch_")
     os.makedirs(output_dir, exist_ok=True)
 
-    results: list[DocResult] = []
-    for doc in docs:
-        logger.info(f"처리 중: {doc.filename} [{doc.doc_type}]")
-        result = process_single(doc)
-        results.append(result)
+    workers = max_workers or min(len(docs), 4)
+    results: list[DocResult] = [None] * len(docs)  # type: ignore[list-item]
 
-        # 개별 JSON 저장
-        json_path = os.path.join(output_dir, f"{doc.file_id}.json")
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_to_idx = {
+            executor.submit(process_single, doc): i
+            for i, doc in enumerate(docs)
+        }
+        for future in as_completed(future_to_idx):
+            idx = future_to_idx[future]
+            doc = docs[idx]
+            try:
+                result = future.result()
+                logger.info(f"완료: {doc.filename} [{result.method}] {result.confidence:.2f}")
+            except Exception as e:
+                logger.error(f"처리 실패: {doc.filename} — {e}")
+                result = DocResult(
+                    file_id=doc.file_id,
+                    filename=doc.filename,
+                    doc_type=doc.doc_type,
+                    success=False,
+                    data={},
+                    natural_language=None,
+                    confidence=0.0,
+                    method="failed",
+                    elapsed_seconds=0.0,
+                    errors=[f"워커 예외: {e}"],
+                )
+            results[idx] = result
+
+    # 개별 JSON 저장
+    for result in results:
+        json_path = os.path.join(output_dir, f"{result.file_id}.json")
         with open(json_path, "w", encoding="utf-8") as f:
             json.dump({
                     "file_id": result.file_id,

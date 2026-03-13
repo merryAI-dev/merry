@@ -221,21 +221,23 @@ def extract_stage2(
     if not images_b64:
         raise ValueError(f"PDF에서 이미지를 추출할 수 없습니다: {pdf_path}")
 
-    # Build message content: Stage 1 markdown + images + user prompt
+    # Build message content: per-page context + images + user prompt
     content_blocks: list[dict] = []
 
-    # Stage 1 markdown as context
-    stage1_md = stage1.full_markdown
-    if len(stage1_md) > 8000:
-        stage1_md = stage1_md[:8000] + "\n\n... (truncated)"
-
-    content_blocks.append({
-        "type": "text",
-        "text": f"## Stage 1 (PyMuPDF) 추출 결과\n\n{stage1_md}",
-    })
-
-    # Page images
+    # Per-page context propagation: pair each page's Stage 1 text with its image
+    # This gives the VLM both the raw extraction AND the visual for each page
     for i, img_b64 in enumerate(images_b64):
+        # Page-level Stage 1 context
+        if i < len(stage1.pages):
+            page_md = stage1.pages[i].to_markdown()
+            if len(page_md) > 2000:
+                page_md = page_md[:2000] + "\n... (truncated)"
+            content_blocks.append({
+                "type": "text",
+                "text": f"## Page {i + 1} — Stage 1 텍스트\n{page_md}",
+            })
+
+        # Page image
         content_blocks.append({
             "type": "image",
             "source": {
