@@ -42,6 +42,7 @@ type ParseResult = {
   detection_method?: string;
   description?: string | null;
   visual_description?: VisualDescription | null;
+  company_name?: string | null;
 };
 
 type ConditionCheck = {

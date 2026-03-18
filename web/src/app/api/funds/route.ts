@@ -5,6 +5,8 @@ import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export const runtime = "nodejs";
 
+const SAFE_AIRTABLE_CODES = ["AIRTABLE_NOT_FOUND", "AIRTABLE_RATE_LIMIT", "AIRTABLE_INVALID_REQUEST"];
+
 export async function GET() {
   try {
     await requireWorkspaceFromCookies();
@@ -21,10 +23,11 @@ export async function GET() {
       return NextResponse.json({ ok: false, error: "UNAUTHORIZED" }, { status: 401 });
     }
 
-    // Pass through Airtable codes for quicker debugging (no secrets included).
+    // Only pass known safe Airtable error codes to client.
     const msg = err instanceof Error ? err.message : "";
     if (msg.startsWith("AIRTABLE_")) {
-      return NextResponse.json({ ok: false, error: msg }, { status: 502 });
+      const safeCode = SAFE_AIRTABLE_CODES.includes(msg) ? msg : "AIRTABLE_ERROR";
+      return NextResponse.json({ ok: false, error: safeCode }, { status: 502 });
     }
 
     return NextResponse.json({ ok: false, error: "FAILED" }, { status: 500 });

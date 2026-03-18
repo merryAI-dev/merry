@@ -1,12 +1,11 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import * as XLSX from "xlsx";
 
 import { runParserS3 } from "@/app/api/ralph/parse/handler";
 import { addFileContext } from "@/lib/reportChat";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
-import { getS3Client } from "@/lib/aws/s3";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { readTextFromS3 } from "@/lib/aws/s3Utils";
+import { parseExcelFromS3 } from "@/lib/aws/s3Excel";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -25,50 +24,6 @@ const TEXT_EXTS = new Set([".txt", ".md", ".csv", ".json", ".tsv", ".log", ".xml
 function getExt(name: string): string {
   const dot = name.lastIndexOf(".");
   return dot >= 0 ? name.slice(dot).toLowerCase() : "";
-}
-
-/** Read a plain text file from S3. */
-async function readTextFromS3(s3Key: string, s3Bucket: string): Promise<string> {
-  const s3 = getS3Client();
-  const res = await s3.send(new GetObjectCommand({ Bucket: s3Bucket, Key: s3Key }));
-  const body = res.Body;
-  if (!body) throw new Error("S3_EMPTY_BODY");
-  const chunks: Uint8Array[] = [];
-  for await (const chunk of body as AsyncIterable<Uint8Array>) {
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks).toString("utf-8");
-}
-
-/** Parse an Excel file from S3 into a text representation. */
-async function parseExcelFromS3(s3Key: string, s3Bucket: string): Promise<string> {
-  const s3 = getS3Client();
-  const res = await s3.send(new GetObjectCommand({ Bucket: s3Bucket, Key: s3Key }));
-  const body = res.Body;
-  if (!body) throw new Error("S3_EMPTY_BODY");
-
-  const chunks: Uint8Array[] = [];
-  // @ts-expect-error -- Body is a Readable stream in Node
-  for await (const chunk of body) {
-    chunks.push(chunk as Uint8Array);
-  }
-  const buffer = Buffer.concat(chunks);
-
-  const workbook = XLSX.read(buffer, { type: "buffer" });
-  const parts: string[] = [];
-
-  for (const sheetName of workbook.SheetNames) {
-    const sheet = workbook.Sheets[sheetName];
-    if (!sheet) continue;
-
-    // Convert to CSV for readable text representation
-    const csv = XLSX.utils.sheet_to_csv(sheet, { blankrows: false });
-    if (!csv.trim()) continue;
-
-    parts.push(`[시트: ${sheetName}]\n${csv}`);
-  }
-
-  return parts.join("\n\n");
 }
 
 function extractTextFromParserResult(result: Record<string, unknown>): string {

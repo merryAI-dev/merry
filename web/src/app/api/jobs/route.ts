@@ -323,6 +323,7 @@ export async function POST(req: Request) {
 
         const artifact: JobArtifact = {
           artifactId,
+          label: "parse-result.json",
           s3Bucket,
           s3Key: artifactKey,
           contentType: "application/json",

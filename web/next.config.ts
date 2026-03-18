@@ -14,9 +14,6 @@ const securityHeaders = [
 
 // build: 2026-03-12
 const nextConfig: NextConfig = {
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   experimental: {
     serverActions: {
       bodySizeLimit: "100mb",
