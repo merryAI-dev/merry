@@ -1008,7 +1008,11 @@ export default function ReportSessionPage() {
   const maxAutoReached = autoBranchCount >= MAX_AUTO_BRANCHES;
 
   // ── File upload handler ──
-  const ALLOWED_EXTENSIONS = [".pdf", ".xlsx", ".xls", ".docx", ".png", ".jpg", ".jpeg", ".gif", ".webp"];
+  const ALLOWED_EXTENSIONS = [
+    ".pdf", ".xlsx", ".xls", ".docx",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp",
+    ".txt", ".md", ".csv", ".json", ".tsv", ".log", ".xml", ".html", ".htm", ".yaml", ".yml",
+  ];
   const MIME_MAP: Record<string, string> = {
     ".pdf": "application/pdf",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -1019,6 +1023,17 @@ export default function ReportSessionPage() {
     ".jpeg": "image/jpeg",
     ".gif": "image/gif",
     ".webp": "image/webp",
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".csv": "text/csv",
+    ".json": "application/json",
+    ".tsv": "text/tab-separated-values",
+    ".log": "text/plain",
+    ".xml": "application/xml",
+    ".html": "text/html",
+    ".htm": "text/html",
+    ".yaml": "application/yaml",
+    ".yml": "application/yaml",
   };
 
   function getFileExt(name: string): string {
@@ -1272,7 +1287,7 @@ export default function ReportSessionPage() {
               <div className="flex flex-col items-center gap-2">
                 <Paperclip className="h-8 w-8" style={{ color: "var(--accent)" }} />
                 <span className="text-sm font-medium" style={{ color: "var(--accent)" }}>파일을 여기에 놓아주세요</span>
-                <span className="text-xs" style={{ color: "var(--ink-light)" }}>PDF, XLSX, DOCX, 이미지</span>
+                <span className="text-xs" style={{ color: "var(--ink-light)" }}>PDF, XLSX, DOCX, 이미지, TXT, MD, CSV 등</span>
               </div>
             </div>
           )}
@@ -1518,7 +1533,7 @@ export default function ReportSessionPage() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".pdf,.xlsx,.xls,.docx,.png,.jpg,.jpeg,.gif,.webp"
+                accept=".pdf,.xlsx,.xls,.docx,.png,.jpg,.jpeg,.gif,.webp,.txt,.md,.csv,.json,.tsv,.log,.xml,.html,.htm,.yaml,.yml"
                 className="hidden"
                 onChange={(e) => {
                   const files = Array.from(e.target.files ?? []);

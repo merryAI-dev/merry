@@ -32,7 +32,11 @@ function inferExt(filename: string): string {
   return ext;
 }
 
-const ALLOWED_EXTS = new Set([".pdf", ".xlsx", ".xls", ".docx", ".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+const ALLOWED_EXTS = new Set([
+  ".pdf", ".xlsx", ".xls", ".docx",
+  ".png", ".jpg", ".jpeg", ".gif", ".webp",
+  ".txt", ".md", ".csv", ".json", ".tsv", ".log", ".xml", ".html", ".htm", ".yaml", ".yml",
+]);
 
 function isAllowedExt(ext: string): boolean {
   return ALLOWED_EXTS.has(ext);

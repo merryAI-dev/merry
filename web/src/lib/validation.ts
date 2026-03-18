@@ -46,6 +46,16 @@ const ALLOWED_MIMES: ReadonlySet<string> = new Set([
   "image/jpeg",
   "image/gif",
   "image/webp",
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+  "text/tab-separated-values",
+  "text/html",
+  "text/xml",
+  "application/json",
+  "application/xml",
+  "application/yaml",
+  "text/yaml",
   "application/octet-stream",  // fallback
 ]);
 
@@ -59,6 +69,17 @@ const EXT_TO_MIME: Record<string, string> = {
   ".jpeg": "image/jpeg",
   ".gif": "image/gif",
   ".webp": "image/webp",
+  ".txt": "text/plain",
+  ".md": "text/markdown",
+  ".csv": "text/csv",
+  ".tsv": "text/tab-separated-values",
+  ".json": "application/json",
+  ".html": "text/html",
+  ".htm": "text/html",
+  ".xml": "application/xml",
+  ".yaml": "application/yaml",
+  ".yml": "application/yaml",
+  ".log": "text/plain",
 };
 
 export function validateMimeType(

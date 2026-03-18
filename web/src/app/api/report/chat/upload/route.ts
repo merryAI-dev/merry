@@ -20,10 +20,24 @@ const BodySchema = z.object({
 });
 
 const EXCEL_EXTS = new Set([".xlsx", ".xls"]);
+const TEXT_EXTS = new Set([".txt", ".md", ".csv", ".json", ".tsv", ".log", ".xml", ".html", ".htm", ".yaml", ".yml"]);
 
 function getExt(name: string): string {
   const dot = name.lastIndexOf(".");
   return dot >= 0 ? name.slice(dot).toLowerCase() : "";
+}
+
+/** Read a plain text file from S3. */
+async function readTextFromS3(s3Key: string, s3Bucket: string): Promise<string> {
+  const s3 = getS3Client();
+  const res = await s3.send(new GetObjectCommand({ Bucket: s3Bucket, Key: s3Key }));
+  const body = res.Body;
+  if (!body) throw new Error("S3_EMPTY_BODY");
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of body as AsyncIterable<Uint8Array>) {
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString("utf-8");
 }
 
 /** Parse an Excel file from S3 into a text representation. */
@@ -117,11 +131,35 @@ export async function POST(req: Request) {
 
     const ext = getExt(body.originalName);
     const isExcel = EXCEL_EXTS.has(ext);
+    const isText = TEXT_EXTS.has(ext);
 
     let extractedText = "";
     let warnings: string[] = [];
 
-    if (isExcel) {
+    if (isText) {
+      // Plain text files: read directly from S3
+      try {
+        extractedText = await readTextFromS3(body.s3Key, body.s3Bucket);
+        if (!extractedText.trim()) {
+          warnings.push("파일이 비어 있습니다.");
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "TEXT_READ_FAILED";
+        console.error("[CHAT_UPLOAD] text read failed:", msg);
+
+        await addFileContext({
+          teamId: ws.teamId,
+          sessionId: body.sessionId,
+          fileId: body.fileId,
+          originalName: body.originalName,
+          extractedText: "",
+          memberName: ws.memberName,
+          warnings: [`텍스트 읽기 실패: ${msg}`],
+        });
+
+        return NextResponse.json({ ok: false, error: "PARSE_FAILED", detail: msg }, { status: 502 });
+      }
+    } else if (isExcel) {
       // Excel: parse directly with xlsx library (Lambda doesn't support Excel)
       try {
         extractedText = await parseExcelFromS3(body.s3Key, body.s3Bucket);
@@ -142,11 +180,7 @@ export async function POST(req: Request) {
           warnings: [`엑셀 파싱 실패: ${msg}`],
         });
 
-        return NextResponse.json({
-          ok: false,
-          error: "PARSE_FAILED",
-          detail: msg,
-        }, { status: 502 });
+        return NextResponse.json({ ok: false, error: "PARSE_FAILED", detail: msg }, { status: 502 });
       }
     } else {
       // PDF, DOCX, images: parse via Lambda
