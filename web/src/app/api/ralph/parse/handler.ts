@@ -154,7 +154,7 @@ export async function runParserS3(
   s3Bucket: string,
   forcePro = false,
 ): Promise<Record<string, unknown>> {
-  const functionName = process.env.PARSER_LAMBDA_FUNCTION ?? "merry-parser";
+  const functionName = (process.env.PARSER_LAMBDA_FUNCTION ?? "merry-parser").trim();
   const client = getLambdaClient();
 
   const payload = JSON.stringify({
