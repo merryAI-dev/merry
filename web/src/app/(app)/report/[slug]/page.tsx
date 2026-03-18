@@ -3,7 +3,7 @@
 import Link from "next/link";
 import * as React from "react";
 import { useParams } from "next/navigation";
-import { ArrowRight, BookOpen, Check, ClipboardCopy, Download, FileText, GitBranch, MessageCircle, PanelRightClose, RefreshCw, Sparkles, X } from "lucide-react";
+import { ArrowRight, BookOpen, Check, ClipboardCopy, Download, FileText, GitBranch, Loader2, MessageCircle, Paperclip, PanelRightClose, RefreshCw, Sparkles, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -779,6 +779,17 @@ export default function ReportSessionPage() {
   const [debating, setDebating] = React.useState(false);
   const [debateStarted, setDebateStarted] = React.useState(false);
 
+  // File upload state
+  type UploadingFile = {
+    file: File;
+    status: "uploading" | "parsing" | "done" | "error";
+    fileId?: string;
+    error?: string;
+  };
+  const [uploadingFiles, setUploadingFiles] = React.useState<UploadingFile[]>([]);
+  const [dragging, setDragging] = React.useState(false);
+  const fileInputRef = React.useRef<HTMLInputElement>(null);
+
   const loadMeta = React.useCallback(async () => {
     try {
       const res = await apiFetch<{ session: ReportSessionMeta }>(`/api/report/${sessionId}/meta`);
@@ -996,6 +1007,132 @@ export default function ReportSessionPage() {
   const autoBranchCount = customQuestions.filter((q) => !q.userCreated).length;
   const maxAutoReached = autoBranchCount >= MAX_AUTO_BRANCHES;
 
+  // ── File upload handler ──
+  const ALLOWED_EXTENSIONS = [".pdf", ".xlsx", ".xls", ".docx", ".png", ".jpg", ".jpeg", ".gif", ".webp"];
+  const MIME_MAP: Record<string, string> = {
+    ".pdf": "application/pdf",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".xls": "application/vnd.ms-excel",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+  };
+
+  function getFileExt(name: string): string {
+    const dot = name.lastIndexOf(".");
+    return dot >= 0 ? name.slice(dot).toLowerCase() : "";
+  }
+
+  async function handleFileUpload(file: File) {
+    const ext = getFileExt(file.name);
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      setError(`지원하지 않는 파일 형식이에요. (${ALLOWED_EXTENSIONS.join(", ")}만 가능)`);
+      return;
+    }
+
+    const entry: UploadingFile = { file, status: "uploading" };
+    setUploadingFiles((prev) => [...prev, entry]);
+
+    const updateEntry = (update: Partial<UploadingFile>) => {
+      setUploadingFiles((prev) =>
+        prev.map((f) => (f.file === file ? { ...f, ...update } : f)),
+      );
+    };
+
+    try {
+      // Step 1: Presign
+      const contentType = MIME_MAP[ext] || "application/octet-stream";
+      const presignRes = await fetch("/api/uploads/presign", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          contentType,
+          sizeBytes: file.size,
+        }),
+      });
+      if (!presignRes.ok) throw new Error("업로드 준비 실패");
+      const presignData = await presignRes.json();
+      const { fileId, key: s3Key, bucket: s3Bucket } = presignData.file;
+      const { url: uploadUrl } = presignData.upload;
+
+      updateEntry({ fileId });
+
+      // Step 2: Upload to S3
+      const putRes = await fetch(uploadUrl, {
+        method: "PUT",
+        headers: { "content-type": contentType },
+        body: file,
+      });
+      if (!putRes.ok) throw new Error("S3 업로드 실패");
+
+      // Step 3: Complete upload
+      await fetch("/api/uploads/complete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ fileId }),
+      });
+
+      // Step 4: Parse & store context
+      updateEntry({ status: "parsing" });
+      const parseRes = await fetch("/api/report/chat/upload", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sessionId,
+          fileId,
+          s3Key,
+          s3Bucket,
+          originalName: file.name,
+        }),
+      });
+
+      if (!parseRes.ok) {
+        const errData = await parseRes.json().catch(() => ({}));
+        throw new Error(errData?.detail || "문서 분석 실패");
+      }
+
+      updateEntry({ status: "done" });
+
+      // Add a system-style message to the chat
+      const systemMsg: ReportMessage = {
+        role: "user",
+        content: `[첨부] ${file.name} 문서를 추가했어요. 이 문서에 대해 질문해보세요!`,
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, systemMsg]);
+
+      // Auto-remove from uploading list after 3s
+      setTimeout(() => {
+        setUploadingFiles((prev) => prev.filter((f) => f.file !== file));
+      }, 3000);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "업로드 실패";
+      updateEntry({ status: "error", error: msg });
+      setError(msg);
+    }
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragging(false);
+    const files = Array.from(e.dataTransfer.files);
+    for (const f of files) handleFileUpload(f);
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    setDragging(true);
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    setDragging(false);
+  }
+
   // Debate flow — 3 rounds: optimistic → pessimistic → optimistic rebuttal
   async function startDebate() {
     if (debating) return;
@@ -1123,7 +1260,22 @@ export default function ReportSessionPage() {
         )}
 
         {/* ── Messages ── */}
-        <div className="flex-1 overflow-y-auto px-6 py-5">
+        <div
+          className="relative flex-1 overflow-y-auto px-6 py-5"
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+        >
+          {/* Drag overlay */}
+          {dragging && (
+            <div className="absolute inset-0 z-30 flex items-center justify-center rounded-lg border-2 border-dashed" style={{ borderColor: "var(--accent)", background: "rgba(var(--accent-rgb, 99,102,241), 0.05)" }}>
+              <div className="flex flex-col items-center gap-2">
+                <Paperclip className="h-8 w-8" style={{ color: "var(--accent)" }} />
+                <span className="text-sm font-medium" style={{ color: "var(--accent)" }}>파일을 여기에 놓아주세요</span>
+                <span className="text-xs" style={{ color: "var(--ink-light)" }}>PDF, XLSX, DOCX, 이미지</span>
+              </div>
+            </div>
+          )}
           <div className="mx-auto max-w-3xl space-y-4">
             {messages.length ? (
               messages.map((m, idx) => {
@@ -1329,7 +1481,60 @@ export default function ReportSessionPage() {
         {/* ── Input area ── */}
         <div className="shrink-0 border-t border-[var(--line)] px-6 py-4">
           <div className="mx-auto max-w-3xl">
+            {/* Upload status bar */}
+            {uploadingFiles.length > 0 && (
+              <div className="mb-2 space-y-1">
+                {uploadingFiles.map((uf, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs"
+                    style={{
+                      background: uf.status === "error" ? "#FEF2F2" : "var(--bg-subtle)",
+                      border: `1px solid ${uf.status === "error" ? "#FECACA" : "var(--card-border)"}`,
+                      color: uf.status === "error" ? "#DC2626" : "var(--ink-light)",
+                    }}
+                  >
+                    {uf.status === "done" ? (
+                      <Check className="h-3.5 w-3.5 text-green-500" />
+                    ) : uf.status === "error" ? (
+                      <X className="h-3.5 w-3.5" />
+                    ) : (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    )}
+                    <FileText className="h-3.5 w-3.5" />
+                    <span className="truncate">{uf.file.name}</span>
+                    <span className="ml-auto shrink-0">
+                      {uf.status === "uploading" && "업로드 중..."}
+                      {uf.status === "parsing" && "분석 중..."}
+                      {uf.status === "done" && "완료!"}
+                      {uf.status === "error" && (uf.error || "실패")}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
             <div className="flex gap-3">
+              {/* File upload button */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.xlsx,.xls,.docx,.png,.jpg,.jpeg,.gif,.webp"
+                className="hidden"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  for (const f of files) handleFileUpload(f);
+                  e.target.value = "";
+                }}
+              />
+              <Button
+                variant="secondary"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={sending}
+                className="shrink-0 self-end"
+                title="파일 첨부 (PDF, XLSX, DOCX)"
+              >
+                <Paperclip className="h-4 w-4" />
+              </Button>
               <Textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}

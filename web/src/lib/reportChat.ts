@@ -1,4 +1,5 @@
 import { addMessage, ensureSession, getMessages, getSessionsByPrefix } from "@/lib/chatStore";
+import type { ChatMessageRow } from "@/lib/chatStore";
 
 export type ReportSession = {
   sessionId: string;
@@ -129,6 +130,110 @@ export async function getReportMessages(teamId: string, sessionId: string, maxMe
     });
   }
   return out;
+}
+
+/* ── File context (첨부 문서) helpers ── */
+
+const ROLE_FILE_CONTEXT = "report_file_context";
+
+/** Max characters per single file extraction stored in DynamoDB. */
+const MAX_FILE_CHARS = 80_000;
+/** Combined character budget for all file contexts injected into system prompt. */
+export const MAX_COMBINED_FILE_CHARS = 60_000;
+
+export type ReportFileContext = {
+  fileId: string;
+  originalName: string;
+  extractedText: string;
+  charCount: number;
+  extractedAt: string;
+  warnings: string[];
+};
+
+/** Truncate extracted text to fit the per-file budget. */
+export function truncateExtractedText(text: string, maxChars = MAX_FILE_CHARS): { text: string; truncated: boolean } {
+  if (text.length <= maxChars) return { text, truncated: false };
+  const headSize = Math.floor(maxChars * 0.67);
+  const tailSize = maxChars - headSize - 20; // 20 chars for marker
+  return {
+    text: text.slice(0, headSize) + "\n\n[... 중략 ...]\n\n" + text.slice(-tailSize),
+    truncated: true,
+  };
+}
+
+export async function addFileContext(args: {
+  teamId: string;
+  sessionId: string;
+  fileId: string;
+  originalName: string;
+  extractedText: string;
+  memberName: string;
+  warnings?: string[];
+}) {
+  const { text: capped } = truncateExtractedText(args.extractedText);
+  await addMessage({
+    teamId: args.teamId,
+    sessionId: args.sessionId,
+    role: ROLE_FILE_CONTEXT,
+    content: `첨부 문서: ${args.originalName} (${capped.length.toLocaleString()}자)`,
+    metadata: {
+      mode: "report_chat_upload",
+      fileId: args.fileId,
+      originalName: args.originalName,
+      extractedText: capped,
+      charCount: capped.length,
+      extractedAt: new Date().toISOString(),
+      warnings: args.warnings ?? [],
+      member: args.memberName,
+    },
+  });
+}
+
+export function extractFileContexts(allMessages: ChatMessageRow[]): ReportFileContext[] {
+  const out: ReportFileContext[] = [];
+  for (const m of allMessages) {
+    if (m.role !== ROLE_FILE_CONTEXT) continue;
+    const meta = (m.metadata ?? {}) as Record<string, unknown>;
+    const fileId = typeof meta.fileId === "string" ? meta.fileId : "";
+    const originalName = typeof meta.originalName === "string" ? meta.originalName : "";
+    const extractedText = typeof meta.extractedText === "string" ? meta.extractedText : "";
+    const charCount = typeof meta.charCount === "number" ? meta.charCount : extractedText.length;
+    const extractedAt = typeof meta.extractedAt === "string" ? meta.extractedAt : (m.created_at ?? "");
+    const warningsRaw = Array.isArray(meta.warnings) ? meta.warnings : [];
+    const warnings = warningsRaw.filter((w): w is string => typeof w === "string");
+    if (!fileId || !extractedText) continue;
+    out.push({ fileId, originalName, extractedText, charCount, extractedAt, warnings });
+  }
+  return out;
+}
+
+/** Build the [첨부 문서] block for the system prompt, respecting combined char budget. */
+export function buildFileContextBlock(fileContexts: ReportFileContext[]): string {
+  if (!fileContexts.length) return "";
+
+  // Allocate budget: newer files get priority (they come later in the array)
+  let remaining = MAX_COMBINED_FILE_CHARS;
+  const allocated: { name: string; text: string }[] = [];
+
+  // Process newest first for budget allocation, then reverse for display
+  const reversed = [...fileContexts].reverse();
+  for (const fc of reversed) {
+    if (remaining <= 0) break;
+    const budget = Math.min(fc.extractedText.length, remaining);
+    const { text } = truncateExtractedText(fc.extractedText, budget);
+    allocated.unshift({ name: fc.originalName, text });
+    remaining -= text.length;
+  }
+
+  if (!allocated.length) return "";
+
+  const lines = ["\n[첨부 문서]"];
+  for (const a of allocated) {
+    lines.push(`--- 파일: ${a.name} ---`);
+    lines.push(a.text);
+    lines.push("--- 끝 ---\n");
+  }
+  return lines.join("\n");
 }
 
 export async function addReportMessage(args: {

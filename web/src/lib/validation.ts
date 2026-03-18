@@ -42,6 +42,10 @@ const ALLOWED_MIMES: ReadonlySet<string> = new Set([
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  // xlsx
   "application/vnd.ms-excel",  // xls
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  // docx
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
   "application/octet-stream",  // fallback
 ]);
 
@@ -50,6 +54,11 @@ const EXT_TO_MIME: Record<string, string> = {
   ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ".xls": "application/vnd.ms-excel",
   ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
 };
 
 export function validateMimeType(

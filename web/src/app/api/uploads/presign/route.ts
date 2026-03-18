@@ -32,8 +32,10 @@ function inferExt(filename: string): string {
   return ext;
 }
 
+const ALLOWED_EXTS = new Set([".pdf", ".xlsx", ".xls", ".docx", ".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+
 function isAllowedExt(ext: string): boolean {
-  return ext === ".pdf" || ext === ".xlsx" || ext === ".xls" || ext === ".docx";
+  return ALLOWED_EXTS.has(ext);
 }
 
 export async function POST(req: Request) {

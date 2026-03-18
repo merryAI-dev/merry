@@ -3,7 +3,8 @@ import { InvokeModelWithResponseStreamCommand, type ResponseStream } from "@aws-
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { addReportMessage, getReportMessages } from "@/lib/reportChat";
+import { addReportMessage, extractFileContexts, buildFileContextBlock } from "@/lib/reportChat";
+import { getMessages } from "@/lib/chatStore";
 import { getLlmProvider } from "@/lib/llm";
 import { getBedrockRuntimeClient } from "@/lib/aws/bedrock";
 import { buildMerryPersona } from "@/lib/merryPersona";
@@ -154,6 +155,7 @@ function buildSystemPrompt(args: {
   pack?: AssumptionPack | null;
   computeJob?: { jobId: string; status?: string; metrics?: unknown } | null;
   perspective?: "optimistic" | "pessimistic";
+  fileContextBlock?: string;
 }) {
   const today = new Date().toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul", year: "numeric", month: "long", day: "numeric" });
   let base =
@@ -199,13 +201,16 @@ function buildSystemPrompt(args: {
       "- 간결하게, 핵심 포인트 3-5개로 정리해\n";
   }
 
-  if (!args.section) return base + contextBlock;
+  const fileBlock = args.fileContextBlock ?? "";
+
+  if (!args.section) return base + contextBlock + fileBlock;
 
   const idx = typeof args.section.index === "number" ? `${args.section.index}. ` : "";
   const title = args.section.title.trim();
   return (
     base +
     contextBlock +
+    fileBlock +
     `- 이번 응답은 다음 섹션만 작성: ${idx}${title}\n` +
     `- 반드시 제목을 "## ${idx}${title}"로 시작\n` +
     "- 해당 섹션에 필요한 정보가 부족하면 [확인 필요] placeholder를 남기고, 마지막에 질문을 최대 5개만 추가\n"
@@ -272,14 +277,20 @@ export async function POST(req: Request) {
       },
     });
 
+    // Load all messages in one query, then split into file contexts + chat history.
+    const allMessages = await getMessages(ws.teamId, body.sessionId);
+    const fileContexts = extractFileContexts(allMessages);
+    const fileContextBlock = buildFileContextBlock(fileContexts);
+
     const maxHistory = body.section ? 8 : 20;
-    const history = await getReportMessages(ws.teamId, body.sessionId, maxHistory);
-    const messages = history
-      .slice(-maxHistory)
+    const chatHistory = allMessages
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .slice(-maxHistory);
+    const messages = chatHistory
       .map((m) => ({ role: m.role, content: m.content })) as Array<{ role: "user" | "assistant"; content: string }>;
 
     const maxTokens = Number(process.env.ANTHROPIC_REPORT_MAX_TOKENS ?? "8192");
-    const system = buildSystemPrompt({ section: body.section, pack, computeJob, perspective: body.perspective });
+    const system = buildSystemPrompt({ section: body.section, pack, computeJob, perspective: body.perspective, fileContextBlock });
 
     const encoder = new TextEncoder();
     let assistantText = "";
