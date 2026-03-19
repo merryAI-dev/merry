@@ -3,7 +3,7 @@
 import Link from "next/link";
 import * as React from "react";
 import { useParams } from "next/navigation";
-import { ArrowRight, BookOpen, Check, ClipboardCopy, Download, FileText, GitBranch, Loader2, MessageCircle, Paperclip, PanelRightClose, RefreshCw, Search, Sparkles, X } from "lucide-react";
+import { ArrowRight, BookOpen, Check, ClipboardCopy, Download, FileText, GitBranch, Loader2, MessageCircle, Paperclip, PanelRightClose, RefreshCw, RotateCcw, Search, Sparkles, ThumbsDown, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -1452,19 +1452,70 @@ export default function ReportSessionPage() {
                           <div className="whitespace-pre-wrap">{m.content}</div>
                         </>
                       )}
-                      <div className="mt-2 text-[10px] opacity-50">
-                        {hasDebatePerspective && m.role === "assistant"
-                          ? (isOptimistic ? "긍정 메리" : "비관 메리")
-                          : m.role === "user" ? "you" : "merry"} ·{" "}
-                        {m.createdAt
-                          ? new Date(m.createdAt).toLocaleString("ko-KR", {
-                              timeZone: "Asia/Seoul",
-                              month: "2-digit",
-                              day: "2-digit",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })
-                          : ""}
+                      <div className="mt-2 flex items-center gap-2 text-[10px] opacity-50">
+                        <span>
+                          {hasDebatePerspective && m.role === "assistant"
+                            ? (isSynthesis ? "통합 메리" : isOptimistic ? "긍정 메리" : "비관 메리")
+                            : m.role === "user" ? "you" : "merry"} ·{" "}
+                          {m.createdAt
+                            ? new Date(m.createdAt).toLocaleString("ko-KR", {
+                                timeZone: "Asia/Seoul",
+                                month: "2-digit",
+                                day: "2-digit",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              })
+                            : ""}
+                        </span>
+                        {m.role === "assistant" && !sending && (
+                          <span className="flex items-center gap-1 ml-auto">
+                            <button
+                              onClick={async () => {
+                                const desc = window.prompt("어떤 부분이 틀렸나요? (간단히 설명)");
+                                if (!desc) return;
+                                await fetch("/api/report/feedback", {
+                                  method: "POST",
+                                  headers: { "content-type": "application/json" },
+                                  body: JSON.stringify({ sessionId, category: "analysis", description: desc, correction: "" }),
+                                });
+                                setRememberedToast("피드백이 기록됐어요");
+                              }}
+                              className="rounded p-0.5 transition-colors hover:bg-[var(--bg-subtle)]"
+                              title="피드백 (틀린 부분 알려주기)"
+                            >
+                              <ThumbsDown className="h-3 w-3" />
+                            </button>
+                            <button
+                              onClick={async () => {
+                                const res = await fetch("/api/report/critique", {
+                                  method: "POST",
+                                  headers: { "content-type": "application/json" },
+                                  body: JSON.stringify({ draft: m.content, refine: true }),
+                                });
+                                if (!res.ok) return;
+                                const data = await res.json();
+                                if (data.refinedDraft) {
+                                  const refined: ReportMessage = {
+                                    role: "assistant",
+                                    content: `**[자체 개선안]**\n\n${data.critique}\n\n---\n\n${data.refinedDraft}`,
+                                    createdAt: new Date().toISOString(),
+                                    perspective: m.perspective,
+                                    section: m.section,
+                                  };
+                                  setMessages((prev) => {
+                                    const next = [...prev];
+                                    next.splice(idx + 1, 0, refined);
+                                    return next;
+                                  });
+                                }
+                              }}
+                              className="rounded p-0.5 transition-colors hover:bg-[var(--bg-subtle)]"
+                              title="자체 개선안 보기 (GOLF Self-Critique)"
+                            >
+                              <RotateCcw className="h-3 w-3" />
+                            </button>
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
