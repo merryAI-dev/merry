@@ -3,7 +3,7 @@
 import Link from "next/link";
 import * as React from "react";
 import { useParams } from "next/navigation";
-import { ArrowRight, BookOpen, Check, ClipboardCopy, Download, FileText, GitBranch, Loader2, MessageCircle, Paperclip, PanelRightClose, RefreshCw, Sparkles, X } from "lucide-react";
+import { ArrowRight, BookOpen, Check, ClipboardCopy, Download, FileText, GitBranch, Loader2, MessageCircle, Paperclip, PanelRightClose, RefreshCw, Search, Sparkles, X } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -789,6 +789,53 @@ export default function ReportSessionPage() {
   const [uploadingFiles, setUploadingFiles] = React.useState<UploadingFile[]>([]);
   const [dragging, setDragging] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [searchOpen, setSearchOpen] = React.useState(false);
+  const [searching, setSearching] = React.useState(false);
+
+  async function handleMarketSearch(type: "news" | "signals") {
+    setSearchOpen(false);
+    setSearching(true);
+    try {
+      const endpoint = type === "news" ? "/api/report/news" : "/api/report/signals";
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sector: meta?.companyName }),
+      });
+      if (!res.ok) throw new Error("검색 실패");
+      const data = await res.json();
+
+      // Format result as a system message
+      let summary = "";
+      if (type === "news" && data.clusters?.length) {
+        summary = `📰 뉴스 다이제스트 (${data.totalArticles}건 분석)\n\n` +
+          data.clusters.slice(0, 5).map((c: { grade: string; company: string; event: string; coverageScore: number; sources: string[] }) =>
+            `[${c.grade}] ${c.company} — ${c.event} (Coverage ${c.coverageScore}, ${c.sources.join(", ")})`
+          ).join("\n");
+      } else if (type === "signals" && data.signals?.length) {
+        const byCat = data.byCategory as Record<string, Array<{ strength: string; description: string }>>;
+        const catLabels: Record<string, string> = { funding: "펀딩", talent: "인재", social: "소셜", media: "미디어", regulation: "규제" };
+        summary = `📡 시그널 레이더 (${data.signals.length}건)\n\n` +
+          Object.entries(byCat).filter(([, v]) => v.length > 0).map(([k, v]) => {
+            const icon = v.some((s) => s.strength === "strong") ? "🔴" : "🟡";
+            return `${icon} ${catLabels[k] ?? k}: ${v.slice(0, 3).map((s) => s.description).join("; ").slice(0, 100)}`;
+          }).join("\n");
+      } else {
+        summary = type === "news" ? "📰 관련 뉴스를 찾지 못했어요." : "📡 관련 시그널을 찾지 못했어요.";
+      }
+
+      const sysMsg: ReportMessage = {
+        role: "user",
+        content: `[시장검색] ${summary}`,
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, sysMsg]);
+    } catch {
+      setError("시장 검색에 실패했어요. 잠시 후 다시 시도해주세요.");
+    } finally {
+      setSearching(false);
+    }
+  }
 
   const loadMeta = React.useCallback(async () => {
     try {
@@ -1550,6 +1597,38 @@ export default function ReportSessionPage() {
               >
                 <Paperclip className="h-4 w-4" />
               </Button>
+              {/* Market search button */}
+              <div className="relative shrink-0 self-end">
+                <Button
+                  variant="secondary"
+                  onClick={() => setSearchOpen((v) => !v)}
+                  disabled={sending || searching}
+                  title="시장 검색 (뉴스, 시그널)"
+                >
+                  {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                </Button>
+                {searchOpen && (
+                  <div
+                    className="absolute bottom-full left-0 mb-1 rounded-lg border shadow-lg"
+                    style={{ background: "var(--bg)", borderColor: "var(--card-border)", minWidth: 160 }}
+                  >
+                    <button
+                      onClick={() => handleMarketSearch("news")}
+                      className="block w-full px-4 py-2 text-left text-sm hover:bg-[var(--bg-subtle)]"
+                      style={{ color: "var(--ink)" }}
+                    >
+                      📰 뉴스 다이제스트
+                    </button>
+                    <button
+                      onClick={() => handleMarketSearch("signals")}
+                      className="block w-full px-4 py-2 text-left text-sm hover:bg-[var(--bg-subtle)]"
+                      style={{ color: "var(--ink)" }}
+                    >
+                      📡 시그널 레이더
+                    </button>
+                  </div>
+                )}
+              </div>
               <Textarea
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}

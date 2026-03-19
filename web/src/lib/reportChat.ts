@@ -236,6 +236,52 @@ export function buildFileContextBlock(fileContexts: ReportFileContext[]): string
   return lines.join("\n");
 }
 
+/* ── Market intelligence helpers ── */
+
+const ROLE_MARKET_INTEL = "report_market_intel";
+
+export async function addMarketIntel(args: {
+  teamId: string;
+  sessionId: string;
+  content: string;
+  memberName: string;
+  type: "news" | "signals";
+}) {
+  await addMessage({
+    teamId: args.teamId,
+    sessionId: args.sessionId,
+    role: ROLE_MARKET_INTEL,
+    content: args.content,
+    metadata: {
+      mode: "report_market_intel",
+      type: args.type,
+      member: args.memberName,
+      created_at: new Date().toISOString(),
+    },
+  });
+}
+
+export function extractMarketIntelBlock(allMessages: ChatMessageRow[]): string {
+  // Get the latest market intel message (24h TTL — only use recent ones)
+  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const intelMessages = allMessages
+    .filter((m) => m.role === ROLE_MARKET_INTEL && (m.created_at ?? "") > cutoff)
+    .sort((a, b) => (b.created_at ?? "").localeCompare(a.created_at ?? ""));
+
+  if (!intelMessages.length) return "";
+
+  // Combine latest news + signals (keep total under 5000 chars)
+  const parts: string[] = [];
+  let totalLen = 0;
+  for (const m of intelMessages) {
+    if (totalLen + m.content.length > 5000) break;
+    parts.push(m.content);
+    totalLen += m.content.length;
+  }
+
+  return parts.join("\n");
+}
+
 export async function addReportMessage(args: {
   teamId: string;
   sessionId: string;
