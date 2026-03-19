@@ -168,8 +168,9 @@ function buildSystemPrompt(args: {
     `- 오늘 날짜: ${today}\n` +
     "- 문서 톤: 인수인의견 스타일(근거 중심, 단정적 과장 금지)\n" +
     "- 출력: Markdown(코드펜스 금지)\n" +
-    "- 숫자/지표: Locked AssumptionPack 또는 Compute Snapshot에 있는 값만 사용. 없으면 '이 시나리오는 계산 도구로 확인이 필요해요'라고 안내\n" +
-    "- 절대 직접 산술 계산 금지 (IRR, Multiple, 기업가치 등). 반드시 Compute Snapshot 값을 참조\n" +
+    "- 숫자/지표: Locked AssumptionPack 또는 Compute Snapshot에 있는 값만 사용. 없으면 반드시 [확인 필요]로 표시. 절대 숫자를 지어내지 마.\n" +
+    "- 절대 직접 산술 계산 금지 (IRR, Multiple, 기업가치, 시장규모 등). 출처 없는 통계는 사용 금지.\n" +
+    "- 출처 없는 숫자(시장 규모, 성장률, 절감 효과 등)를 추정/생성하지 마. '~로 알려져 있다' 식의 불확실한 인용도 금지.\n" +
     "- 섹션 작성: 사용자가 특정 섹션만 요청하면 그 섹션만 작성(다른 섹션 금지)\n" +
     "- UI 액션 문구(예: '초안 확정')를 단독 줄로 출력하지 말 것 (앱에서 버튼으로 제공)\n";
 
@@ -316,6 +317,21 @@ export async function POST(req: Request) {
 
     const maxTokens = Number(process.env.ANTHROPIC_REPORT_MAX_TOKENS ?? "8192");
     const system = buildSystemPrompt({ section: body.section, pack, computeJob, perspective: body.perspective, fileContextBlock, marketIntelBlock, failurePatternBlock, scaffoldBlock });
+
+    // Debug: log system prompt stats (remove after verification)
+    console.log("[CHAT] system prompt stats:", {
+      totalChars: system.length,
+      approxTokens: Math.round(system.length / 4),
+      hasCalcProtocol: system.includes("계산 프로토콜"),
+      hasPostMeeting: system.includes("미팅 후 투자 메모"),
+      hasKillScenario: system.includes("Kill Scenario"),
+      hasFileContext: fileContextBlock.length > 0,
+      hasMarketIntel: marketIntelBlock.length > 0,
+      hasFailurePattern: failurePatternBlock.length > 0,
+      hasScaffold: scaffoldBlock.length > 0,
+      perspective: body.perspective ?? "none",
+      messageCount: messages.length,
+    });
 
     const encoder = new TextEncoder();
     let assistantText = "";
