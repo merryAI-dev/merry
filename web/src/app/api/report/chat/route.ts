@@ -6,6 +6,7 @@ import { z } from "zod";
 import { addReportMessage, extractFileContexts, buildFileContextBlock, extractMarketIntelBlock } from "@/lib/reportChat";
 import { extractFailurePatterns, buildFailurePatternBlock } from "@/lib/failurePatterns";
 import { extractOutcomes, shouldInjectScaffold, calculateFailureRate, buildScaffoldBlock } from "@/lib/adaptiveScaffold";
+import { buildTrustedPool, annotateUnverifiedClaims } from "@/lib/postVerifier";
 import { getMessages } from "@/lib/chatStore";
 import { getLlmProvider } from "@/lib/llm";
 import { getBedrockRuntimeClient } from "@/lib/aws/bedrock";
@@ -315,6 +316,18 @@ export async function POST(req: Request) {
     const messages = chatHistory
       .map((m) => ({ role: m.role, content: m.content })) as Array<{ role: "user" | "assistant"; content: string }>;
 
+    // Build trusted number pool for post-generation verification
+    const packSummary = pack && pack.status === "locked" ? summarizeAssumptionPack(pack) : "";
+    const computeSummary = computeJob?.metrics ? summarizeExitProjectionMetrics(computeJob.metrics) : "";
+    const fileTexts = fileContexts.map((fc) => fc.extractedText);
+    const userTexts = chatHistory.filter((m) => m.role === "user").map((m) => m.content);
+    const trustedPool = buildTrustedPool({
+      assumptionPackSummary: packSummary,
+      computeSnapshotSummary: computeSummary,
+      fileContextTexts: fileTexts,
+      userMessages: userTexts,
+    });
+
     const maxTokens = Number(process.env.ANTHROPIC_REPORT_MAX_TOKENS ?? "8192");
     const system = buildSystemPrompt({ section: body.section, pack, computeJob, perspective: body.perspective, fileContextBlock, marketIntelBlock, failurePatternBlock, scaffoldBlock });
 
@@ -398,11 +411,16 @@ export async function POST(req: Request) {
             };
 
             if (assistantText.trim()) {
+              // Post-generation verification: tag unverified numbers
+              const { annotated, claimCount } = annotateUnverifiedClaims(assistantText.trim(), trustedPool);
+              if (claimCount > 0) {
+                console.log(`[CHAT] Post-verification: ${claimCount} unverified claims tagged`);
+              }
               await addReportMessage({
                 teamId: ws.teamId,
                 sessionId: body.sessionId,
                 role: "assistant",
-                content: assistantText.trim(),
+                content: annotated,
                 memberName: ws.memberName,
                 metadata: {
                   ...(body.section ? { section: body.section } : {}),
@@ -558,11 +576,16 @@ export async function POST(req: Request) {
           }
 
           if (assistantText.trim()) {
+            // Post-generation verification: tag unverified numbers
+            const { annotated: bedrockAnnotated, claimCount: bedrockClaimCount } = annotateUnverifiedClaims(assistantText.trim(), trustedPool);
+            if (bedrockClaimCount > 0) {
+              console.log(`[CHAT/bedrock] Post-verification: ${bedrockClaimCount} unverified claims tagged`);
+            }
             await addReportMessage({
               teamId: ws.teamId,
               sessionId: body.sessionId,
               role: "assistant",
-              content: assistantText.trim(),
+              content: bedrockAnnotated,
               memberName: ws.memberName,
               metadata: {
                 ...(body.section ? { section: body.section } : {}),
