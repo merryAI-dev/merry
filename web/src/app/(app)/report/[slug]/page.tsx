@@ -46,7 +46,7 @@ type ReportMessage = {
     title: string;
     index?: number;
   };
-  perspective?: "optimistic" | "pessimistic";
+  perspective?: "optimistic" | "pessimistic" | "synthesis";
 };
 
 type TocSection = {
@@ -878,7 +878,7 @@ export default function ReportSessionPage() {
     return () => clearTimeout(t);
   }, [rememberedToast]);
 
-  async function sendMessage(message: string, section?: TocSection, perspective?: "optimistic" | "pessimistic") {
+  async function sendMessage(message: string, section?: TocSection, perspective?: "optimistic" | "pessimistic" | "synthesis") {
     const text = message.trim();
     if (!text || sendingRef.current) return;
 
@@ -1398,12 +1398,13 @@ export default function ReportSessionPage() {
                 // Perspective-aware styling for debate messages
                 const isOptimistic = m.perspective === "optimistic";
                 const isPessimistic = m.perspective === "pessimistic";
-                const hasDebatePerspective = isOptimistic || isPessimistic;
+                const isSynthesis = m.perspective === "synthesis";
+                const hasDebatePerspective = isOptimistic || isPessimistic || isSynthesis;
 
                 const perspectiveStyles = hasDebatePerspective && m.role === "assistant"
                   ? {
-                      background: isOptimistic ? "#F0FDF4" : "#FEF2F2",
-                      border: isOptimistic ? "1.5px solid #22C55E" : "1.5px solid #EF4444",
+                      background: isSynthesis ? "#F5F3FF" : isOptimistic ? "#F0FDF4" : "#FEF2F2",
+                      border: isSynthesis ? "1.5px solid #8B5CF6" : isOptimistic ? "1.5px solid #22C55E" : "1.5px solid #EF4444",
                       color: "var(--ink)",
                     }
                   : m.role === "assistant"
@@ -1422,10 +1423,10 @@ export default function ReportSessionPage() {
                           {hasDebatePerspective && (
                             <div
                               className="mb-2 flex items-center gap-1.5 text-[12px] font-bold"
-                              style={{ color: isOptimistic ? "#16A34A" : "#DC2626" }}
+                              style={{ color: isSynthesis ? "#7C3AED" : isOptimistic ? "#16A34A" : "#DC2626" }}
                             >
-                              <span>{isOptimistic ? "🟢" : "🔴"}</span>
-                              {isOptimistic ? "긍정 메리" : "비관 메리"}
+                              <span>{isSynthesis ? "🟣" : isOptimistic ? "🟢" : "🔴"}</span>
+                              {isSynthesis ? "통합 메리" : isOptimistic ? "긍정 메리" : "비관 메리"}
                             </div>
                           )}
                           {m.section && !hasDebatePerspective && (
@@ -1525,6 +1526,16 @@ export default function ReportSessionPage() {
                     style={{ background: "#EF4444", color: "#fff" }}
                   >
                     🔴 비관 관점 선택
+                  </button>
+                  <button
+                    onClick={() => {
+                      sendMessage("긍정 메리와 비관 메리의 분석을 변증법적으로 통합해줘. 양쪽의 근거 있는 주장만 채택하고, Bull/Bear Case를 병렬로 정리하고, Kill Scenario를 도출해줘.", undefined, "synthesis");
+                      setDebateStarted(false);
+                    }}
+                    className="flex items-center gap-1.5 rounded-xl px-4 py-2.5 text-[12px] font-bold transition-all hover:scale-[1.02]"
+                    style={{ background: "#8B5CF6", color: "#fff" }}
+                  >
+                    🟣 양쪽 통합 합성
                   </button>
                 </div>
                 <button

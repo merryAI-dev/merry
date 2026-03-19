@@ -7,7 +7,7 @@ import { addReportMessage, extractFileContexts, buildFileContextBlock, extractMa
 import { getMessages } from "@/lib/chatStore";
 import { getLlmProvider } from "@/lib/llm";
 import { getBedrockRuntimeClient } from "@/lib/aws/bedrock";
-import { buildMerryPersona } from "@/lib/merryPersona";
+import { buildMerryPersona, buildSynthesisPrompt } from "@/lib/merryPersona";
 import { getJob } from "@/lib/jobStore";
 import { getAssumptionPackById, getLatestComputeSnapshot, getLatestLockedAssumptionPack } from "@/lib/reportAssumptionsStore";
 import type { Assumption, AssumptionPack } from "@/lib/reportPacks";
@@ -35,7 +35,7 @@ const BodySchema = z.object({
       index: z.number().int().positive().optional(),
     })
     .optional(),
-  perspective: z.enum(["optimistic", "pessimistic"]).optional(),
+  perspective: z.enum(["optimistic", "pessimistic", "synthesis"]).optional(),
 });
 
 function safeLlmErrorText(err: unknown): string {
@@ -154,7 +154,7 @@ function buildSystemPrompt(args: {
   section?: { key: string; title: string; index?: number };
   pack?: AssumptionPack | null;
   computeJob?: { jobId: string; status?: string; metrics?: unknown } | null;
-  perspective?: "optimistic" | "pessimistic";
+  perspective?: "optimistic" | "pessimistic" | "synthesis";
   fileContextBlock?: string;
   marketIntelBlock?: string;
 }) {
@@ -201,6 +201,9 @@ function buildSystemPrompt(args: {
       "- 긍정적 요소가 과대평가되었을 가능성을 지적해\n" +
       "- 긍정 메리의 의견이 맥락에 있다면 논리적으로 반론해\n" +
       "- 간결하게, 핵심 포인트 3-5개로 정리해\n";
+  }
+  if (args.perspective === "synthesis") {
+    base += "\n" + buildSynthesisPrompt() + "\n";
   }
 
   const fileBlock = args.fileContextBlock ?? "";

@@ -102,3 +102,71 @@ export function buildMerryPersona(mode: MerryPersonaMode): string {
   return "";
 }
 
+/**
+ * Build the synthesis perspective prompt for debate Round 4.
+ * GOLF-inspired: aggregated refinement from multiple failed/partial attempts.
+ */
+export function buildSynthesisPrompt(): string {
+  return [
+    "[역할: 통합 메리 🟣]",
+    "당신은 긍정 메리와 비관 메리의 분석을 변증법적으로 통합하는 역할입니다.",
+    "",
+    "## 통합 원칙",
+    "1. 양쪽에서 **근거가 있는** 주장만 채택. 근거 없는 추측은 양쪽 모두에서 제거.",
+    "2. 긍정 측의 강점과 비관 측의 리스크를 **병렬 구조**로 통합.",
+    "3. 양쪽이 동의하는 지점 = 높은 확신. 양쪽이 대립하는 지점 = 핵심 불확실성으로 명시.",
+    "4. Kill Scenario는 비관 측의 **가장 강한 논거**에서 도출.",
+    "5. 숫자는 Compute Snapshot/AssumptionPack 값만 사용.",
+    "",
+    "## 출력 구조",
+    "### 통합 투자 분석",
+    "",
+    "**핵심 합의점** (양쪽이 동의하는 것)",
+    "- {합의 1}",
+    "- {합의 2}",
+    "",
+    "**핵심 쟁점** (양쪽이 대립하는 것)",
+    "| 쟁점 | 긍정 관점 | 비관 관점 | 판단 근거 |",
+    "|------|----------|----------|----------|",
+    "",
+    "**Bull Case (근거 있는 긍정)**",
+    "- {긍정 측 + 비관 측이 인정한 강점}",
+    "",
+    "**Bear Case (근거 있는 리스크)**",
+    "- {비관 측 + 긍정 측이 인정한 리스크}",
+    "",
+    "**Kill Scenario** (2-3개)",
+    "1. {비관 측 최강 논거에서 도출}",
+    "",
+    "**종합 판단**",
+    "- 투자 매력도와 리스크를 1-2문장으로 요약",
+    "- 추가 확인이 필요한 항목 리스트",
+  ].join("\n");
+}
+
+/**
+ * Build the self-critique prompt for Joint Gen-Refine Loop.
+ * GOLF Section 4.3: jointly optimizing generation and refinement.
+ */
+export function buildSelfCritiquePrompt(): string {
+  return [
+    "당신은 VC 투자심사 보고서 감수자입니다.",
+    "아래 초안을 검토하고, 다음 관점에서 **구체적** 개선점을 제시하세요.",
+    "",
+    "## 검토 관점",
+    "1. **[사실]** 숫자/지표가 AssumptionPack/Compute Snapshot과 일치하는가?",
+    "2. **[논리]** 주장과 근거 사이에 비약이 없는가?",
+    "3. **[누락]** 다뤄야 할 중요 항목이 빠졌는가?",
+    "4. **[톤]** 인수인의견 스타일에 맞는가? (과장/추측 없는지)",
+    "",
+    "## 출력 형식",
+    "각 개선점을 [카테고리] 형식으로 구체적으로 작성:",
+    "[사실] PER 10x 기준 기업가치가 280억으로 적혀있지만, Compute Snapshot에는 270억...",
+    "[누락] 경쟁사 B의 최근 시리즈C 라운드가 언급되지 않음...",
+    "[논리] 시장 성장률 30%를 가정했지만, 근거가 제시되지 않음...",
+    "",
+    "개선점이 없으면 '검토 결과 수정 사항 없음'으로 답변.",
+  ].join("\n");
+}
+
+

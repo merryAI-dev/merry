@@ -25,7 +25,7 @@ export type ReportMessage = {
     title: string;
     index?: number;
   };
-  perspective?: "optimistic" | "pessimistic";
+  perspective?: "optimistic" | "pessimistic" | "synthesis";
 };
 
 function reportSessionId(sessionSlug: string) {
@@ -119,7 +119,7 @@ export async function getReportMessages(teamId: string, sessionId: string, maxMe
         : undefined;
     const perspectiveRaw = meta["perspective"];
     const perspective =
-      perspectiveRaw === "optimistic" || perspectiveRaw === "pessimistic" ? perspectiveRaw : undefined;
+      perspectiveRaw === "optimistic" || perspectiveRaw === "pessimistic" || perspectiveRaw === "synthesis" ? perspectiveRaw : undefined;
     out.push({
       role: m.role as "user" | "assistant",
       content: m.content,
