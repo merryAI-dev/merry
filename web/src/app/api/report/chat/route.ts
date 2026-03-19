@@ -163,7 +163,8 @@ function buildSystemPrompt(args: {
     `- 오늘 날짜: ${today}\n` +
     "- 문서 톤: 인수인의견 스타일(근거 중심, 단정적 과장 금지)\n" +
     "- 출력: Markdown(코드펜스 금지)\n" +
-    "- 숫자/지표: Locked AssumptionPack 또는 Compute Snapshot에 있는 값만 사용. 없으면 [확인 필요]로 남기고 질문\n" +
+    "- 숫자/지표: Locked AssumptionPack 또는 Compute Snapshot에 있는 값만 사용. 없으면 '이 시나리오는 계산 도구로 확인이 필요해요'라고 안내\n" +
+    "- 절대 직접 산술 계산 금지 (IRR, Multiple, 기업가치 등). 반드시 Compute Snapshot 값을 참조\n" +
     "- 섹션 작성: 사용자가 특정 섹션만 요청하면 그 섹션만 작성(다른 섹션 금지)\n" +
     "- UI 액션 문구(예: '초안 확정')를 단독 줄로 출력하지 말 것 (앱에서 버튼으로 제공)\n";
 
