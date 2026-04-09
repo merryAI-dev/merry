@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ChevronLeft, ChevronRight, LogOut } from "lucide-react";
+import { AlertTriangle, ChevronLeft, ChevronRight, LogOut } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
@@ -163,10 +163,21 @@ export function ReviewSidebar({ workspace }: { workspace: WorkspaceSession }) {
         </nav>
 
         <div className="px-2 pb-3 pt-2" style={{ borderTop: "1px solid rgba(167, 139, 250, 0.1)" }}>
-          {!collapsed && error && (
-            <p className="px-3 pb-2 text-[11px] leading-5 text-[#FCA5A5]" role="alert">
-              {error}
-            </p>
+          {error && (
+            collapsed ? (
+              <div
+                className="mx-auto mb-2 flex h-7 w-7 items-center justify-center rounded-full border border-[#FCA5A5]/40 bg-[#7F1D1D]/30 text-[#FCA5A5]"
+                role="alert"
+                aria-label={error}
+                title={error}
+              >
+                <AlertTriangle className="h-3.5 w-3.5" />
+              </div>
+            ) : (
+              <p className="px-3 pb-2 text-[11px] leading-5 text-[#FCA5A5]" role="alert">
+                {error}
+              </p>
+            )
           )}
           <button
             onClick={logout}
