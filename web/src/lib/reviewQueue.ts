@@ -201,30 +201,39 @@ export async function listReviewQueueRecords(teamId: string, filters: ReviewQueu
   const ddb = getDdbDocClient();
   const TableName = getReviewDdbTableName();
   const limit = Math.min(Math.max(filters.limit ?? 100, 1), 200);
+  const ids: string[] = [];
+  const pageSize = Math.min(Math.max(limit * 2, 25), 200);
+  let exclusiveStartKey: Record<string, unknown> | undefined;
 
-  const res = await ddb.send(new QueryCommand({
-    TableName,
-    KeyConditionExpression: "pk = :pk",
-    ExpressionAttributeValues: { ":pk": pkTeamReviewQueue(teamId) },
-    ScanIndexForward: false,
-    Limit: limit * 2,
-  }));
+  do {
+    const res = await ddb.send(new QueryCommand({
+      TableName,
+      KeyConditionExpression: "pk = :pk",
+      ExpressionAttributeValues: { ":pk": pkTeamReviewQueue(teamId) },
+      ScanIndexForward: false,
+      ExclusiveStartKey: exclusiveStartKey,
+      Limit: pageSize,
+    }));
 
-  const ids = (res.Items ?? [])
-    .map((item) => item as Record<string, unknown>)
-    .filter((item) => {
-      const status = asString(item["status"]) as ReviewQueueStatus;
-      const reason = asString(item["queue_reason"]) as ReviewQueueReason;
+    for (const item of res.Items ?? []) {
+      const row = item as Record<string, unknown>;
+      const status = asString(row["status"]) as ReviewQueueStatus;
+      const reason = asString(row["queue_reason"]) as ReviewQueueReason;
       if (filters.status && filters.status !== "all") {
-        if (filters.status === "open" && !isOpenStatus(status)) return false;
-        if (filters.status !== "open" && status !== filters.status) return false;
+        if (filters.status === "open" && !isOpenStatus(status)) continue;
+        if (filters.status !== "open" && status !== filters.status) continue;
       }
-      if (filters.reason && filters.reason !== "all" && reason !== filters.reason) return false;
-      return true;
-    })
-    .map((item) => asString(item["queue_id"]))
-    .filter(Boolean)
-    .slice(0, limit);
+      if (filters.reason && filters.reason !== "all" && reason !== filters.reason) continue;
+
+      const queueId = asString(row["queue_id"]);
+      if (!queueId) continue;
+      ids.push(queueId);
+      if (ids.length >= limit) break;
+    }
+
+    if (ids.length >= limit) break;
+    exclusiveStartKey = res.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (exclusiveStartKey);
 
   const items = await Promise.all(ids.map((queueId) => getReviewQueueRecord(teamId, queueId)));
   return items.filter((item): item is ReviewQueueRecord => item !== null);

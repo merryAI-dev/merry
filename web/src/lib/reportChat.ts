@@ -1,4 +1,4 @@
-import { addMessage, ensureSession, getMessages, getSessionsByPrefix } from "@/lib/chatStore";
+import { addMessage, ensureSession, getMessages, getSession, getSessionsByPrefix } from "@/lib/chatStore";
 import type { ChatMessageRow } from "@/lib/chatStore";
 
 export type ReportSession = {
@@ -38,7 +38,7 @@ export function reportSlugFromSessionId(sessionId: string): string | null {
   return slug ? slug : null;
 }
 
-export async function listReportSessions(teamId: string, limit = 30): Promise<ReportSession[]> {
+export async function listReportSessions(teamId: string, limit?: number): Promise<ReportSession[]> {
   const sessions = await getSessionsByPrefix(teamId, "report_", limit);
   return sessions.map((s) => {
     const info = (s.user_info ?? {}) as Record<string, unknown>;
@@ -56,6 +56,17 @@ export async function listReportSessions(teamId: string, limit = 30): Promise<Re
       author: typeof info["author"] === "string" ? info["author"] : undefined,
     };
   });
+}
+
+export async function assertExistingReportSession(teamId: string, sessionId: string): Promise<void> {
+  if (!sessionId.startsWith("report_")) {
+    throw new Error("BAD_SESSION");
+  }
+
+  const session = await getSession(teamId, sessionId);
+  if (!session) {
+    throw new Error("NOT_FOUND");
+  }
 }
 
 export async function createReportSession(args: {
@@ -290,6 +301,8 @@ export async function addReportMessage(args: {
   memberName: string;
   metadata?: Record<string, unknown>;
 }) {
+  await assertExistingReportSession(args.teamId, args.sessionId);
+
   await addMessage({
     teamId: args.teamId,
     sessionId: args.sessionId,

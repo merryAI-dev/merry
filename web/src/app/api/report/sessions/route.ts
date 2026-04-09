@@ -23,7 +23,7 @@ const CreateSchema = z.object({
 export async function GET(req: Request) {
   try {
     const ws = await requireWorkspaceFromCookies();
-    const all = await listReportSessions(ws.teamId, 100);
+    const all = await listReportSessions(ws.teamId);
     const { items, total, offset, hasMore } = paginate(all, new URL(req.url));
     return NextResponse.json({ ok: true, sessions: items, total, offset, hasMore });
   } catch (err) {

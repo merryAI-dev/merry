@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 
-import { getReportMessages } from "@/lib/reportChat";
+import { assertExistingReportSession, getReportMessages } from "@/lib/reportChat";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export const runtime = "nodejs";
@@ -15,11 +15,14 @@ export async function GET(
     if (!sessionId.startsWith("report_")) {
       return NextResponse.json({ ok: false, error: "BAD_SESSION" }, { status: 400 });
     }
+    await assertExistingReportSession(ws.teamId, sessionId);
     const messages = await getReportMessages(ws.teamId, sessionId);
     return NextResponse.json({ ok: true, messages });
   } catch (err) {
+    if (err instanceof Error && err.message === "NOT_FOUND") {
+      return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
+    }
     const status = err instanceof Error && err.message === "UNAUTHORIZED" ? 401 : 500;
     return NextResponse.json({ ok: false, error: "FAILED" }, { status });
   }
 }
-

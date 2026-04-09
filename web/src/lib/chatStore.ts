@@ -284,19 +284,37 @@ export async function getRecentSessions(teamId: string, limit = 30): Promise<Cha
   return (res.Items ?? []).map(coerceChatSessionRow);
 }
 
-export async function getSessionsByPrefix(teamId: string, prefix: string, limit = 50): Promise<ChatSessionRow[]> {
+export async function getSessionsByPrefix(teamId: string, prefix: string, limit?: number): Promise<ChatSessionRow[]> {
   const ddb = getDdbDocClient();
   const TableName = getReviewDdbTableName();
-  const res = await ddb.send(
-    new QueryCommand({
-      TableName,
-      KeyConditionExpression: "pk = :pk",
-      ExpressionAttributeValues: { ":pk": pkTeamSessionsByPrefix(teamId, prefix) },
-      Limit: limit,
-      ScanIndexForward: false,
-    }),
-  );
-  return (res.Items ?? []).map(coerceChatSessionRow);
+  const out: ChatSessionRow[] = [];
+  const normalizedLimit = typeof limit === "number" && limit > 0 ? limit : undefined;
+  const pageSize = normalizedLimit ? Math.min(Math.max(normalizedLimit, 50), 200) : 200;
+  let exclusiveStartKey: Record<string, unknown> | undefined;
+
+  do {
+    const res = await ddb.send(
+      new QueryCommand({
+        TableName,
+        KeyConditionExpression: "pk = :pk",
+        ExpressionAttributeValues: { ":pk": pkTeamSessionsByPrefix(teamId, prefix) },
+        ExclusiveStartKey: exclusiveStartKey,
+        Limit: pageSize,
+        ScanIndexForward: false,
+      }),
+    );
+
+    for (const item of res.Items ?? []) {
+      out.push(coerceChatSessionRow(item));
+      if (normalizedLimit && out.length >= normalizedLimit) {
+        return out;
+      }
+    }
+
+    exclusiveStartKey = res.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (exclusiveStartKey);
+
+  return out;
 }
 
 export const TaskInputSchema = z.object({

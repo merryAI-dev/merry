@@ -5,6 +5,7 @@ import { z } from "zod";
 import { handleApiError } from "@/lib/apiError";
 import { auth } from "@/auth";
 import { listReportPresence, upsertReportPresence } from "@/lib/presenceStore";
+import { assertExistingReportSession } from "@/lib/reportChat";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export const runtime = "nodejs";
@@ -28,9 +29,13 @@ export async function GET(req: Request) {
       return NextResponse.json({ ok: false, error: "BAD_SCOPE" }, { status: 400 });
     }
 
+    await assertExistingReportSession(ws.teamId, scopeId);
     const members = await listReportPresence({ teamId: ws.teamId, sessionId: scopeId, withinSeconds: 60 });
     return NextResponse.json({ ok: true, members });
   } catch (err) {
+    if (err instanceof Error && err.message === "NOT_FOUND") {
+      return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
+    }
     return handleApiError(err, "GET /api/presence");
   }
 }
@@ -43,6 +48,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "BAD_SCOPE" }, { status: 400 });
     }
 
+    await assertExistingReportSession(ws.teamId, body.scopeId);
     const session = (await auth()) as { user?: { email?: string | null; image?: string | null } } | null;
     const email = typeof session?.user?.email === "string" ? session.user.email : "";
     const image = typeof session?.user?.image === "string" ? session.user.image : "";
@@ -58,6 +64,9 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (err) {
+    if (err instanceof Error && err.message === "NOT_FOUND") {
+      return NextResponse.json({ ok: false, error: "NOT_FOUND" }, { status: 404 });
+    }
     const status = err instanceof Error && err.message === "UNAUTHORIZED" ? 401 : 400;
     return NextResponse.json({ ok: false, error: "BAD_REQUEST" }, { status });
   }

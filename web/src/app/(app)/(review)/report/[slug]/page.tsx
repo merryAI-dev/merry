@@ -20,7 +20,7 @@ import { PresenceBar } from "@/components/report/PresenceBar";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Textarea } from "@/components/ui/Textarea";
-import { apiFetch } from "@/lib/apiClient";
+import { ApiError, apiFetch } from "@/lib/apiClient";
 
 type ReportSessionMeta = {
   sessionId: string;
@@ -55,6 +55,10 @@ type TocSection = {
   title: string;
   hint?: string;
 };
+
+function isNotFoundApiError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404;
+}
 
 const TOC_SECTIONS: TocSection[] = [
   { key: "executive_summary", index: 1, title: "Executive Summary" },
@@ -763,6 +767,7 @@ export default function ReportSessionPage() {
 
   const [meta, setMeta] = React.useState<ReportSessionMeta | null>(null);
   const [messages, setMessages] = React.useState<ReportMessage[]>([]);
+  const [sessionState, setSessionState] = React.useState<"loading" | "ready" | "missing">("loading");
   const [prompt, setPrompt] = React.useState("");
   const [sending, setSending] = React.useState(false);
   const sendingRef = React.useRef(false);
@@ -838,38 +843,59 @@ export default function ReportSessionPage() {
   }
 
   const loadMeta = React.useCallback(async () => {
-    try {
-      const res = await apiFetch<{ session: ReportSessionMeta }>(`/api/review/${sessionId}/meta`);
-      setMeta(res.session);
-    } catch {
-      setMeta(null);
-    }
+    const res = await apiFetch<{ session: ReportSessionMeta }>(`/api/review/${sessionId}/meta`);
+    setMeta(res.session);
+    return res.session;
   }, [sessionId]);
 
   const loadMessages = React.useCallback(async () => {
-    setError(null);
-    try {
-      const res = await apiFetch<{ messages: ReportMessage[] }>(`/api/review/${sessionId}/messages`);
-      const msgs = res.messages || [];
-      setMessages(msgs);
-      // Extract decisions and custom branches from message history
-      const parsed = parseDecisionsFromMessages(msgs);
-      setDecisions(parsed.decisions);
-      setCustomQuestions(parsed.customQuestions);
-    } catch {
-      setError("메시지를 불러오지 못했습니다.");
-    }
+    const res = await apiFetch<{ messages: ReportMessage[] }>(`/api/review/${sessionId}/messages`);
+    const msgs = res.messages || [];
+    setMessages(msgs);
+    const parsed = parseDecisionsFromMessages(msgs);
+    setDecisions(parsed.decisions);
+    setCustomQuestions(parsed.customQuestions);
+    return msgs;
   }, [sessionId]);
 
+  const markMissingSession = React.useCallback(() => {
+    setMeta(null);
+    setMessages([]);
+    setDecisions([]);
+    setCustomQuestions([]);
+    setShowTree(false);
+    setShowCompile(false);
+    setError(null);
+    setSessionState("missing");
+  }, []);
+
+  const loadSession = React.useCallback(async () => {
+    setError(null);
+    setSessionState("loading");
+
+    try {
+      await loadMeta();
+      await loadMessages();
+      setSessionState("ready");
+    } catch (err) {
+      if (isNotFoundApiError(err)) {
+        markMissingSession();
+        return;
+      }
+      setSessionState("ready");
+      setError("세션을 불러오지 못했습니다.");
+    }
+  }, [loadMeta, loadMessages, markMissingSession]);
+
   React.useEffect(() => {
-    loadMeta();
-    loadMessages();
-  }, [loadMeta, loadMessages]);
+    void loadSession();
+  }, [loadSession]);
 
   // Auto-scroll to bottom on new messages
   React.useEffect(() => {
+    if (sessionState !== "ready") return;
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, sessionState]);
 
   // Toast auto-dismiss
   React.useEffect(() => {
@@ -923,6 +949,10 @@ export default function ReportSessionPage() {
 
       if (!res.ok) {
         const json = await res.json().catch(() => ({}));
+        if (json?.error === "NOT_FOUND") {
+          markMissingSession();
+          return;
+        }
         throw new Error(json?.error || "FAILED");
       }
 
@@ -1231,6 +1261,45 @@ export default function ReportSessionPage() {
   const streamingAssistantIndex = sending ? messages.findLastIndex((m) => m.role === "assistant") : -1;
   const hasDecisions = decisions.length > 0;
 
+  if (sessionState === "loading" && !meta && messages.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center px-6">
+        <div className="flex items-center gap-2 text-sm" style={{ color: "var(--ink-light)" }}>
+          <Loader2 className="h-4 w-4 animate-spin" />
+          세션을 불러오는 중...
+        </div>
+      </div>
+    );
+  }
+
+  if (sessionState === "missing") {
+    return (
+      <div className="flex h-full items-center justify-center px-6">
+        <div
+          className="w-full max-w-md rounded-2xl border px-6 py-8 text-center"
+          style={{ borderColor: "var(--line)", background: "var(--bg)" }}
+        >
+          <div className="text-3xl">🗂️</div>
+          <h1 className="mt-4 text-lg font-bold" style={{ color: "var(--ink)" }}>
+            세션을 찾을 수 없습니다
+          </h1>
+          <p className="mt-2 text-sm" style={{ color: "var(--ink-light)" }}>
+            존재하지 않거나 이미 정리된 세션입니다. 새 상호작용은 차단되었습니다.
+          </p>
+          <div className="mt-5 flex items-center justify-center gap-2">
+            <Link href="/review" className="inline-flex">
+              <Button variant="primary" size="sm">세션 목록으로</Button>
+            </Link>
+            <Button variant="secondary" size="sm" onClick={() => { void loadSession(); }}>
+              <RefreshCw className="h-3.5 w-3.5" />
+              다시 확인
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full">
       {/* ── Main chat area ── */}
@@ -1281,7 +1350,7 @@ export default function ReportSessionPage() {
               <Link href="/review" className="inline-flex">
                 <Button variant="secondary" size="sm">세션 목록</Button>
               </Link>
-              <Button variant="secondary" size="sm" onClick={() => { loadMeta(); loadMessages(); }}>
+              <Button variant="secondary" size="sm" onClick={() => { void loadSession(); }}>
                 <RefreshCw className="h-3.5 w-3.5" />
               </Button>
             </div>
@@ -1769,7 +1838,9 @@ export default function ReportSessionPage() {
         decisions={decisions}
         sessionId={sessionId}
         onClose={() => setShowCompile(false)}
-        onMessagesUpdate={loadMessages}
+        onMessagesUpdate={async () => {
+          await loadMessages();
+        }}
       />}
 
       {/* ── "Remembered" toast ── */}

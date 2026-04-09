@@ -3,7 +3,7 @@ import { InvokeModelWithResponseStreamCommand, type ResponseStream } from "@aws-
 import { NextResponse } from "next/server";
 import { z } from "zod";
 
-import { addReportMessage, extractFileContexts, buildFileContextBlock, extractMarketIntelBlock } from "@/lib/reportChat";
+import { addReportMessage, assertExistingReportSession, extractFileContexts, buildFileContextBlock, extractMarketIntelBlock } from "@/lib/reportChat";
 import { extractFailurePatterns, buildFailurePatternBlock } from "@/lib/failurePatterns";
 import { extractOutcomes, shouldInjectScaffold, calculateFailureRate, buildScaffoldBlock } from "@/lib/adaptiveScaffold";
 import { buildTrustedPool, annotateUnverifiedClaims } from "@/lib/postVerifier";
@@ -267,6 +267,7 @@ export async function POST(req: Request) {
     if (!body.sessionId.startsWith("report_")) {
       return NextResponse.json({ ok: false, error: "BAD_SESSION" }, { status: 400 });
     }
+    await assertExistingReportSession(ws.teamId, body.sessionId);
 
     const provider = getLlmProvider();
 
@@ -658,9 +659,16 @@ export async function POST(req: Request) {
       },
     });
   } catch (err) {
-    const status = err instanceof Error && err.message === "UNAUTHORIZED" ? 401 : 400;
+    const status =
+      err instanceof Error && err.message === "UNAUTHORIZED"
+        ? 401
+        : err instanceof Error && err.message === "NOT_FOUND"
+          ? 404
+          : 400;
     const code =
-      err instanceof Error && err.message.startsWith("Missing env ")
+      err instanceof Error && err.message === "NOT_FOUND"
+        ? "NOT_FOUND"
+        : err instanceof Error && err.message.startsWith("Missing env ")
         ? "MISSING_LLM_CONFIG"
         : "BAD_REQUEST";
     return NextResponse.json({ ok: false, error: code }, { status });
