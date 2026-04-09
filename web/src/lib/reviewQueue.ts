@@ -21,11 +21,22 @@ export type ReviewQueueRecord = ReviewQueueCandidate & {
 };
 
 export type ReviewQueueSummary = Record<string, number>;
+export type ReviewQueueListResult = {
+  items: ReviewQueueRecord[];
+  nextCursor: string | null;
+  hasMore: boolean;
+};
 
 type ReviewQueueFilters = {
   status?: ReviewQueueStatus | "open" | "all";
   reason?: ReviewQueueReason | "all";
   limit?: number;
+  cursor?: string;
+};
+
+type ReviewQueueCursorState = {
+  lastKey?: Record<string, unknown>;
+  overflowIds?: string[];
 };
 
 function pkTeam(teamId: string) {
@@ -67,6 +78,33 @@ function isOpenStatus(status: ReviewQueueStatus): boolean {
 function isConditionalCheckFailed(error: unknown): boolean {
   return error instanceof ConditionalCheckFailedException
     || (error instanceof Error && error.name === "ConditionalCheckFailedException");
+}
+
+function encodeQueueCursor(state: ReviewQueueCursorState): string | null {
+  const normalized: ReviewQueueCursorState = {
+    ...(state.lastKey ? { lastKey: state.lastKey } : {}),
+    ...(state.overflowIds && state.overflowIds.length ? { overflowIds: state.overflowIds } : {}),
+  };
+  if (!normalized.lastKey && !normalized.overflowIds?.length) return null;
+  return Buffer.from(JSON.stringify(normalized)).toString("base64url");
+}
+
+function decodeQueueCursor(cursor?: string): ReviewQueueCursorState {
+  if (!cursor) return {};
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf-8")) as ReviewQueueCursorState;
+    return {
+      lastKey:
+        parsed.lastKey && typeof parsed.lastKey === "object"
+          ? (parsed.lastKey as Record<string, unknown>)
+          : undefined,
+      overflowIds: Array.isArray(parsed.overflowIds)
+        ? parsed.overflowIds.filter((value): value is string => typeof value === "string" && value.length > 0)
+        : undefined,
+    };
+  } catch {
+    return {};
+  }
 }
 
 function deserializeReviewQueueRecord(teamId: string, row: Record<string, unknown>): ReviewQueueRecord {
@@ -197,15 +235,22 @@ export async function getReviewQueueRecord(teamId: string, queueId: string): Pro
   return row ? deserializeReviewQueueRecord(teamId, row) : null;
 }
 
-export async function listReviewQueueRecords(teamId: string, filters: ReviewQueueFilters = {}): Promise<ReviewQueueRecord[]> {
+export async function listReviewQueueRecords(teamId: string, filters: ReviewQueueFilters = {}): Promise<ReviewQueueListResult> {
   const ddb = getDdbDocClient();
   const TableName = getReviewDdbTableName();
   const limit = Math.min(Math.max(filters.limit ?? 100, 1), 200);
   const ids: string[] = [];
   const pageSize = Math.min(Math.max(limit * 2, 25), 200);
-  let exclusiveStartKey: Record<string, unknown> | undefined;
+  const decodedCursor = decodeQueueCursor(filters.cursor);
+  let exclusiveStartKey: Record<string, unknown> | undefined = decodedCursor.lastKey;
+  const pendingIds = [...(decodedCursor.overflowIds ?? [])];
 
-  do {
+  while (pendingIds.length && ids.length < limit) {
+    const nextId = pendingIds.shift();
+    if (nextId) ids.push(nextId);
+  }
+
+  while (ids.length < limit) {
     const res = await ddb.send(new QueryCommand({
       TableName,
       KeyConditionExpression: "pk = :pk",
@@ -215,6 +260,7 @@ export async function listReviewQueueRecords(teamId: string, filters: ReviewQueu
       Limit: pageSize,
     }));
 
+    const overflowFromPage: string[] = [];
     for (const item of res.Items ?? []) {
       const row = item as Record<string, unknown>;
       const status = asString(row["status"]) as ReviewQueueStatus;
@@ -227,16 +273,24 @@ export async function listReviewQueueRecords(teamId: string, filters: ReviewQueu
 
       const queueId = asString(row["queue_id"]);
       if (!queueId) continue;
-      ids.push(queueId);
-      if (ids.length >= limit) break;
+      if (ids.length < limit) ids.push(queueId);
+      else overflowFromPage.push(queueId);
     }
 
-    if (ids.length >= limit) break;
     exclusiveStartKey = res.LastEvaluatedKey as Record<string, unknown> | undefined;
-  } while (exclusiveStartKey);
+    pendingIds.push(...overflowFromPage);
+
+    if (ids.length >= limit) break;
+    if (!exclusiveStartKey) break;
+  }
 
   const items = await Promise.all(ids.map((queueId) => getReviewQueueRecord(teamId, queueId)));
-  return items.filter((item): item is ReviewQueueRecord => item !== null);
+  const nextCursor = encodeQueueCursor({ lastKey: exclusiveStartKey, overflowIds: pendingIds });
+  return {
+    items: items.filter((item): item is ReviewQueueRecord => item !== null),
+    hasMore: nextCursor !== null,
+    nextCursor,
+  };
 }
 
 export async function getReviewQueueSummary(teamId: string): Promise<ReviewQueueSummary> {

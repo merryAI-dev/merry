@@ -65,7 +65,11 @@ type ReviewQueueResponse = {
   items: ReviewQueueItem[];
   summary: Record<string, number>;
   syncedCandidates: number;
+  hasMore?: boolean;
+  nextCursor?: string | null;
 };
+
+const REVIEW_QUEUE_PAGE_SIZE = 50;
 
 const STATUS_OPTIONS: Array<{ value: ReviewQueueStatus | "open" | "all"; label: string }> = [
   { value: "open", label: "열린 항목" },
@@ -142,35 +146,58 @@ export default function ReviewQueuePage() {
   const [summary, setSummary] = React.useState<Record<string, number>>({});
   const [loading, setLoading] = React.useState(true);
   const [refreshing, setRefreshing] = React.useState(false);
+  const [loadingMore, setLoadingMore] = React.useState(false);
   const [statusFilter, setStatusFilter] = React.useState<ReviewQueueStatus | "open" | "all">("open");
   const [reasonFilter, setReasonFilter] = React.useState<ReviewQueueReason | "all">("all");
   const [search, setSearch] = React.useState("");
   const [busyId, setBusyId] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [nextCursor, setNextCursor] = React.useState<string | null>(null);
+  const [hasMore, setHasMore] = React.useState(false);
 
-  const load = React.useCallback(async (showLoader = false) => {
-    if (showLoader) setLoading(true);
+  const load = React.useCallback(async ({
+    cursor,
+    append = false,
+    showLoader = false,
+  }: {
+    cursor?: string | null;
+    append?: boolean;
+    showLoader?: boolean;
+  } = {}) => {
+    if (append) setLoadingMore(true);
+    else if (showLoader) setLoading(true);
     else setRefreshing(true);
     setError(null);
     try {
       const params = new URLSearchParams({
         status: statusFilter,
         reason: reasonFilter,
-        limit: "120",
+        limit: String(REVIEW_QUEUE_PAGE_SIZE),
       });
+      if (cursor) params.set("cursor", cursor);
       const data = await apiFetch<ReviewQueueResponse>(`/api/review/queue?${params}`);
-      setItems(data.items || []);
+      const nextItems = data.items || [];
+      setItems((prev) => (append ? [...prev, ...nextItems] : nextItems));
       setSummary(data.summary || {});
+      setHasMore(data.hasMore ?? false);
+      setNextCursor(data.nextCursor ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "FAILED");
+      if (!append) {
+        setItems([]);
+        setSummary({});
+        setHasMore(false);
+        setNextCursor(null);
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
+      setLoadingMore(false);
     }
   }, [reasonFilter, statusFilter]);
 
   React.useEffect(() => {
-    load(true);
+    load({ showLoader: true });
   }, [load]);
 
   const filteredItems = React.useMemo(() => {
@@ -214,7 +241,7 @@ export default function ReviewQueuePage() {
           }),
         });
       }
-      await load(false);
+      await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "FAILED");
     } finally {
@@ -234,7 +261,7 @@ export default function ReviewQueuePage() {
             parse warning, 기업 미인식, alias 보정, 근거 부족 같은 항목만 사람이 검토합니다.
           </p>
         </div>
-        <Button variant="secondary" size="sm" onClick={() => load(false)} disabled={refreshing}>
+        <Button variant="secondary" size="sm" onClick={() => load()} disabled={refreshing}>
           <RefreshCw className={cn("mr-1.5 h-4 w-4", refreshing && "animate-spin")} />
           새로고침
         </Button>
@@ -364,6 +391,15 @@ export default function ReviewQueuePage() {
               </Card>
             );
           })}
+
+          {hasMore && (
+            <div className="flex justify-center pt-2">
+              <Button variant="secondary" size="sm" onClick={() => load({ cursor: nextCursor, append: true })} disabled={loadingMore}>
+                {loadingMore ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 h-3.5 w-3.5" />}
+                더 보기
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </div>

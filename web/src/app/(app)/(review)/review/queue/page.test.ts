@@ -39,6 +39,8 @@ const queueResponse = {
   ],
   summary: { total: 8, queued: 5, in_review: 1, alias_correction: 3, parse_warning: 4 },
   syncedCandidates: 0,
+  hasMore: false,
+  nextCursor: null,
 };
 
 describe("ReviewQueuePage", () => {
@@ -93,5 +95,42 @@ describe("ReviewQueuePage", () => {
     expect(screen.getByText("6")).not.toBeNull();
     expect(screen.getByText("3")).not.toBeNull();
     expect(screen.getByText("4")).not.toBeNull();
+  });
+
+  it("requests the next cursor when the user loads more queue items", async () => {
+    apiFetchMock.mockReset();
+    apiFetchMock
+      .mockResolvedValueOnce({
+        ...queueResponse,
+        items: [queueResponse.items[0]],
+        hasMore: true,
+        nextCursor: "cursor-1",
+      })
+      .mockResolvedValueOnce({
+        ...queueResponse,
+        items: [
+          {
+            ...queueResponse.items[0],
+            queueId: "queue-2",
+            filename: "deal-2.pdf",
+            taskId: "task-2",
+            jobId: "job-2",
+          },
+        ],
+        hasMore: false,
+        nextCursor: null,
+      });
+
+    render(React.createElement(ReviewQueuePage));
+
+    await waitFor(() => {
+      expect(apiFetchMock).toHaveBeenCalledWith("/api/review/queue?status=open&reason=all&limit=50");
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "더 보기" }));
+
+    await waitFor(() => {
+      expect(apiFetchMock).toHaveBeenCalledWith("/api/review/queue?status=open&reason=all&limit=50&cursor=cursor-1");
+    });
   });
 });

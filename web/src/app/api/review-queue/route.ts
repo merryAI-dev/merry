@@ -31,15 +31,16 @@ export async function GET(req: Request) {
       | "alias_correction"
       | "evidence_missing";
     const limit = Number(url.searchParams.get("limit") ?? 100);
+    const cursor = url.searchParams.get("cursor") ?? undefined;
     const syncRecent = url.searchParams.get("sync") !== "false";
 
     const syncedCandidates = syncRecent
       ? await syncReviewQueueFromRecentConditionJobs(ws.teamId, 20)
       : 0;
-    const items = await listReviewQueueRecords(ws.teamId, { status, reason, limit });
+    const { items, hasMore, nextCursor } = await listReviewQueueRecords(ws.teamId, { status, reason, limit, cursor });
     const summary = await getReviewQueueSummary(ws.teamId);
 
-    return NextResponse.json({ ok: true, items, summary, syncedCandidates });
+    return NextResponse.json({ ok: true, items, summary, syncedCandidates, hasMore, nextCursor });
   } catch (err) {
     return handleApiError(err, "GET /api/review-queue");
   }
