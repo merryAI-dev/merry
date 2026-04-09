@@ -226,13 +226,13 @@ export function ReportSessionModal({
         companyName: cn,
         ...(extractedContext ? { context: extractedContext } : {}),
       };
-      const res = await apiFetch<{ sessionId: string; slug?: string }>("/api/report/sessions", {
+      const res = await apiFetch<{ sessionId: string; slug?: string }>("/api/review/sessions", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
       const slug = res.slug ?? (res.sessionId ?? "").replace(/^report_/, "");
-      window.location.href = `/report/${slug}`;
+      window.location.href = `/review/${slug}`;
     } catch (e) {
       setError(e instanceof Error ? e.message : "세션 생성에 실패했습니다.");
       setBusy(false);

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { truncateExtractedText, buildFileContextBlock, extractFileContexts, MAX_COMBINED_FILE_CHARS } from "./reportChat";
+import {
+  truncateExtractedText,
+  buildFileContextBlock,
+  extractFileContexts,
+  MAX_COMBINED_FILE_CHARS,
+  reportSlugFromSessionId,
+} from "./reportChat";
 import type { ChatMessageRow } from "./chatStore";
 
 describe("truncateExtractedText", () => {
@@ -119,5 +125,15 @@ describe("buildFileContextBlock", () => {
     ]);
     // Block should not exceed budget + formatting overhead
     expect(block.length).toBeLessThan(MAX_COMBINED_FILE_CHARS + 500);
+  });
+});
+
+describe("report session compatibility", () => {
+  it("still parses legacy report_ ids", () => {
+    expect(reportSlugFromSessionId("report_abc123")).toBe("abc123");
+  });
+
+  it("rejects non-review session ids", () => {
+    expect(reportSlugFromSessionId("diagnosis_abc123")).toBeNull();
   });
 });

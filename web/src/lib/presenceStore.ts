@@ -37,7 +37,7 @@ export async function upsertReportPresence(args: {
     pk: pkPresence(args.teamId, args.sessionId),
     sk: skMember(args.memberKey),
     entity: "presence",
-    scope: "report",
+    scope: "review",
     scope_id: args.sessionId,
     memberKey: args.memberKey,
     memberName: args.memberName,

@@ -330,7 +330,7 @@ function CompileModal({
     const enrichedMessage = decisionCtx ? `${prompt}\n\n---\n${decisionCtx}` : prompt;
 
     try {
-      const res = await fetch("/api/report/chat", {
+      const res = await fetch("/api/review/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ sessionId, message: enrichedMessage, section: sectionMeta }),
@@ -796,7 +796,7 @@ export default function ReportSessionPage() {
     setSearchOpen(false);
     setSearching(true);
     try {
-      const endpoint = type === "news" ? "/api/report/news" : "/api/report/signals";
+      const endpoint = type === "news" ? "/api/review/news" : "/api/review/signals";
       const res = await fetch(endpoint, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -839,7 +839,7 @@ export default function ReportSessionPage() {
 
   const loadMeta = React.useCallback(async () => {
     try {
-      const res = await apiFetch<{ session: ReportSessionMeta }>(`/api/report/${sessionId}/meta`);
+      const res = await apiFetch<{ session: ReportSessionMeta }>(`/api/review/${sessionId}/meta`);
       setMeta(res.session);
     } catch {
       setMeta(null);
@@ -849,7 +849,7 @@ export default function ReportSessionPage() {
   const loadMessages = React.useCallback(async () => {
     setError(null);
     try {
-      const res = await apiFetch<{ messages: ReportMessage[] }>(`/api/report/${sessionId}/messages`);
+      const res = await apiFetch<{ messages: ReportMessage[] }>(`/api/review/${sessionId}/messages`);
       const msgs = res.messages || [];
       setMessages(msgs);
       // Extract decisions and custom branches from message history
@@ -915,7 +915,7 @@ export default function ReportSessionPage() {
 
     let acc = "";
     try {
-      const res = await fetch("/api/report/chat", {
+      const res = await fetch("/api/review/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ sessionId, message: enrichedMessage, section: sectionMeta, perspective }),
@@ -960,7 +960,7 @@ export default function ReportSessionPage() {
     if (autoCount >= MAX_AUTO_BRANCHES) return;
 
     try {
-      const res = await fetch("/api/report/next-branch", {
+      const res = await fetch("/api/review/next-branch", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -988,7 +988,7 @@ export default function ReportSessionPage() {
       // Persist the auto-generated branch so it's restored on reload
       const msg = formatCustomBranchMessage(qId, data.question, data.options || []);
       // Save silently — don't trigger full chat flow, just persist
-      await fetch("/api/report/chat", {
+      await fetch("/api/review/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ sessionId, message: msg }),
@@ -1140,7 +1140,7 @@ export default function ReportSessionPage() {
 
       // Step 4: Parse & store context
       updateEntry({ status: "parsing" });
-      const parseRes = await fetch("/api/report/chat/upload", {
+      const parseRes = await fetch("/api/review/chat/upload", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -1278,7 +1278,7 @@ export default function ReportSessionPage() {
                   </span>
                 )}
               </Button>
-              <Link href="/report" className="inline-flex">
+              <Link href="/review" className="inline-flex">
                 <Button variant="secondary" size="sm">세션 목록</Button>
               </Link>
               <Button variant="secondary" size="sm" onClick={() => { loadMeta(); loadMessages(); }}>
@@ -1473,7 +1473,7 @@ export default function ReportSessionPage() {
                               onClick={async () => {
                                 const desc = window.prompt("어떤 부분이 틀렸나요? (간단히 설명)");
                                 if (!desc) return;
-                                await fetch("/api/report/feedback", {
+                                await fetch("/api/review/feedback", {
                                   method: "POST",
                                   headers: { "content-type": "application/json" },
                                   body: JSON.stringify({ sessionId, category: "analysis", description: desc, correction: "" }),
@@ -1487,7 +1487,7 @@ export default function ReportSessionPage() {
                             </button>
                             <button
                               onClick={async () => {
-                                const res = await fetch("/api/report/critique", {
+                                const res = await fetch("/api/review/critique", {
                                   method: "POST",
                                   headers: { "content-type": "application/json" },
                                   body: JSON.stringify({ draft: m.content, refine: true }),

@@ -54,13 +54,13 @@ describe("ProductsPage", () => {
     expect(links.length).toBeGreaterThanOrEqual(2);
     expect(links).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ href: "/report" }),
+        expect.objectContaining({ href: "/review" }),
         expect.objectContaining({ href: "/diagnosis" }),
       ]),
     );
-    expect(links.some((link) => link.href === "/report" && link.text.includes("투자심사"))).toBe(true);
+    expect(links.some((link) => link.href === "/review" && link.text.includes("투자심사"))).toBe(true);
     expect(links.some((link) => link.href === "/diagnosis" && link.text.includes("현황진단"))).toBe(true);
     expect(text).toContain("로그인과 팀은 공유하지만, 실제 작업 공간은 제품별로 분리됩니다.");
-    expect(PRODUCTS.map((product) => product.href)).toEqual(["/report", "/diagnosis"]);
+    expect(PRODUCTS.map((product) => product.href)).toEqual(["/review", "/diagnosis"]);
   });
 });

@@ -23,7 +23,7 @@ type ReportSession = {
 
 function SessionCard({ s }: { s: ReportSession }) {
   return (
-    <Link href={`/report/${s.slug}`} className="block group">
+    <Link href={`/review/${s.slug}`} className="block group">
       <div
         className="rounded-2xl bg-white p-5 transition-all hover:shadow-md"
         style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px #E5E8EB" }}
@@ -94,7 +94,7 @@ export default function ReportSessionsPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await apiFetch<{ sessions: ReportSession[] }>("/api/report/sessions");
+      const res = await apiFetch<{ sessions: ReportSession[] }>("/api/review/sessions");
       setSessions(res.sessions || []);
     } catch {
       setError("세션을 불러오지 못했습니다. 환경변수/인증을 확인하세요.");
@@ -143,7 +143,7 @@ export default function ReportSessionsPage() {
             <RefreshCw className="h-3.5 w-3.5" />
             새로고침
           </Button>
-          <Link href="/report/new">
+          <Link href="/review/new">
             <Button variant="primary" size="sm">
               <Plus className="h-3.5 w-3.5" />
               새 보고서
@@ -170,7 +170,7 @@ export default function ReportSessionsPage() {
           <div className="text-[15px] font-semibold text-[#191F28]">세션이 없어요</div>
           <div className="mt-1 text-[13px] text-[#8B95A1]">새 보고서를 만들어 시작하세요.</div>
           <div className="mt-4">
-            <Link href="/report/new">
+            <Link href="/review/new">
               <Button variant="primary" size="sm">
                 <Plus className="h-3.5 w-3.5" />
                 새 보고서

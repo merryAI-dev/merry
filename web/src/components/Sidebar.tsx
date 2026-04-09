@@ -16,7 +16,7 @@ import { cn } from "@/lib/cn";
 import type { WorkspaceSession } from "@/lib/workspace";
 
 const nav = [
-  { href: "/report",          label: "투자심사",       icon: ClipboardList },
+  { href: "/review",          label: "투자심사",       icon: ClipboardList },
   { href: "/documents",       label: "문서 추출",      icon: Files },
   { href: "/admin",           label: "관리자",         icon: Settings },
 ];

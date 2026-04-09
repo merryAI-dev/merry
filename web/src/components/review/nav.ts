@@ -15,24 +15,37 @@ export type ReviewNavItem = {
 
 export const REVIEW_NAV_ITEMS: ReviewNavItem[] = [
   {
-    href: "/report",
+    href: "/review",
     label: "세션",
     icon: ClipboardList,
     match: (pathname) =>
-      pathname === "/report" ||
-      (pathname.startsWith("/report/") && pathname !== "/report/new" && !pathname.startsWith("/report/new/")),
+      pathname === "/review"
+      || pathname === "/report"
+      || (
+        (pathname.startsWith("/review/") || pathname.startsWith("/report/"))
+        && pathname !== "/review/new"
+        && !pathname.startsWith("/review/new/")
+        && pathname !== "/review/queue"
+        && !pathname.startsWith("/review/queue/")
+        && pathname !== "/report/new"
+        && !pathname.startsWith("/report/new/")
+      ),
   },
   {
-    href: "/report/new",
+    href: "/review/new",
     label: "새 보고서",
     icon: FilePlus2,
-    match: (pathname) => pathname === "/report/new" || pathname.startsWith("/report/new/"),
+    match: (pathname) =>
+      pathname === "/review/new"
+      || pathname.startsWith("/review/new/")
+      || pathname === "/report/new"
+      || pathname.startsWith("/report/new/"),
   },
   {
-    href: "/review",
+    href: "/review/queue",
     label: "검토 큐",
     icon: ShieldAlert,
-    match: (pathname) => pathname === "/review" || pathname.startsWith("/review/"),
+    match: (pathname) => pathname === "/review/queue" || pathname.startsWith("/review/queue/"),
   },
   {
     href: "/history",

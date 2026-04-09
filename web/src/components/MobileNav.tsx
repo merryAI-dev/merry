@@ -28,14 +28,14 @@ import type { WorkspaceSession } from "@/lib/workspace";
 const nav = [
   { href: "/hub",             label: "협업 허브",      icon: LayoutDashboard },
   { href: "/analysis",        label: "분석",           icon: UploadCloud },
-  { href: "/report",          label: "투자심사",       icon: ClipboardList },
+  { href: "/review",          label: "투자심사",       icon: ClipboardList },
   { href: "/funds",           label: "펀드",           icon: LineChart },
   { href: "/exit-projection", label: "Exit 프로젝션",  icon: TrendingUp },
   { href: "/check",           label: "조건 검사",      icon: ScanSearch },
   { href: "/documents",       label: "문서 추출",      icon: Files },
   { href: "/extract",         label: "재무 일괄 추출", icon: FileSpreadsheet },
   { href: "/drafts",          label: "드래프트",       icon: FileText },
-  { href: "/review",          label: "검토 큐",        icon: AlertTriangle },
+  { href: "/review/queue",    label: "검토 큐",        icon: AlertTriangle },
   { href: "/history",         label: "작업 이력",      icon: History },
   { href: "/playground",      label: "플레이그라운드", icon: FlaskConical },
   { href: "/admin",           label: "관리자",         icon: Settings },
@@ -134,7 +134,10 @@ export function MobileNav({ workspace }: { workspace: WorkspaceSession }) {
             <div className="flex-1 overflow-y-auto px-2 py-3 flex flex-col gap-0.5">
               {nav.map((item) => {
                 const Icon = item.icon;
-                const active = pathname === item.href || pathname.startsWith(item.href + "/");
+                const active = item.href === "/review"
+                  ? pathname === "/review"
+                    || (pathname.startsWith("/review/") && !pathname.startsWith("/review/queue"))
+                  : pathname === item.href || pathname.startsWith(item.href + "/");
                 return (
                   <Link
                     key={item.href}

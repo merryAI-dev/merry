@@ -214,13 +214,13 @@ export function ReportNewWizard({ initialAuthor }: { initialAuthor: string }) {
         companyId: companyId || undefined,
         companyName: cn,
       };
-      const res = await apiFetch<{ sessionId: string }>("/api/report/sessions", {
+      const res = await apiFetch<{ sessionId: string }>("/api/review/sessions", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(payload),
       });
       const slug = res.sessionId.replace(/^report_/, "");
-      window.location.href = `/report/${slug}`;
+      window.location.href = `/review/${slug}`;
     } catch (e) {
       setError(e instanceof Error ? e.message : "세션 생성에 실패했습니다.");
     } finally {
@@ -241,7 +241,7 @@ export function ReportNewWizard({ initialAuthor }: { initialAuthor: string }) {
           </h1>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/report">
+          <Link href="/review">
             <Button variant="ghost" size="sm">세션 목록</Button>
           </Link>
         </div>

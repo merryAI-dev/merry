@@ -28,7 +28,7 @@ export function PresenceBar({ sessionId }: { sessionId: string }) {
   const load = React.useCallback(async () => {
     try {
       const res = await apiFetch<{ members: PresenceMember[] }>(
-        `/api/presence?scope=report&scopeId=${encodeURIComponent(sessionId)}`,
+        `/api/presence?scope=review&scopeId=${encodeURIComponent(sessionId)}`,
       );
       setMembers(res.members || []);
     } catch {
@@ -41,7 +41,7 @@ export function PresenceBar({ sessionId }: { sessionId: string }) {
       await apiFetch("/api/presence", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ scope: "report", scopeId: sessionId }),
+        body: JSON.stringify({ scope: "review", scopeId: sessionId }),
       });
     } catch {
       // ignore
@@ -98,4 +98,3 @@ export function PresenceBar({ sessionId }: { sessionId: string }) {
     </div>
   );
 }
-

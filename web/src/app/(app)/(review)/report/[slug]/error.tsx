@@ -45,7 +45,7 @@ export default function ReportError({
 
       <div className="flex items-center gap-3">
         <Link
-          href="/report"
+          href="/review"
           className="flex items-center gap-2 rounded-xl border border-[#E5E8EB] px-5 py-2.5 text-sm font-medium text-[#4E5968] transition-colors hover:bg-[#F9FAFB]"
         >
           <ArrowLeft className="h-4 w-4" />

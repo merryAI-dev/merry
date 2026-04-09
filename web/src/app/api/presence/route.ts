@@ -10,7 +10,7 @@ import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 export const runtime = "nodejs";
 
 const PostSchema = z.object({
-  scope: z.literal("report"),
+  scope: z.literal("review"),
   scopeId: z.string().min(1),
 });
 
@@ -24,7 +24,7 @@ export async function GET(req: Request) {
     const url = new URL(req.url);
     const scope = (url.searchParams.get("scope") ?? "").trim();
     const scopeId = (url.searchParams.get("scopeId") ?? "").trim();
-    if (scope !== "report" || !scopeId.startsWith("report_")) {
+    if (scope !== "review" || !scopeId.startsWith("report_")) {
       return NextResponse.json({ ok: false, error: "BAD_SCOPE" }, { status: 400 });
     }
 
@@ -62,4 +62,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "BAD_REQUEST" }, { status });
   }
 }
-

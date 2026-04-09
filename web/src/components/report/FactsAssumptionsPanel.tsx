@@ -157,9 +157,9 @@ export function FactsAssumptionsPanel(props: {
     setMsg(null);
     try {
       const [facts, assumps, compute] = await Promise.all([
-        apiFetch<{ factPack: FactPack | null }>(`/api/report/${sessionId}/facts/latest`).catch(() => ({ factPack: null })),
-        apiFetch<{ pack: AssumptionPack | null }>(`/api/report/${sessionId}/assumptions/latest`).catch(() => ({ pack: null })),
-        apiFetch<{ snapshot: ComputeSnapshot | null; job: JobRecord | null }>(`/api/report/${sessionId}/compute/latest`).catch(() => ({ snapshot: null, job: null })),
+        apiFetch<{ factPack: FactPack | null }>(`/api/review/${sessionId}/facts/latest`).catch(() => ({ factPack: null })),
+        apiFetch<{ pack: AssumptionPack | null }>(`/api/review/${sessionId}/assumptions/latest`).catch(() => ({ pack: null })),
+        apiFetch<{ snapshot: ComputeSnapshot | null; job: JobRecord | null }>(`/api/review/${sessionId}/compute/latest`).catch(() => ({ snapshot: null, job: null })),
       ]);
 
       setFactPack(facts.factPack ?? null);
@@ -220,7 +220,7 @@ export function FactsAssumptionsPanel(props: {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await apiFetch<{ factPackId: string; warnings: string[] }>(`/api/report/${sessionId}/facts/build`, {
+      const res = await apiFetch<{ factPackId: string; warnings: string[] }>(`/api/review/${sessionId}/facts/build`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ sourceJobIds: [jobId] }),
@@ -239,7 +239,7 @@ export function FactsAssumptionsPanel(props: {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await apiFetch<{ pack: AssumptionPack }>(`/api/report/${sessionId}/assumptions/suggest`, {
+      const res = await apiFetch<{ pack: AssumptionPack }>(`/api/review/${sessionId}/assumptions/suggest`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ factPackId: factPack?.factPackId, mode: "exit_projection" }),
@@ -260,7 +260,7 @@ export function FactsAssumptionsPanel(props: {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await apiFetch<{ pack: AssumptionPack }>(`/api/report/${sessionId}/assumptions/save`, {
+      const res = await apiFetch<{ pack: AssumptionPack }>(`/api/review/${sessionId}/assumptions/save`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ pack: assumptionPack }),
@@ -282,7 +282,7 @@ export function FactsAssumptionsPanel(props: {
     setMsg(null);
     try {
       const res = await apiFetch<{ status: ValidationStatus; checks: CheckResult[]; pack?: AssumptionPack }>(
-        `/api/report/${sessionId}/assumptions/validate`,
+        `/api/review/${sessionId}/assumptions/validate`,
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -305,7 +305,7 @@ export function FactsAssumptionsPanel(props: {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await apiFetch<{ pack: AssumptionPack }>(`/api/report/${sessionId}/assumptions/lock`, {
+      const res = await apiFetch<{ pack: AssumptionPack }>(`/api/review/${sessionId}/assumptions/lock`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ packId: assumptionPack.packId }),
@@ -377,7 +377,7 @@ export function FactsAssumptionsPanel(props: {
         body: JSON.stringify({ fileId: presign.file.fileId }),
       });
 
-      const started = await apiFetch<{ jobId: string }>(`/api/report/${sessionId}/compute/exit-projection`, {
+      const started = await apiFetch<{ jobId: string }>(`/api/review/${sessionId}/compute/exit-projection`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ packId: assumptionPack.packId, fileId: presign.file.fileId }),

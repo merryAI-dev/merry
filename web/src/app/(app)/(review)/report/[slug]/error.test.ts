@@ -16,7 +16,7 @@ describe("ReportError", () => {
     );
 
     const link = screen.getByRole("link", { name: "목록으로" });
-    expect(link.getAttribute("href")).toBe("/report");
+    expect(link.getAttribute("href")).toBe("/review");
     expect(screen.getByText("리포트를 불러올 수 없습니다")).not.toBeNull();
   });
 });
