@@ -158,7 +158,7 @@ export default function ReviewQueuePage() {
         reason: reasonFilter,
         limit: "120",
       });
-      const data = await apiFetch<ReviewQueueResponse>(`/api/review-queue?${params}`);
+      const data = await apiFetch<ReviewQueueResponse>(`/api/review/queue?${params}`);
       setItems(data.items || []);
       setSummary(data.summary || {});
     } catch (err) {
@@ -194,9 +194,9 @@ export default function ReviewQueuePage() {
     setBusyId(queueId);
     try {
       if (kind === "claim") {
-        await apiFetch(`/api/review-queue/${queueId}/claim`, { method: "POST" });
+        await apiFetch(`/api/review/queue/${queueId}/claim`, { method: "POST" });
       } else if (kind === "suppress") {
-        await apiFetch(`/api/review-queue/${queueId}/suppress`, {
+        await apiFetch(`/api/review/queue/${queueId}/suppress`, {
           method: "POST",
           body: JSON.stringify({ reviewComment: "임시 보류" }),
         });
@@ -206,7 +206,7 @@ export default function ReviewQueuePage() {
           : kind === "incorrect"
             ? "resolved_incorrect"
             : "resolved_ambiguous";
-        await apiFetch(`/api/review-queue/${queueId}/resolve`, {
+        await apiFetch(`/api/review/queue/${queueId}/resolve`, {
           method: "POST",
           body: JSON.stringify({
             status,
