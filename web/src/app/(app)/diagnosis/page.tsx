@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+import { DEFAULT_AFTER_LOGIN_PATH } from "@/lib/products";
+
 export default function DiagnosisPage() {
   return (
     <div className="min-h-full px-6 py-12 md:px-10">
@@ -20,7 +22,7 @@ export default function DiagnosisPage() {
         </div>
 
         <Link
-          href="/products"
+          href={DEFAULT_AFTER_LOGIN_PATH}
           className="inline-flex w-fit items-center rounded-xl border border-[#E3E5E8] bg-white px-4 py-2.5 text-sm font-semibold text-[#1A1D21] shadow-sm transition hover:-translate-y-0.5"
         >
           제품 선택으로 돌아가기

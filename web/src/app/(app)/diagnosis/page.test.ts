@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import * as React from "react";
 
+import { DEFAULT_AFTER_LOGIN_PATH } from "@/lib/products";
+
 import DiagnosisPage from "./page.tsx";
 
 function collectText(node: React.ReactNode): string {
@@ -49,7 +51,7 @@ describe("DiagnosisPage", () => {
     const links = collectLinks(tree);
     const text = collectText(tree);
 
-    expect(links.some((link) => link.href === "/products" && link.text.includes("제품 선택으로 돌아가기"))).toBe(true);
+    expect(links.some((link) => link.href === DEFAULT_AFTER_LOGIN_PATH && link.text.includes("제품 선택으로 돌아가기"))).toBe(true);
     expect(text).toContain("현황진단 준비 중");
     expect(text).toContain("지금은 제품 선택 화면에서 다시 이동할 수 있습니다.");
   });
