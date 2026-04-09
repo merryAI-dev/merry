@@ -2,7 +2,7 @@ import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { GetCommand, PutCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
 import { getDdbDocClient } from "@/lib/aws/ddb";
-import { getDdbTableName } from "@/lib/aws/env";
+import { getReviewDdbTableName } from "@/lib/aws/env";
 import { listRecentJobs, listTasksByJob } from "@/lib/jobStore";
 import {
   deriveReviewQueueCandidates,
@@ -99,7 +99,7 @@ function deserializeReviewQueueRecord(teamId: string, row: Record<string, unknow
 
 async function putReviewQueueIndex(record: ReviewQueueRecord): Promise<void> {
   const ddb = getDdbDocClient();
-  const TableName = getDdbTableName();
+  const TableName = getReviewDdbTableName();
   await ddb.send(new PutCommand({
     TableName,
     Item: {
@@ -123,7 +123,7 @@ async function putReviewQueueIndex(record: ReviewQueueRecord): Promise<void> {
 
 export async function ensureReviewQueueCandidates(teamId: string, candidates: ReviewQueueCandidate[]): Promise<void> {
   const ddb = getDdbDocClient();
-  const TableName = getDdbTableName();
+  const TableName = getReviewDdbTableName();
 
   for (const candidate of candidates) {
     const record: ReviewQueueRecord = { ...candidate, teamId };
@@ -186,7 +186,7 @@ export async function syncReviewQueueFromRecentConditionJobs(teamId: string, job
 
 export async function getReviewQueueRecord(teamId: string, queueId: string): Promise<ReviewQueueRecord | null> {
   const ddb = getDdbDocClient();
-  const TableName = getDdbTableName();
+  const TableName = getReviewDdbTableName();
   const res = await ddb.send(new GetCommand({
     TableName,
     Key: { pk: pkTeam(teamId), sk: skReviewQueue(queueId) },
@@ -197,7 +197,7 @@ export async function getReviewQueueRecord(teamId: string, queueId: string): Pro
 
 export async function listReviewQueueRecords(teamId: string, filters: ReviewQueueFilters = {}): Promise<ReviewQueueRecord[]> {
   const ddb = getDdbDocClient();
-  const TableName = getDdbTableName();
+  const TableName = getReviewDdbTableName();
   const limit = Math.min(Math.max(filters.limit ?? 100, 1), 200);
 
   const res = await ddb.send(new QueryCommand({
@@ -230,7 +230,7 @@ export async function listReviewQueueRecords(teamId: string, filters: ReviewQueu
 
 async function updateReviewQueueIndex(record: ReviewQueueRecord): Promise<void> {
   const ddb = getDdbDocClient();
-  const TableName = getDdbTableName();
+  const TableName = getReviewDdbTableName();
   await ddb.send(new UpdateCommand({
     TableName,
     Key: { pk: pkTeamReviewQueue(record.teamId), sk: skCreated(record.createdAt, record.queueId) },
@@ -246,7 +246,7 @@ async function updateReviewQueueIndex(record: ReviewQueueRecord): Promise<void> 
 
 async function persistReviewQueueRecord(record: ReviewQueueRecord): Promise<void> {
   const ddb = getDdbDocClient();
-  const TableName = getDdbTableName();
+  const TableName = getReviewDdbTableName();
   await ddb.send(new UpdateCommand({
     TableName,
     Key: { pk: pkTeam(record.teamId), sk: skReviewQueue(record.queueId) },

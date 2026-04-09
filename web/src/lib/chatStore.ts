@@ -2,6 +2,9 @@ import { z } from "zod";
 
 import { GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 
+import { getDdbDocClient } from "@/lib/aws/ddb";
+import { getReviewDdbTableName } from "@/lib/aws/env";
+
 export type ChatSessionRow = {
   session_id: string;
   user_id: string;
@@ -20,9 +23,6 @@ export type ChatMessageRow = {
   metadata: unknown;
   created_at?: string;
 };
-
-import { getDdbDocClient } from "@/lib/aws/ddb";
-import { getDdbTableName } from "@/lib/aws/env";
 
 function asString(value: unknown): string {
   if (typeof value === "string") return value;
@@ -117,7 +117,7 @@ function skActivity(createdAt: string, sessionId: string, messageId: string) {
 
 export async function ensureSession(teamId: string, sessionId: string, userInfo: object) {
   const ddb = getDdbDocClient();
-  const TableName = getDdbTableName();
+  const TableName = getReviewDdbTableName();
   const now = new Date().toISOString();
 
   const prefix = inferSessionPrefix(sessionId);
@@ -170,7 +170,7 @@ export async function ensureSession(teamId: string, sessionId: string, userInfo:
 
 export async function getSession(teamId: string, sessionId: string): Promise<ChatSessionRow | null> {
   const ddb = getDdbDocClient();
-  const TableName = getDdbTableName();
+  const TableName = getReviewDdbTableName();
   const pk = pkTeam(teamId);
   const sk = skSessionMeta(sessionId);
 
@@ -187,7 +187,7 @@ export async function addMessage(args: {
   metadata?: object;
 }) {
   const ddb = getDdbDocClient();
-  const TableName = getDdbTableName();
+  const TableName = getReviewDdbTableName();
   const now = new Date().toISOString();
   const messageId = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
 
@@ -223,7 +223,7 @@ export async function addMessage(args: {
 
 export async function getMessages(teamId: string, sessionId: string, maxMessages?: number): Promise<ChatMessageRow[]> {
   const ddb = getDdbDocClient();
-  const TableName = getDdbTableName();
+  const TableName = getReviewDdbTableName();
 
   const pk = pkTeamSessionMessages(teamId, sessionId);
 
@@ -271,7 +271,7 @@ export async function getMessages(teamId: string, sessionId: string, maxMessages
 
 export async function getRecentSessions(teamId: string, limit = 30): Promise<ChatSessionRow[]> {
   const ddb = getDdbDocClient();
-  const TableName = getDdbTableName();
+  const TableName = getReviewDdbTableName();
   const res = await ddb.send(
     new QueryCommand({
       TableName,
@@ -286,7 +286,7 @@ export async function getRecentSessions(teamId: string, limit = 30): Promise<Cha
 
 export async function getSessionsByPrefix(teamId: string, prefix: string, limit = 50): Promise<ChatSessionRow[]> {
   const ddb = getDdbDocClient();
-  const TableName = getDdbTableName();
+  const TableName = getReviewDdbTableName();
   const res = await ddb.send(
     new QueryCommand({
       TableName,

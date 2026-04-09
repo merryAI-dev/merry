@@ -14,6 +14,22 @@ export function getDdbTableName(): string {
   return name;
 }
 
+export function getReviewDdbTableName(): string {
+  const name = process.env.MERRY_REVIEW_DDB_TABLE;
+  if (!name) {
+    throw new Error("Missing env MERRY_REVIEW_DDB_TABLE");
+  }
+  return name;
+}
+
+export function getDiagnosisDdbTableName(): string {
+  const name = process.env.MERRY_DIAGNOSIS_DDB_TABLE;
+  if (!name) {
+    throw new Error("Missing env MERRY_DIAGNOSIS_DDB_TABLE");
+  }
+  return name;
+}
+
 export function getS3BucketName(): string {
   const name = process.env.MERRY_S3_BUCKET;
   if (!name) {
@@ -37,4 +53,3 @@ export function getSqsDlqUrl(): string {
   const mainUrl = getSqsQueueUrl();
   return `${mainUrl}-dlq`;
 }
-

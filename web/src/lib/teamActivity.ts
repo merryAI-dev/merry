@@ -22,10 +22,10 @@ function safeJsonParse(value: unknown): Record<string, unknown> {
 
 export async function getRecentActivity(teamId: string, limit = 30): Promise<TeamActivity[]> {
   const { getDdbDocClient } = await import("@/lib/aws/ddb");
-  const { getDdbTableName } = await import("@/lib/aws/env");
+  const { getReviewDdbTableName } = await import("@/lib/aws/env");
 
   const ddb = getDdbDocClient();
-  const TableName = getDdbTableName();
+  const TableName = getReviewDdbTableName();
   const pk = `TEAM#${teamId}#ACTIVITY`;
 
   const res = await ddb.send(

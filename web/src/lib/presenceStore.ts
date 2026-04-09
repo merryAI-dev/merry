@@ -27,10 +27,10 @@ export async function upsertReportPresence(args: {
   memberImage?: string;
 }) {
   const { getDdbDocClient } = await import("@/lib/aws/ddb");
-  const { getDdbTableName } = await import("@/lib/aws/env");
+  const { getReviewDdbTableName } = await import("@/lib/aws/env");
 
   const ddb = getDdbDocClient();
-  const TableName = getDdbTableName();
+  const TableName = getReviewDdbTableName();
 
   const now = new Date().toISOString();
   const item = {
@@ -56,10 +56,10 @@ export async function listReportPresence(args: {
   limit?: number;
 }): Promise<PresenceMember[]> {
   const { getDdbDocClient } = await import("@/lib/aws/ddb");
-  const { getDdbTableName } = await import("@/lib/aws/env");
+  const { getReviewDdbTableName } = await import("@/lib/aws/env");
 
   const ddb = getDdbDocClient();
-  const TableName = getDdbTableName();
+  const TableName = getReviewDdbTableName();
 
   const pk = pkPresence(args.teamId, args.sessionId);
   const res = await ddb.send(
@@ -93,4 +93,3 @@ export async function listReportPresence(args: {
   out.sort((a, b) => (b.lastSeenAt || "").localeCompare(a.lastSeenAt || ""));
   return out;
 }
-
