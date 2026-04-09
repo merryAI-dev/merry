@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { LoginPanel } from "@/components/LoginPanel";
+import { DEFAULT_AFTER_LOGIN_PATH } from "@/lib/products";
 import { getWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export default async function Home({
@@ -8,7 +9,7 @@ export default async function Home({
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const ws = await getWorkspaceFromCookies();
-  if (ws) redirect("/hub");
+  if (ws) redirect(DEFAULT_AFTER_LOGIN_PATH);
 
   const sp = searchParams ? await searchParams : {};
   const errorCode = typeof sp.error === "string" ? sp.error : "";
