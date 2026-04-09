@@ -13,4 +13,19 @@ describe("review API aliases", () => {
       'export * from "@/app/api/report/feedback/route";',
     );
   });
+
+  it("defines the primary review aliases used by Task 4 routes", () => {
+    expect(read("src/app/api/review/sessions/route.ts")).toContain(
+      'export * from "@/app/api/report/sessions/route";',
+    );
+    expect(read("src/app/api/review/[sessionId]/meta/route.ts")).toContain(
+      'export * from "@/app/api/report/[sessionId]/meta/route";',
+    );
+    expect(read("src/app/api/review/[sessionId]/messages/route.ts")).toContain(
+      'export * from "@/app/api/report/[sessionId]/messages/route";',
+    );
+    expect(read("src/app/api/review/chat/route.ts")).toContain(
+      'export * from "@/app/api/report/chat/route";',
+    );
+  });
 });

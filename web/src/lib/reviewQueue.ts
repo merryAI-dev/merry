@@ -20,6 +20,8 @@ export type ReviewQueueRecord = ReviewQueueCandidate & {
   resolvedAt?: string;
 };
 
+export type ReviewQueueSummary = Record<string, number>;
+
 type ReviewQueueFilters = {
   status?: ReviewQueueStatus | "open" | "all";
   reason?: ReviewQueueReason | "all";
@@ -226,6 +228,37 @@ export async function listReviewQueueRecords(teamId: string, filters: ReviewQueu
 
   const items = await Promise.all(ids.map((queueId) => getReviewQueueRecord(teamId, queueId)));
   return items.filter((item): item is ReviewQueueRecord => item !== null);
+}
+
+export async function getReviewQueueSummary(teamId: string): Promise<ReviewQueueSummary> {
+  const ddb = getDdbDocClient();
+  const TableName = getReviewDdbTableName();
+
+  const summary: ReviewQueueSummary = { total: 0 };
+  let exclusiveStartKey: Record<string, unknown> | undefined;
+
+  do {
+    const res = await ddb.send(new QueryCommand({
+      TableName,
+      KeyConditionExpression: "pk = :pk",
+      ExpressionAttributeValues: { ":pk": pkTeamReviewQueue(teamId) },
+      ScanIndexForward: false,
+      ExclusiveStartKey: exclusiveStartKey,
+    }));
+
+    for (const item of res.Items ?? []) {
+      const row = item as Record<string, unknown>;
+      const status = asString(row["status"]) as ReviewQueueStatus;
+      const reason = asString(row["queue_reason"]) as ReviewQueueReason;
+      summary.total = (summary.total ?? 0) + 1;
+      if (status) summary[status] = (summary[status] ?? 0) + 1;
+      if (reason) summary[reason] = (summary[reason] ?? 0) + 1;
+    }
+
+    exclusiveStartKey = res.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (exclusiveStartKey);
+
+  return summary;
 }
 
 async function updateReviewQueueIndex(record: ReviewQueueRecord): Promise<void> {

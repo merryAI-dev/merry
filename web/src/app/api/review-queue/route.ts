@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 
 import { handleApiError } from "@/lib/apiError";
-import { listReviewQueueRecords, syncReviewQueueFromRecentConditionJobs } from "@/lib/reviewQueue";
+import {
+  getReviewQueueSummary,
+  listReviewQueueRecords,
+  syncReviewQueueFromRecentConditionJobs,
+} from "@/lib/reviewQueue";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export const runtime = "nodejs";
@@ -33,13 +37,7 @@ export async function GET(req: Request) {
       ? await syncReviewQueueFromRecentConditionJobs(ws.teamId, 20)
       : 0;
     const items = await listReviewQueueRecords(ws.teamId, { status, reason, limit });
-
-    const summary = items.reduce<Record<string, number>>((acc, item) => {
-      acc.total = (acc.total ?? 0) + 1;
-      acc[item.status] = (acc[item.status] ?? 0) + 1;
-      acc[item.queueReason] = (acc[item.queueReason] ?? 0) + 1;
-      return acc;
-    }, { total: 0 });
+    const summary = await getReviewQueueSummary(ws.teamId);
 
     return NextResponse.json({ ok: true, items, summary, syncedCandidates });
   } catch (err) {

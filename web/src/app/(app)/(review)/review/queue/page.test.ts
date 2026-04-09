@@ -37,7 +37,7 @@ const queueResponse = {
       updatedAt: "2026-04-09T00:00:00.000Z",
     },
   ],
-  summary: { total: 1, queued: 1, parse_warning: 1 },
+  summary: { total: 8, queued: 5, in_review: 1, alias_correction: 3, parse_warning: 4 },
   syncedCandidates: 0,
 };
 
@@ -84,5 +84,14 @@ describe("ReviewQueuePage", () => {
         expect.objectContaining({ method: "POST" }),
       );
     });
+  });
+
+  it("renders top-line metrics from queue-wide summary payload rather than filtered item count", async () => {
+    render(React.createElement(ReviewQueuePage));
+
+    expect(await screen.findByText("8개 중")).not.toBeNull();
+    expect(screen.getByText("6")).not.toBeNull();
+    expect(screen.getByText("3")).not.toBeNull();
+    expect(screen.getByText("4")).not.toBeNull();
   });
 });
