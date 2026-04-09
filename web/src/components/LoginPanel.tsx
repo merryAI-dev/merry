@@ -5,6 +5,10 @@ import { ArrowRight, Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 
+import { DEFAULT_AFTER_LOGIN_PATH } from "@/lib/products";
+
+export const LOGIN_AFTER_LOGIN_PATH = DEFAULT_AFTER_LOGIN_PATH;
+
 const TEAM_OPTIONS = [
   { label: "Team 1", value: "team_1" },
   { label: "Team 2", value: "team_2" },
@@ -136,7 +140,7 @@ export function LoginPanel({
         setError("팀 코드가 올바르지 않거나 입력값이 부족합니다.");
         return;
       }
-      router.replace("/hub");
+      router.replace(LOGIN_AFTER_LOGIN_PATH);
     } catch {
       setError("로그인 요청에 실패했습니다.");
     } finally {
@@ -145,7 +149,7 @@ export function LoginPanel({
   }
 
   function loginWithGoogle() {
-    signIn("google", { callbackUrl: "/hub" });
+    signIn("google", { callbackUrl: LOGIN_AFTER_LOGIN_PATH });
   }
 
   return (
