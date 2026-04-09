@@ -7,8 +7,6 @@ import { signIn } from "next-auth/react";
 
 import { DEFAULT_AFTER_LOGIN_PATH } from "@/lib/products";
 
-export const LOGIN_AFTER_LOGIN_PATH = DEFAULT_AFTER_LOGIN_PATH;
-
 const TEAM_OPTIONS = [
   { label: "Team 1", value: "team_1" },
   { label: "Team 2", value: "team_2" },
@@ -24,6 +22,14 @@ function prettyError(code: string): string | null {
   if (code === "Configuration") return "로그인 설정이 누락되었습니다. 환경변수를 확인하세요.";
   if (code === "UseGoogleButton") return "Google 로그인을 다시 시도해주세요.";
   return "로그인에 실패했습니다.";
+}
+
+export function getLoginRedirectPath(): string {
+  return DEFAULT_AFTER_LOGIN_PATH;
+}
+
+export function getGoogleSignInOptions() {
+  return { callbackUrl: getLoginRedirectPath() };
 }
 
 function GoogleIcon() {
@@ -140,7 +146,7 @@ export function LoginPanel({
         setError("팀 코드가 올바르지 않거나 입력값이 부족합니다.");
         return;
       }
-      router.replace(LOGIN_AFTER_LOGIN_PATH);
+      router.replace(getLoginRedirectPath());
     } catch {
       setError("로그인 요청에 실패했습니다.");
     } finally {
@@ -149,7 +155,7 @@ export function LoginPanel({
   }
 
   function loginWithGoogle() {
-    signIn("google", { callbackUrl: LOGIN_AFTER_LOGIN_PATH });
+    signIn("google", getGoogleSignInOptions());
   }
 
   return (

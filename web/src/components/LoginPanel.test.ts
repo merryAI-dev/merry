@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { LOGIN_AFTER_LOGIN_PATH } from "./LoginPanel";
+import { DEFAULT_AFTER_LOGIN_PATH } from "@/lib/products";
+
+import { getGoogleSignInOptions, getLoginRedirectPath } from "./LoginPanel";
 
 describe("LoginPanel", () => {
   it("routes fresh logins to the shared product chooser", () => {
-    expect(LOGIN_AFTER_LOGIN_PATH).toBe("/products");
+    expect(getLoginRedirectPath()).toBe(DEFAULT_AFTER_LOGIN_PATH);
+  });
+
+  it("passes the chooser path to Google sign-in", () => {
+    expect(getGoogleSignInOptions()).toEqual({ callbackUrl: DEFAULT_AFTER_LOGIN_PATH });
   });
 });
