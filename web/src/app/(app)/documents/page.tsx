@@ -32,7 +32,7 @@ type ParseResult = {
   error?: string;
   text?: string;
   pages?: number;
-  method?: "pymupdf" | "nova_hybrid" | "nova_presentation" | "nova_error" | "nova_pro";
+  method?: "pymupdf" | "nova_hybrid" | "nova_presentation" | "nova_error" | "nova_pro" | "xlsx";
   text_quality?: number;
   is_poor?: boolean;
   is_fragmented?: boolean;
@@ -80,6 +80,7 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   startup_cert: "창업기업확인서",
   articles: "정관",
   corp_registry: "법인등기부등본",
+  spreadsheet: "스프레드시트",
 };
 
 const MAX_CONDITIONS = 6;
@@ -89,6 +90,17 @@ const MAX_CONDITIONS = 6;
 let fileIdCounter = 0;
 function nextId() {
   return `f_${++fileIdCounter}_${Date.now()}`;
+}
+
+function isSupportedDocument(file: File): boolean {
+  const name = file.name.toLowerCase();
+  return name.endsWith(".pdf") || name.endsWith(".xlsx") || name.endsWith(".xls");
+}
+
+function formatPageLabel(result: ParseResult): string | null {
+  if (!result.pages) return null;
+  if (result.method === "xlsx") return `${result.pages} sheet${result.pages > 1 ? "s" : ""}`;
+  return `${result.pages}p`;
 }
 
 /** Check if a string has meaningful content (not just whitespace/invisible chars) */
@@ -116,7 +128,8 @@ function buildMarkdown(result: ParseResult): string {
 
   // Metadata summary bar
   const metaParts: string[] = [];
-  if (result.pages) metaParts.push(`${result.pages}p`);
+  const pageLabel = formatPageLabel(result);
+  if (pageLabel) metaParts.push(pageLabel);
   if (result.method) metaParts.push(`방법: ${result.method}`);
   if (typeof result.text_quality === "number") metaParts.push(`품질: ${(result.text_quality * 100).toFixed(0)}%`);
   if (result.is_fragmented) metaParts.push("⚠ 파편화");
@@ -219,10 +232,10 @@ export default function DocumentsPage() {
   /* ── File handling ── */
 
   function addFiles(fileList: File[]) {
-    const pdfs = fileList.filter((f) => f.name.toLowerCase().endsWith(".pdf"));
-    if (pdfs.length === 0) return;
+    const supported = fileList.filter(isSupportedDocument);
+    if (supported.length === 0) return;
 
-    const newEntries: FileEntry[] = pdfs.map((f) => ({
+    const newEntries: FileEntry[] = supported.map((f) => ({
       id: nextId(),
       file: f,
       previewUrl: URL.createObjectURL(f),
@@ -312,8 +325,7 @@ export default function DocumentsPage() {
           data.is_fragmented ||
           (typeof data.text_quality === "number" && data.text_quality < 0.5) ||
           data.text_structure === "image" ||
-          data.text_structure === "presentation" ||
-          data.method === "pymupdf"); // pymupdf alone often produces garbage on scanned docs
+          data.text_structure === "presentation");
 
       if (needsRetry) {
         try {
@@ -588,7 +600,7 @@ export default function DocumentsPage() {
               >
                 <Upload className="h-8 w-8" style={{ color: "var(--card-border)" }} />
                 <p className="text-sm" style={{ color: "var(--ink-light)" }}>
-                  PDF를 드래그하거나<br />클릭하여 업로드
+                  PDF 또는 Excel을 드래그하거나<br />클릭하여 업로드
                 </p>
               </label>
             ) : (
@@ -640,7 +652,9 @@ export default function DocumentsPage() {
                             {DOC_TYPE_LABELS[entry.result.doc_type] ?? entry.result.doc_type}
                           </span>
                         )}
-                        {entry.result?.pages && <span>{entry.result.pages}p</span>}
+                        {entry.result && formatPageLabel(entry.result) && (
+                          <span>{formatPageLabel(entry.result)}</span>
+                        )}
                         {entry.result?.method && (
                           <span>{formatCost(entry.result.method, entry.result.pages)}</span>
                         )}
@@ -708,6 +722,7 @@ export default function DocumentsPage() {
                 {selected.result?.ok &&
                   selected.result.method !== "nova_presentation" &&
                   selected.result.method !== "nova_pro" &&
+                  selected.result.method !== "xlsx" &&
                   selected.status !== "parsing" && (
                     <button
                       onClick={() => handleForcePro(selected)}
@@ -802,7 +817,7 @@ export default function DocumentsPage() {
 
                     {!selected.result?.ok && selected.status !== "parsing" && (
                       <p className="text-sm" style={{ color: "var(--muted)" }}>
-                        먼저 PDF를 업로드하세요.
+                        먼저 PDF 또는 Excel 파일을 업로드하세요.
                       </p>
                     )}
 
@@ -903,7 +918,7 @@ export default function DocumentsPage() {
                   style={{ borderTop: "1px solid var(--line)", color: "var(--muted)" }}
                 >
                   <span>
-                    {selected.result.pages}p
+                    {formatPageLabel(selected.result) ?? "-"}
                     {selected.result.detection_method &&
                       selected.result.detection_method !== "none" &&
                       ` · ${selected.result.detection_method}`}
@@ -920,7 +935,7 @@ export default function DocumentsPage() {
             <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
               <FileText className="h-10 w-10" style={{ color: "var(--card-border)" }} />
               <p className="text-sm" style={{ color: "var(--ink-light)" }}>
-                PDF를 업로드하면 자동으로 분석이 시작됩니다
+                PDF 또는 Excel 파일을 업로드하면 자동으로 분석이 시작됩니다
               </p>
               <label
                 htmlFor="doc-file-input"
@@ -940,7 +955,7 @@ export default function DocumentsPage() {
         id="doc-file-input"
         ref={fileInputRef}
         type="file"
-        accept=".pdf"
+        accept=".pdf,.xlsx,.xls"
         multiple
         className="hidden"
         onChange={handleInputChange}

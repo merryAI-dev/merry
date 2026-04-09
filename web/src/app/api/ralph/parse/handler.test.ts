@@ -5,6 +5,7 @@ import {
   MAX_PDF_BYTES,
   PARSE_TIMEOUT_MS,
   handleParseFormData,
+  handleParseFromS3,
   parserError,
 } from "./handler.ts";
 
@@ -125,4 +126,49 @@ test("handleParseFormData maps invalid parser output to 502", async () => {
 
   assert.equal(result.status, 502);
   assert.deepEqual(result.body, { ok: false, error: "PARSE_OUTPUT_INVALID" });
+});
+
+test("handleParseFromS3 parses xlsx files directly without invoking the PDF parser", async () => {
+  let parserCalled = false;
+
+  const result = await handleParseFromS3(
+    {
+      s3Key: "uploads/team/report/sample.xlsx",
+      s3Bucket: "merry-test-bucket",
+      filename: "sample.xlsx",
+    },
+    {
+      requireWorkspace: async () => undefined,
+      runParserS3: async () => {
+        parserCalled = true;
+        return {};
+      },
+      parseExcelFromS3: async (s3Key, s3Bucket) => {
+        assert.equal(s3Key, "uploads/team/report/sample.xlsx");
+        assert.equal(s3Bucket, "merry-test-bucket");
+        return {
+          text: "[시트: Sheet1]\n회사명,비비비당",
+          sheetCount: 1,
+        };
+      },
+    },
+  );
+
+  assert.equal(result.status, 200);
+  assert.equal(parserCalled, false);
+  assert.deepEqual(result.body, {
+    ok: true,
+    text: "[시트: Sheet1]\n회사명,비비비당",
+    pages: 1,
+    method: "xlsx",
+    text_quality: 1,
+    is_poor: false,
+    is_fragmented: false,
+    text_structure: "document",
+    doc_type: "spreadsheet",
+    confidence: 1,
+    detection_method: "sheetjs",
+    description: "Excel spreadsheet parsed as text",
+    visual_description: null,
+  });
 });

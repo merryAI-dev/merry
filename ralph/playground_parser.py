@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────
 
 _MIN_CHARS = 80           # 전체 문자 수 미달 → 이미지 PDF
-_MIN_KOREAN_RATIO = 0.10  # 한글 비율 미달 → 이미지 PDF
+_MIN_TEXT_RATIO = 0.10    # 유니코드 문자 비율 미달 → 이미지 PDF
 _MAX_AVG_BLOCK_CHARS = 50 # 블록 평균 글자 수 이하 → 슬라이드형
 _MIN_BLOCKS_FOR_FRAG = 8  # 슬라이드 판단 최소 블록 수
 _MIN_PAGES_FOR_FRAG = 5   # 슬라이드 판단 최소 페이지 수 (양식·증명서 오탐 방지)
@@ -55,13 +55,10 @@ def assess_text_quality(
     if not stripped or len(stripped) < _MIN_CHARS:
         return 0.0, True, False
 
-    korean = sum(
-        1 for c in stripped
-        if "\uAC00" <= c <= "\uD7A3" or "\u3131" <= c <= "\u318E"
-    )
-    ratio = korean / len(stripped)
-    quality = min(1.0, ratio * 2)
-    is_poor = ratio < _MIN_KOREAN_RATIO
+    text_chars = sum(1 for c in stripped if c.isalpha())
+    ratio = text_chars / len(stripped)
+    quality = min(1.0, ratio * 1.5)
+    is_poor = ratio < _MIN_TEXT_RATIO
 
     is_fragmented = False
     if not is_poor and blocks and len(blocks) >= _MIN_BLOCKS_FOR_FRAG:

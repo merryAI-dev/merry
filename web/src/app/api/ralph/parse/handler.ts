@@ -6,9 +6,11 @@ import { join } from "path";
 import { InvokeCommand } from "@aws-sdk/client-lambda";
 
 import { getLambdaClient } from "@/lib/aws/lambda";
+import { parseExcelBuffer, parseExcelFromS3Detailed } from "@/lib/aws/s3Excel";
 
 export const MAX_PDF_BYTES = 50 * 1024 * 1024;
 export const PARSE_TIMEOUT_MS = 90_000;
+const EXCEL_EXTS = new Set([".xlsx", ".xls"]);
 
 export type ParserErrorCode =
   | "PARSE_TIMEOUT"
@@ -33,6 +35,29 @@ type HandleParseDeps = {
   writePdfFile?: (path: string, bytes: Buffer) => Promise<void>;
   removePdfFile?: (path: string) => Promise<void>;
 };
+
+function getExt(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? name.slice(dot).toLowerCase() : "";
+}
+
+function buildExcelParseResponse(text: string, sheetCount: number): Record<string, unknown> {
+  return {
+    ok: true,
+    text,
+    pages: sheetCount,
+    method: "xlsx",
+    text_quality: 1,
+    is_poor: false,
+    is_fragmented: false,
+    text_structure: "document",
+    doc_type: "spreadsheet",
+    confidence: 1,
+    detection_method: "sheetjs",
+    description: "Excel spreadsheet parsed as text",
+    visual_description: null,
+  };
+}
 
 export function parserError(code: ParserErrorCode, detail?: string) {
   const err = new Error(code) as ParserError;
@@ -248,7 +273,12 @@ export async function handleParseFormData(
     if (!file) {
       return { status: 400, body: { ok: false, error: "FILE_REQUIRED" } };
     }
-    if (!file.name.toLowerCase().endsWith(".pdf")) {
+    const ext = getExt(file.name);
+    if (EXCEL_EXTS.has(ext)) {
+      const parsed = parseExcelBuffer(Buffer.from(await file.arrayBuffer()));
+      return { status: 200, body: buildExcelParseResponse(parsed.text, parsed.sheetCount) };
+    }
+    if (ext !== ".pdf") {
       return { status: 400, body: { ok: false, error: "PDF_ONLY" } };
     }
     if (file.size > MAX_PDF_BYTES) {
@@ -295,6 +325,7 @@ type S3ParseBody = {
 type HandleParseS3Deps = {
   requireWorkspace: () => Promise<unknown>;
   runParserS3: typeof runParserS3;
+  parseExcelFromS3?: typeof parseExcelFromS3Detailed;
 };
 
 export async function handleParseFromS3(
@@ -307,6 +338,17 @@ export async function handleParseFromS3(
     const { s3Key, s3Bucket, force_pro } = body;
     if (!s3Key || !s3Bucket) {
       return { status: 400, body: { ok: false, error: "S3_KEY_REQUIRED" } };
+    }
+
+    const filename = typeof body.filename === "string" && body.filename.trim()
+      ? body.filename
+      : s3Key;
+    const ext = getExt(filename);
+
+    if (EXCEL_EXTS.has(ext)) {
+      const parseExcel = deps.parseExcelFromS3 ?? parseExcelFromS3Detailed;
+      const parsed = await parseExcel(s3Key, s3Bucket);
+      return { status: 200, body: buildExcelParseResponse(parsed.text, parsed.sheetCount) };
     }
 
     // Lambda가 S3에서 직접 다운로드 (Vercel ↔ S3 ↔ API Gateway 이중 전송 제거)
