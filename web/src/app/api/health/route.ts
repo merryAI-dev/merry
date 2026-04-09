@@ -8,7 +8,14 @@ import { getAirtableConfig } from "@/lib/airtableServer";
 import { getDdbDocClient } from "@/lib/aws/ddb";
 import { getS3Client } from "@/lib/aws/s3";
 import { getSqsClient } from "@/lib/aws/sqs";
-import { getAwsRegion, getDdbTableName, getS3BucketName, getSqsQueueUrl } from "@/lib/aws/env";
+import {
+  getAwsRegion,
+  getDiagnosisDdbTableName,
+  getDdbTableName,
+  getReviewDdbTableName,
+  getS3BucketName,
+  getSqsQueueUrl,
+} from "@/lib/aws/env";
 
 export const runtime = "nodejs";
 
@@ -39,6 +46,8 @@ export async function GET() {
     AWS_ACCESS_KEY_ID: Boolean(process.env.AWS_ACCESS_KEY_ID),
     AWS_SECRET_ACCESS_KEY: Boolean(process.env.AWS_SECRET_ACCESS_KEY),
     MERRY_DDB_TABLE: Boolean(process.env.MERRY_DDB_TABLE),
+    MERRY_REVIEW_DDB_TABLE: Boolean(process.env.MERRY_REVIEW_DDB_TABLE),
+    MERRY_DIAGNOSIS_DDB_TABLE: Boolean(process.env.MERRY_DIAGNOSIS_DDB_TABLE),
     MERRY_S3_BUCKET: Boolean(process.env.MERRY_S3_BUCKET),
     MERRY_SQS_QUEUE_URL: Boolean(process.env.MERRY_SQS_QUEUE_URL),
     LLM_PROVIDER: Boolean(process.env.LLM_PROVIDER),
@@ -60,6 +69,7 @@ export async function GET() {
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
     "MERRY_DDB_TABLE",
+    "MERRY_REVIEW_DDB_TABLE",
     "MERRY_S3_BUCKET",
     "MERRY_SQS_QUEUE_URL",
     "LLM_PROVIDER",
@@ -83,6 +93,8 @@ export async function GET() {
 
   const region = env.AWS_REGION ? getAwsRegion() : null;
   const ddbTable = env.MERRY_DDB_TABLE ? getDdbTableName() : null;
+  const reviewDdbTable = env.MERRY_REVIEW_DDB_TABLE ? getReviewDdbTableName() : null;
+  const diagnosisDdbTable = env.MERRY_DIAGNOSIS_DDB_TABLE ? getDiagnosisDdbTableName() : null;
   const bucket = env.MERRY_S3_BUCKET ? getS3BucketName() : null;
   const sqsUrl = env.MERRY_SQS_QUEUE_URL ? getSqsQueueUrl() : null;
 
@@ -91,6 +103,11 @@ export async function GET() {
       if (!ddbTable) throw new Error("Missing env MERRY_DDB_TABLE");
       const ddb = getDdbDocClient();
       await ddb.send(new DescribeTableCommand({ TableName: ddbTable }));
+    }),
+    ddbDescribeReviewTable: await safeCheck(async () => {
+      if (!reviewDdbTable) throw new Error("Missing env MERRY_REVIEW_DDB_TABLE");
+      const ddb = getDdbDocClient();
+      await ddb.send(new DescribeTableCommand({ TableName: reviewDdbTable }));
     }),
     s3HeadBucket: await safeCheck(async () => {
       if (!bucket) throw new Error("Missing env MERRY_S3_BUCKET");
@@ -116,6 +133,8 @@ export async function GET() {
       env,
       region,
       ddbTable,
+      reviewDdbTable,
+      diagnosisDdbTable,
       bucket,
       sqsUrl,
       airtableConfigured: Boolean(airtable),
