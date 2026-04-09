@@ -17,7 +17,7 @@ function collectText(node: React.ReactNode): string {
       value.forEach(visit);
       return;
     }
-    if (React.isValidElement(value)) {
+    if (React.isValidElement<{ children?: React.ReactNode }>(value)) {
       visit(value.props.children);
     }
   };
@@ -33,7 +33,7 @@ function collectLinks(node: React.ReactNode): Array<{ href: string; text: string
       value.forEach(visit);
       return;
     }
-    if (React.isValidElement(value)) {
+    if (React.isValidElement<{ children?: React.ReactNode; href?: unknown }>(value)) {
       const href = typeof value.props.href === "string" ? value.props.href : "";
       if (href) {
         links.push({ href, text: collectText(value.props.children) });

@@ -68,7 +68,7 @@ function findElementByType(node: React.ReactNode, type: unknown): React.ReactEle
     }
     return null;
   }
-  if (!React.isValidElement(node)) return null;
+  if (!React.isValidElement<{ children?: React.ReactNode }>(node)) return null;
   if (node.type === type) return node;
   return findElementByType(node.props.children, type);
 }
