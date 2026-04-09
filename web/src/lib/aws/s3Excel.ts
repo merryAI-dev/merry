@@ -1,12 +1,13 @@
 import * as XLSX from "xlsx";
 import { readBytesFromS3 } from "@/lib/aws/s3Utils";
 
-/** Parse an Excel file from S3 into sheet-by-sheet CSV text. */
-export async function parseExcelFromS3(s3Key: string, s3Bucket: string): Promise<string> {
-  let buffer: Buffer | null = await readBytesFromS3(s3Key, s3Bucket);
-  const workbook = XLSX.read(buffer, { type: "buffer" });
-  buffer = null; // allow GC of raw bytes
+export type ParsedExcel = {
+  text: string;
+  sheetCount: number;
+};
 
+export function parseExcelBuffer(buffer: Buffer): ParsedExcel {
+  const workbook = XLSX.read(buffer, { type: "buffer" });
   const parts: string[] = [];
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
@@ -16,5 +17,23 @@ export async function parseExcelFromS3(s3Key: string, s3Bucket: string): Promise
     parts.push(`[시트: ${sheetName}]\n${csv}`);
   }
 
-  return parts.join("\n\n");
+  return {
+    text: parts.join("\n\n"),
+    sheetCount: workbook.SheetNames.length,
+  };
+}
+
+/** Parse an Excel file from S3 into sheet-by-sheet CSV text. */
+export async function parseExcelFromS3(s3Key: string, s3Bucket: string): Promise<string> {
+  let buffer: Buffer | null = await readBytesFromS3(s3Key, s3Bucket);
+  const parsed = parseExcelBuffer(buffer);
+  buffer = null; // allow GC of raw bytes
+  return parsed.text;
+}
+
+export async function parseExcelFromS3Detailed(s3Key: string, s3Bucket: string): Promise<ParsedExcel> {
+  let buffer: Buffer | null = await readBytesFromS3(s3Key, s3Bucket);
+  const parsed = parseExcelBuffer(buffer);
+  buffer = null; // allow GC of raw bytes
+  return parsed;
 }

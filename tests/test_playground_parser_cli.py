@@ -49,3 +49,24 @@ def test_playground_parser_cli_returns_pymupdf_result_for_text_pdf_without_vlm(t
     assert payload["text_structure"] == "document"
     assert payload["visual_description"] is None
     assert "integration testing" in payload["text"]
+
+
+def test_assess_text_quality_treats_indonesian_text_as_real_text() -> None:
+    from ralph.playground_parser import assess_text_quality
+
+    text = (
+        "Ini adalah dokumen investasi dalam bahasa Indonesia dengan uraian pasar, "
+        "proyeksi pendapatan, strategi distribusi, dan analisis risiko. "
+        "Dokumen ini memiliki cukup banyak teks sehingga tidak boleh dianggap "
+        "sebagai hasil OCR yang buruk atau PDF gambar."
+    )
+
+    quality, is_poor, is_fragmented = assess_text_quality(
+        text,
+        blocks=[text[:80], text[80:160], text[160:]],
+        page_count=1,
+    )
+
+    assert quality > 0.3
+    assert is_poor is False
+    assert is_fragmented is False
