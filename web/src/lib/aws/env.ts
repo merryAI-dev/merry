@@ -15,11 +15,9 @@ export function getDdbTableName(): string {
 }
 
 export function getReviewDdbTableName(): string {
-  const name = process.env.MERRY_REVIEW_DDB_TABLE;
-  if (!name) {
-    throw new Error("Missing env MERRY_REVIEW_DDB_TABLE");
-  }
-  return name;
+  const dedicated = process.env.MERRY_REVIEW_DDB_TABLE;
+  if (dedicated) return dedicated;
+  return getDdbTableName();
 }
 
 export function getDiagnosisDdbTableName(): string {

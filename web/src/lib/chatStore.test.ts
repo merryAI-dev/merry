@@ -45,4 +45,13 @@ describe("chatStore review table routing", () => {
     expect(sendMock.mock.calls[0][0].input.TableName).toBe("merry-review");
     expect(sendMock.mock.calls[0][0].input.TableName).not.toBe("merry-main");
   });
+
+  it("falls back to MERRY_DDB_TABLE when the dedicated review table env is missing", async () => {
+    delete process.env.MERRY_REVIEW_DDB_TABLE;
+
+    await getSession("team-1", "session-1");
+
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(sendMock.mock.calls[0][0].input.TableName).toBe("merry-main");
+  });
 });

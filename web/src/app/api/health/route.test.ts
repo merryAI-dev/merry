@@ -83,14 +83,15 @@ afterEach(() => {
 });
 
 describe("health route", () => {
-  it("reports unhealthy when the review table env is missing", async () => {
+  it("falls back to the shared table when the review table env is missing", async () => {
     delete process.env.MERRY_REVIEW_DDB_TABLE;
 
     const response = await GET();
     const body = await response.json();
 
-    expect(body.ok).toBe(false);
-    expect(body.summary.missingRequiredEnvs).toContain("MERRY_REVIEW_DDB_TABLE");
+    expect(body.ok).toBe(true);
+    expect(body.summary.missingRequiredEnvs).not.toContain("MERRY_REVIEW_DDB_TABLE");
+    expect(body.reviewDdbTable).toBe("merry-main");
   });
 
   it("reports unhealthy when the review table describe check fails", async () => {

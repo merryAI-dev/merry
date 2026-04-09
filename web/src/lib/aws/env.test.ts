@@ -42,11 +42,15 @@ describe("ddb table resolution", () => {
     expect(getDiagnosisDdbTableName()).toBe("merry-diagnosis");
   });
 
-  it("throws a targeted error when a product table env is missing", () => {
+  it("falls back to the shared table for review when the dedicated table env is missing", () => {
     delete process.env.MERRY_REVIEW_DDB_TABLE;
+
+    expect(getReviewDdbTableName()).toBe("merry-main");
+  });
+
+  it("throws a targeted error when a product table env is missing", () => {
     delete process.env.MERRY_DIAGNOSIS_DDB_TABLE;
 
-    expect(() => getReviewDdbTableName()).toThrow("Missing env MERRY_REVIEW_DDB_TABLE");
     expect(() => getDiagnosisDdbTableName()).toThrow("Missing env MERRY_DIAGNOSIS_DDB_TABLE");
   });
 });

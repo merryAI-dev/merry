@@ -69,7 +69,6 @@ export async function GET() {
     "AWS_ACCESS_KEY_ID",
     "AWS_SECRET_ACCESS_KEY",
     "MERRY_DDB_TABLE",
-    "MERRY_REVIEW_DDB_TABLE",
     "MERRY_S3_BUCKET",
     "MERRY_SQS_QUEUE_URL",
     "LLM_PROVIDER",
@@ -93,7 +92,7 @@ export async function GET() {
 
   const region = env.AWS_REGION ? getAwsRegion() : null;
   const ddbTable = env.MERRY_DDB_TABLE ? getDdbTableName() : null;
-  const reviewDdbTable = env.MERRY_REVIEW_DDB_TABLE ? getReviewDdbTableName() : null;
+  const reviewDdbTable = env.MERRY_REVIEW_DDB_TABLE || env.MERRY_DDB_TABLE ? getReviewDdbTableName() : null;
   const diagnosisDdbTable = env.MERRY_DIAGNOSIS_DDB_TABLE ? getDiagnosisDdbTableName() : null;
   const bucket = env.MERRY_S3_BUCKET ? getS3BucketName() : null;
   const sqsUrl = env.MERRY_SQS_QUEUE_URL ? getSqsQueueUrl() : null;
@@ -105,7 +104,7 @@ export async function GET() {
       await ddb.send(new DescribeTableCommand({ TableName: ddbTable }));
     }),
     ddbDescribeReviewTable: await safeCheck(async () => {
-      if (!reviewDdbTable) throw new Error("Missing env MERRY_REVIEW_DDB_TABLE");
+      if (!reviewDdbTable) throw new Error("Missing env MERRY_REVIEW_DDB_TABLE or MERRY_DDB_TABLE");
       const ddb = getDdbDocClient();
       await ddb.send(new DescribeTableCommand({ TableName: reviewDdbTable }));
     }),
