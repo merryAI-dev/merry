@@ -20,6 +20,7 @@ type ReportSession = {
   author?: string;
 };
 
+const REVIEW_HOME_SESSION_LIMIT = 200;
 
 function SessionCard({ s }: { s: ReportSession }) {
   return (
@@ -94,7 +95,7 @@ export default function ReportSessionsPage() {
     setBusy(true);
     setError(null);
     try {
-      const res = await apiFetch<{ sessions: ReportSession[] }>("/api/review/sessions");
+      const res = await apiFetch<{ sessions: ReportSession[] }>(`/api/review/sessions?limit=${REVIEW_HOME_SESSION_LIMIT}`);
       setSessions(res.sessions || []);
     } catch {
       setError("세션을 불러오지 못했습니다. 환경변수/인증을 확인하세요.");
