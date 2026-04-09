@@ -10,7 +10,7 @@ import {
 describe("products", () => {
   it("defines only review and diagnosis as top-level products", () => {
     expect(PRODUCTS.map((product) => product.slug)).toEqual(["review", "diagnosis"]);
-    expect(PRODUCTS.map((product) => product.href)).toEqual(["/review", "/diagnosis"]);
+    expect(PRODUCTS.map((product) => product.href)).toEqual(["/report", "/diagnosis"]);
   });
 
   it("routes authenticated users to the product chooser", () => {

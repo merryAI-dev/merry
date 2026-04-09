@@ -12,7 +12,7 @@ export const PRODUCTS: Product[] = [
     slug: "review",
     label: "투자심사",
     description: "딜 검토, 시장 근거, 가정, 계산을 다루는 분석 워크벤치",
-    href: "/review",
+    href: "/report",
   },
   {
     slug: "diagnosis",
