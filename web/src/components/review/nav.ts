@@ -19,7 +19,8 @@ export const REVIEW_NAV_ITEMS: ReviewNavItem[] = [
     label: "세션",
     icon: ClipboardList,
     match: (pathname) =>
-      pathname === "/report" || (pathname.startsWith("/report/") && !pathname.startsWith("/report/new")),
+      pathname === "/report" ||
+      (pathname.startsWith("/report/") && pathname !== "/report/new" && !pathname.startsWith("/report/new/")),
   },
   {
     href: "/report/new",

@@ -5,6 +5,7 @@ import { LogOut, Menu, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
+import { requestLogout } from "@/lib/logoutClient";
 import type { WorkspaceSession } from "@/lib/workspace";
 
 import { REVIEW_NAV_ITEMS } from "./nav";
@@ -14,17 +15,24 @@ export function ReviewMobileNav({ workspace }: { workspace: WorkspaceSession }) 
   const router = useRouter();
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     setOpen(false);
+    setError(null);
   }, [pathname]);
 
   async function logout() {
     setBusy(true);
+    setError(null);
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      const result = await requestLogout();
+      if (result.ok) {
+        router.replace("/");
+      } else {
+        setError(result.error);
+      }
     } finally {
-      router.replace("/");
       setBusy(false);
     }
   }
@@ -113,6 +121,11 @@ export function ReviewMobileNav({ workspace }: { workspace: WorkspaceSession }) 
             </div>
 
             <div className="px-2 py-3" style={{ borderTop: "1px solid rgba(167, 139, 250, 0.12)" }}>
+              {error && (
+                <p className="px-3 pb-2 text-[11px] leading-5 text-[#FCA5A5]" role="alert">
+                  {error}
+                </p>
+              )}
               <button
                 onClick={logout}
                 disabled={busy}

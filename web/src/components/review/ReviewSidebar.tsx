@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import { cn } from "@/lib/cn";
+import { requestLogout } from "@/lib/logoutClient";
 import type { WorkspaceSession } from "@/lib/workspace";
 
 import { REVIEW_NAV_ITEMS } from "./nav";
@@ -17,6 +18,7 @@ export function ReviewSidebar({ workspace }: { workspace: WorkspaceSession }) {
   const router = useRouter();
   const [busy, setBusy] = React.useState(false);
   const [collapsed, setCollapsed] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
@@ -33,10 +35,15 @@ export function ReviewSidebar({ workspace }: { workspace: WorkspaceSession }) {
 
   async function logout() {
     setBusy(true);
+    setError(null);
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      const result = await requestLogout();
+      if (result.ok) {
+        router.replace("/");
+      } else {
+        setError(result.error);
+      }
     } finally {
-      router.replace("/");
       setBusy(false);
     }
   }
@@ -156,6 +163,11 @@ export function ReviewSidebar({ workspace }: { workspace: WorkspaceSession }) {
         </nav>
 
         <div className="px-2 pb-3 pt-2" style={{ borderTop: "1px solid rgba(167, 139, 250, 0.1)" }}>
+          {!collapsed && error && (
+            <p className="px-3 pb-2 text-[11px] leading-5 text-[#FCA5A5]" role="alert">
+              {error}
+            </p>
+          )}
           <button
             onClick={logout}
             disabled={busy}

@@ -11,4 +11,25 @@ describe("REVIEW_NAV_ITEMS", () => {
       { href: "/history", label: "히스토리" },
     ]);
   });
+
+  it("uses matchers that keep report slugs under the session tab", () => {
+    const [sessions, newReport, queue, history] = REVIEW_NAV_ITEMS;
+
+    expect(sessions.match("/report")).toBe(true);
+    expect(sessions.match("/report/acme-series-a")).toBe(true);
+    expect(sessions.match("/report/newco")).toBe(true);
+    expect(sessions.match("/report/new")).toBe(false);
+
+    expect(newReport.match("/report/new")).toBe(true);
+    expect(newReport.match("/report/new/step-2")).toBe(true);
+    expect(newReport.match("/report/newco")).toBe(false);
+
+    expect(queue.match("/review")).toBe(true);
+    expect(queue.match("/review/queue-1")).toBe(true);
+    expect(queue.match("/report")).toBe(false);
+
+    expect(history.match("/history")).toBe(true);
+    expect(history.match("/history/jobs/1")).toBe(true);
+    expect(history.match("/review")).toBe(false);
+  });
 });
