@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 
 import { handleApiError } from "@/lib/apiError";
-import { paginate } from "@/lib/pagination";
 import { addReportMessage, createReportSession, listReportSessions } from "@/lib/reportChat";
 import { requireWorkspaceFromCookies } from "@/lib/workspaceServer";
 
 export const runtime = "nodejs";
+
+const DEFAULT_PAGE_SIZE = 30;
+const MAX_PAGE_SIZE = 200;
 
 const CreateSchema = z.object({
   title: z.string().optional(),
@@ -23,9 +25,35 @@ const CreateSchema = z.object({
 export async function GET(req: Request) {
   try {
     const ws = await requireWorkspaceFromCookies();
+    const url = new URL(req.url);
+    const limit = Math.min(
+      Math.max(Number(url.searchParams.get("limit") || DEFAULT_PAGE_SIZE), 1),
+      MAX_PAGE_SIZE,
+    );
+    const offset = Math.max(Number(url.searchParams.get("offset") || 0), 0);
+    const query = url.searchParams.get("q")?.trim().toLowerCase() ?? "";
+
     const all = await listReportSessions(ws.teamId);
-    const { items, total, offset, hasMore } = paginate(all, new URL(req.url));
-    return NextResponse.json({ ok: true, sessions: items, total, offset, hasMore });
+    const filtered = query
+      ? all.filter((session) =>
+          [
+            session.title,
+            session.companyName,
+            session.fundName,
+            session.author,
+            session.fileTitle,
+          ]
+            .join(" ")
+            .toLowerCase()
+            .includes(query),
+        )
+      : all;
+
+    const sessions = filtered.slice(offset, offset + limit);
+    const total = filtered.length;
+    const hasMore = offset + limit < total;
+
+    return NextResponse.json({ ok: true, sessions, total, offset, limit, hasMore });
   } catch (err) {
     return handleApiError(err, "GET /api/report/sessions");
   }

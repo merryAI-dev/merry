@@ -20,7 +20,7 @@ type ReportSession = {
   author?: string;
 };
 
-const REVIEW_HOME_SESSION_LIMIT = 200;
+const REVIEW_HOME_PAGE_SIZE = 30;
 
 function SessionCard({ s }: { s: ReportSession }) {
   return (
@@ -88,34 +88,48 @@ function SkeletonCard() {
 export default function ReportSessionsPage() {
   const [sessions, setSessions] = React.useState<ReportSession[]>([]);
   const [busy, setBusy] = React.useState(false);
+  const [loadingMore, setLoadingMore] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [q, setQ] = React.useState("");
+  const [total, setTotal] = React.useState(0);
+  const [hasMore, setHasMore] = React.useState(false);
 
-  async function load() {
-    setBusy(true);
+  const load = React.useCallback(async (nextOffset = 0, append = false) => {
+    if (append) setLoadingMore(true);
+    else setBusy(true);
     setError(null);
     try {
-      const res = await apiFetch<{ sessions: ReportSession[] }>(`/api/review/sessions?limit=${REVIEW_HOME_SESSION_LIMIT}`);
-      setSessions(res.sessions || []);
+      const params = new URLSearchParams({
+        limit: String(REVIEW_HOME_PAGE_SIZE),
+        offset: String(nextOffset),
+        q,
+      });
+      const res = await apiFetch<{
+        sessions?: ReportSession[];
+        total?: number;
+        offset?: number;
+        hasMore?: boolean;
+      }>(`/api/review/sessions?${params.toString()}`);
+      const nextSessions = res.sessions || [];
+      setSessions((prev) => (append ? [...prev, ...nextSessions] : nextSessions));
+      setTotal(res.total ?? nextSessions.length);
+      setHasMore(res.hasMore ?? false);
     } catch {
       setError("세션을 불러오지 못했습니다. 환경변수/인증을 확인하세요.");
-      setSessions([]);
+      if (!append) {
+        setSessions([]);
+        setTotal(0);
+        setHasMore(false);
+      }
     } finally {
       setBusy(false);
+      setLoadingMore(false);
     }
-  }
+  }, [q]);
 
-  React.useEffect(() => { load(); }, []);
-
-  const filtered = React.useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    const list = sessions.filter((s) => {
-      if (!needle) return true;
-      return `${s.title} ${s.companyName || ""} ${s.fundName || ""} ${s.author || ""}`.toLowerCase().includes(needle);
-    });
-    list.sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
-    return list;
-  }, [sessions, q]);
+  React.useEffect(() => {
+    load(0, false);
+  }, [load]);
 
   return (
     <div className="space-y-6">
@@ -129,6 +143,9 @@ export default function ReportSessionsPage() {
           <div className="mt-1 text-[13px] text-[#8B95A1]">
             세션 URL로 공유해 여러 명이 함께 초안을 만들고 드래프트로 이어갑니다.
           </div>
+          <div className="mt-2 text-[12px] font-medium text-[#8B95A1]">
+            {total.toLocaleString()}개 세션
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
@@ -140,7 +157,7 @@ export default function ReportSessionsPage() {
               onChange={(e) => setQ(e.target.value)}
             />
           </div>
-          <Button variant="secondary" size="sm" onClick={load} disabled={busy}>
+          <Button variant="secondary" size="sm" onClick={() => load(0, false)} disabled={busy}>
             <RefreshCw className="h-3.5 w-3.5" />
             새로고침
           </Button>
@@ -160,13 +177,13 @@ export default function ReportSessionsPage() {
       )}
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {busy && !filtered.length
+        {busy && !sessions.length
           ? Array.from({ length: 6 }).map((_, i) => <SkeletonCard key={i} />)
-          : filtered.map((s) => <SessionCard key={s.sessionId} s={s} />)
+          : sessions.map((s) => <SessionCard key={s.sessionId} s={s} />)
         }
       </div>
 
-      {!busy && !error && !filtered.length && (
+      {!busy && !error && !sessions.length && (
         <div className="rounded-2xl bg-white py-16 text-center" style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px #E5E8EB" }}>
           <div className="text-[15px] font-semibold text-[#191F28]">세션이 없어요</div>
           <div className="mt-1 text-[13px] text-[#8B95A1]">새 보고서를 만들어 시작하세요.</div>
@@ -178,6 +195,20 @@ export default function ReportSessionsPage() {
               </Button>
             </Link>
           </div>
+        </div>
+      )}
+
+      {!busy && hasMore && (
+        <div className="flex justify-center">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => load(sessions.length, true)}
+            disabled={loadingMore}
+          >
+            <RefreshCw className={loadingMore ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
+            더 보기
+          </Button>
         </div>
       )}
     </div>
