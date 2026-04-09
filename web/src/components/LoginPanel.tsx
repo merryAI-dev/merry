@@ -24,18 +24,6 @@ function prettyError(code: string): string | null {
   return "로그인에 실패했습니다.";
 }
 
-export function getLoginRedirectPath(): string {
-  return DEFAULT_AFTER_LOGIN_PATH;
-}
-
-export function applyLoginRedirect(router: { replace(path: string): void }) {
-  router.replace(getLoginRedirectPath());
-}
-
-export function getGoogleSignInOptions() {
-  return { callbackUrl: getLoginRedirectPath() };
-}
-
 function GoogleIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
@@ -150,7 +138,7 @@ export function LoginPanel({
         setError("팀 코드가 올바르지 않거나 입력값이 부족합니다.");
         return;
       }
-      applyLoginRedirect(router);
+      router.replace(DEFAULT_AFTER_LOGIN_PATH);
     } catch {
       setError("로그인 요청에 실패했습니다.");
     } finally {
@@ -159,7 +147,7 @@ export function LoginPanel({
   }
 
   function loginWithGoogle() {
-    signIn("google", getGoogleSignInOptions());
+    signIn("google", { callbackUrl: DEFAULT_AFTER_LOGIN_PATH });
   }
 
   return (
