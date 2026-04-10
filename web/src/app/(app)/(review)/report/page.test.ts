@@ -73,4 +73,14 @@ describe("ReportSessionsPage", () => {
       expect(apiFetchMock).toHaveBeenCalledWith("/api/review/sessions?limit=30&offset=0&q=needle");
     });
   });
+
+  it("offers a direct documents entry point from the review home", async () => {
+    const { container } = render(React.createElement(ReportSessionsPage));
+
+    await waitFor(() => {
+      expect(apiFetchMock).toHaveBeenCalledWith("/api/review/sessions?limit=30&offset=0&q=");
+    });
+
+    expect(container.querySelector('a[href="/documents"]')).not.toBeNull();
+  });
 });

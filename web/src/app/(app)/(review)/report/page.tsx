@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import * as React from "react";
-import { Plus, RefreshCw, Search } from "lucide-react";
+import { Files, Plus, RefreshCw, Search } from "lucide-react";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -161,6 +161,12 @@ export default function ReportSessionsPage() {
             <RefreshCw className="h-3.5 w-3.5" />
             새로고침
           </Button>
+          <Link href="/documents">
+            <Button variant="secondary" size="sm">
+              <Files className="h-3.5 w-3.5" />
+              문서 추출
+            </Button>
+          </Link>
           <Link href="/review/new">
             <Button variant="primary" size="sm">
               <Plus className="h-3.5 w-3.5" />
@@ -187,7 +193,13 @@ export default function ReportSessionsPage() {
         <div className="rounded-2xl bg-white py-16 text-center" style={{ boxShadow: "0 1px 4px rgba(0,0,0,0.06), 0 0 0 1px #E5E8EB" }}>
           <div className="text-[15px] font-semibold text-[#191F28]">세션이 없어요</div>
           <div className="mt-1 text-[13px] text-[#8B95A1]">새 보고서를 만들어 시작하세요.</div>
-          <div className="mt-4">
+          <div className="mt-4 flex items-center justify-center gap-2">
+            <Link href="/documents">
+              <Button variant="secondary" size="sm">
+                <Files className="h-3.5 w-3.5" />
+                문서 추출부터
+              </Button>
+            </Link>
             <Link href="/review/new">
               <Button variant="primary" size="sm">
                 <Plus className="h-3.5 w-3.5" />

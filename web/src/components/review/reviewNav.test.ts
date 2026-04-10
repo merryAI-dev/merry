@@ -6,6 +6,7 @@ describe("REVIEW_NAV_ITEMS", () => {
   it("matches the staged review product routes", () => {
     expect(REVIEW_NAV_ITEMS.map(({ href, label }) => ({ href, label }))).toEqual([
       { href: "/review", label: "세션" },
+      { href: "/documents", label: "문서 추출" },
       { href: "/review/new", label: "새 보고서" },
       { href: "/review/queue", label: "검토 큐" },
       { href: "/history", label: "히스토리" },
@@ -13,13 +14,17 @@ describe("REVIEW_NAV_ITEMS", () => {
   });
 
   it("uses matchers that keep report slugs under the session tab", () => {
-    const [sessions, newReport, queue, history] = REVIEW_NAV_ITEMS;
+    const [sessions, documents, newReport, queue, history] = REVIEW_NAV_ITEMS;
 
     expect(sessions.match("/review")).toBe(true);
     expect(sessions.match("/review/acme-series-a")).toBe(true);
     expect(sessions.match("/review/newco")).toBe(true);
     expect(sessions.match("/review/new")).toBe(false);
     expect(sessions.match("/review/queue")).toBe(false);
+
+    expect(documents.match("/documents")).toBe(true);
+    expect(documents.match("/documents/batch")).toBe(true);
+    expect(documents.match("/review")).toBe(false);
 
     expect(newReport.match("/review/new")).toBe(true);
     expect(newReport.match("/review/new/step-2")).toBe(true);

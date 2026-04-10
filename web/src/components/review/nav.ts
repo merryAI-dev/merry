@@ -1,5 +1,6 @@
 import {
   ClipboardList,
+  Files,
   FilePlus2,
   History,
   ShieldAlert,
@@ -30,6 +31,12 @@ export const REVIEW_NAV_ITEMS: ReviewNavItem[] = [
         && pathname !== "/report/new"
         && !pathname.startsWith("/report/new/")
       ),
+  },
+  {
+    href: "/documents",
+    label: "문서 추출",
+    icon: Files,
+    match: (pathname) => pathname === "/documents" || pathname.startsWith("/documents/"),
   },
   {
     href: "/review/new",
