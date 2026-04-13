@@ -1,6 +1,8 @@
 import { DiagnosisMobileNav } from "@/components/diagnosis/DiagnosisMobileNav";
 import { DiagnosisSidebar } from "@/components/diagnosis/DiagnosisSidebar";
+import { isDiagnosisEnabledForWorkspace } from "@/lib/products";
 import { getWorkspaceFromCookies } from "@/lib/workspaceServer";
+import { redirect } from "next/navigation";
 
 export default async function DiagnosisLayout({
   children,
@@ -8,6 +10,9 @@ export default async function DiagnosisLayout({
   children: React.ReactNode;
 }) {
   const ws = await getWorkspaceFromCookies();
+  if (!isDiagnosisEnabledForWorkspace(ws)) {
+    redirect("/products");
+  }
   const workspace = ws ?? { teamId: "dev", memberName: "dev" };
 
   return (

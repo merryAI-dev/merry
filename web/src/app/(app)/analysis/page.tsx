@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { Download, Loader2, Play, RefreshCw, UploadCloud } from "lucide-react";
+import Link from "next/link";
 
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -52,7 +53,7 @@ function badgeForStatus(status: JobStatus) {
 
 function labelForType(type: JobType) {
   if (type === "exit_projection") return "Exit 프로젝션";
-  if (type === "diagnosis_analysis") return "기업진단";
+  if (type === "diagnosis_analysis") return "현황진단";
   if (type === "pdf_parse") return "PDF 파싱";
   if (type === "pdf_evidence") return "PDF 근거";
   return "계약서";
@@ -296,7 +297,6 @@ export default function AnalysisPage() {
                 <option value="pdf_parse">PDF 파싱(구조화)</option>
                 <option value="pdf_evidence">PDF 근거 추출</option>
                 <option value="exit_projection">Exit 프로젝션(엑셀)</option>
-                <option value="diagnosis_analysis">기업진단 분석(엑셀)</option>
                 <option value="contract_review">계약서 검토(PDF/DOCX)</option>
               </select>
             </label>
@@ -342,6 +342,23 @@ export default function AnalysisPage() {
                 />
               </label>
             )}
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-[#D7E8FF] bg-[#F4F8FF] px-4 py-3">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-[#4F7DB8]">
+              Diagnosis Cutover
+            </div>
+            <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm leading-6 text-[#44556C]">
+                기업진단 업로드와 세션 관리는 이제 별도 제품에서 진행합니다.
+              </p>
+              <Link
+                href="/diagnosis"
+                className="inline-flex items-center rounded-full border border-[#BFDBFE] bg-white px-4 py-2 text-sm font-semibold text-[#1D4ED8] transition hover:-translate-y-0.5"
+              >
+                현황진단 스튜디오로 이동
+              </Link>
+            </div>
           </div>
 
           {jobType === "exit_projection" ? (

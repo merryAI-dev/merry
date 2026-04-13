@@ -15,7 +15,7 @@ export default function DiagnosisPage() {
             기업 현황을 진단하고 다음 작업을 준비합니다
           </h1>
           <p className="mt-3 max-w-2xl text-base leading-7 text-[#6C624D]">
-            업로드, 진단 세션, 히스토리 공간을 분리해 두었습니다. 데이터 연결과 자동화는 다음 작업에서 이어 붙일 예정입니다.
+            업로드 후 바로 진단 세션이 생성되고, 세션과 히스토리에서 실행 상태와 산출물을 추적할 수 있습니다.
           </p>
         </div>
 
@@ -24,17 +24,17 @@ export default function DiagnosisPage() {
             {
               href: "/diagnosis/upload",
               eyebrow: "Upload",
-              title: "시트를 올리고 전처리를 시작합니다",
+              title: "진단 시트를 업로드하고 바로 실행을 시작합니다",
             },
             {
               href: "/diagnosis/sessions",
               eyebrow: "Sessions",
-              title: "진단 세션과 상태를 확인합니다",
+              title: "업로드 이후 세션 상태와 산출물을 확인합니다",
             },
             {
               href: "/diagnosis/history",
               eyebrow: "History",
-              title: "실행 기록과 후속 작업을 정리합니다",
+              title: "세션별 실행 기록과 후속 작업을 추적합니다",
             },
           ].map((item) => (
             <Link

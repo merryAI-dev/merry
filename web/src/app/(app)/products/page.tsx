@@ -1,9 +1,13 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 
-import { PRODUCTS } from "@/lib/products";
+import { getVisibleProducts } from "@/lib/products";
+import { getWorkspaceFromCookies } from "@/lib/workspaceServer";
 
-export default function ProductsPage() {
+export default async function ProductsPage() {
+  const workspace = await getWorkspaceFromCookies();
+  const products = getVisibleProducts(workspace);
+
   return (
     <div
       className="min-h-full px-6 py-12 md:px-10"
@@ -35,7 +39,7 @@ export default function ProductsPage() {
         </div>
 
         <div className="grid gap-6 md:grid-cols-2">
-          {PRODUCTS.map((product) => (
+          {products.map((product) => (
             <Link
               key={product.slug}
               href={product.href}
