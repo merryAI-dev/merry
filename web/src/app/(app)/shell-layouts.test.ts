@@ -1,5 +1,5 @@
 import * as React from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const {
   redirectMock,
@@ -60,6 +60,17 @@ function findElementByType(node: React.ReactNode, type: unknown): React.ReactEle
 }
 
 describe("product shell layouts", () => {
+  const originalRollout = process.env.MERRY_DIAGNOSIS_ROLLOUT;
+  const originalInternalTeams = process.env.MERRY_DIAGNOSIS_INTERNAL_TEAM_IDS;
+
+  afterEach(() => {
+    if (originalRollout === undefined) delete process.env.MERRY_DIAGNOSIS_ROLLOUT;
+    else process.env.MERRY_DIAGNOSIS_ROLLOUT = originalRollout;
+
+    if (originalInternalTeams === undefined) delete process.env.MERRY_DIAGNOSIS_INTERNAL_TEAM_IDS;
+    else process.env.MERRY_DIAGNOSIS_INTERNAL_TEAM_IDS = originalInternalTeams;
+  });
+
   it("keeps the base app layout free of product shell chrome", async () => {
     getWorkspaceFromCookiesMock.mockReset();
     redirectMock.mockReset();
@@ -91,6 +102,9 @@ describe("product shell layouts", () => {
 
   it("injects diagnosis shell chrome only in the diagnosis layout", async () => {
     getWorkspaceFromCookiesMock.mockReset();
+    redirectMock.mockReset();
+    delete process.env.MERRY_DIAGNOSIS_ROLLOUT;
+    delete process.env.MERRY_DIAGNOSIS_INTERNAL_TEAM_IDS;
     getWorkspaceFromCookiesMock.mockResolvedValue({ teamId: "team", memberName: "kim" });
 
     const tree = await DiagnosisLayout({
@@ -101,5 +115,19 @@ describe("product shell layouts", () => {
     expect(findElementByType(tree, ReviewMobileNavMock)).toBeNull();
     expect(findElementByType(tree, DiagnosisSidebarMock)).not.toBeNull();
     expect(findElementByType(tree, DiagnosisMobileNavMock)).not.toBeNull();
+  });
+
+  it("redirects out of the diagnosis shell when rollout is disabled for the workspace", async () => {
+    getWorkspaceFromCookiesMock.mockReset();
+    redirectMock.mockReset();
+    process.env.MERRY_DIAGNOSIS_ROLLOUT = "off";
+    delete process.env.MERRY_DIAGNOSIS_INTERNAL_TEAM_IDS;
+    getWorkspaceFromCookiesMock.mockResolvedValue({ teamId: "team", memberName: "kim" });
+
+    await DiagnosisLayout({
+      children: React.createElement("div", null, "diagnosis-child"),
+    });
+
+    expect(redirectMock).toHaveBeenCalledWith("/products");
   });
 });

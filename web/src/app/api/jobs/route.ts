@@ -178,7 +178,7 @@ export async function POST(req: Request) {
     const type = body.jobType as JobType;
     const title = (body.title ?? "").trim() || ({
       exit_projection: "Exit 프로젝션",
-      diagnosis_analysis: "기업진단 분석",
+      diagnosis_analysis: "현황진단 실행",
       pdf_evidence: "PDF 근거 추출",
       pdf_parse: "PDF 파싱",
       contract_review: "계약서 검토",
