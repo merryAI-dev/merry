@@ -33,7 +33,7 @@ function inferExt(filename: string): string {
 }
 
 const ALLOWED_EXTS = new Set([
-  ".pdf", ".xlsx", ".xls", ".docx",
+  ".pdf", ".xlsx", ".xls", ".docx", ".pptx",
   ".png", ".jpg", ".jpeg", ".gif", ".webp",
   ".txt", ".md", ".csv", ".json", ".tsv", ".log", ".xml", ".html", ".htm", ".yaml", ".yml",
 ]);
@@ -161,4 +161,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "BAD_REQUEST" }, { status });
   }
 }
-

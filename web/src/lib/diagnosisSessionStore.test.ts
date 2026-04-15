@@ -10,9 +10,11 @@ vi.mock("@/lib/aws/ddb", () => ({
 
 import {
   createDiagnosisSession,
+  getDiagnosisContextDocumentContent,
   getDiagnosisSessionDetail,
   listDiagnosisHistory,
   listDiagnosisSessions,
+  recordDiagnosisContextDocument,
 } from "./diagnosisSessionStore";
 
 const ENV_KEYS = ["MERRY_DDB_TABLE", "MERRY_DIAGNOSIS_DDB_TABLE"] as const;
@@ -142,5 +144,81 @@ describe("diagnosisSessionStore diagnosis table routing", () => {
     expect(detail?.runs[0]?.legacyJobId).toBe("job-1");
     expect(detail?.events[0]?.type).toBe("run_succeeded");
     expect(history[0]?.sessionTitle).toBe("비비비당 진단");
+  });
+
+  it("stores context documents in chunk items and reassembles the content", async () => {
+    const table = new Map<string, Record<string, unknown>>();
+    sendMock.mockImplementation(async (command: { constructor: { name: string }; input: Record<string, unknown> }) => {
+      const { input } = command;
+
+      if (command.constructor.name === "PutCommand") {
+        const item = input.Item as Record<string, unknown>;
+        table.set(`${item.pk}::${item.sk}`, structuredClone(item));
+        return {};
+      }
+
+      if (command.constructor.name === "GetCommand") {
+        const key = input.Key as Record<string, unknown>;
+        return { Item: table.get(`${key.pk}::${key.sk}`) ?? null };
+      }
+
+      if (command.constructor.name === "QueryCommand") {
+        const pk = (input.ExpressionAttributeValues as Record<string, unknown>)?.[":pk"];
+        const descending = input.ScanIndexForward === false;
+        const items = [...table.values()]
+          .filter((item) => item.pk === pk)
+          .sort((a, b) => String(a.sk).localeCompare(String(b.sk)));
+        if (descending) items.reverse();
+        return { Items: items };
+      }
+
+      return {};
+    });
+
+    const session = await createDiagnosisSession({
+      teamId: "team-1",
+      title: "비비비당 진단",
+      createdBy: "kim",
+      originalFileName: "bbb.xlsx",
+    });
+
+    const markdown = `# 보조 문서\n\n${"시장 개요 ".repeat(30_000)}`;
+    const plainText = `시장 개요 ${"확장 ".repeat(30_000)}`;
+
+    const stored = await recordDiagnosisContextDocument({
+      teamId: "team-1",
+      sessionId: session.sessionId,
+      actor: "kim",
+      file: {
+        fileId: "file-ctx-1",
+        originalName: "deck.pdf",
+        contentType: "application/pdf",
+        s3Bucket: "bucket",
+        s3Key: "uploads/team/deck.pdf",
+        createdAt: "2026-04-09T00:00:00.000Z",
+      },
+      normalized: {
+        role: "context",
+        sourceFormat: "pdf",
+        markdown,
+        plainText,
+        warnings: [],
+        metadata: { pageCount: 12 },
+      },
+    });
+
+    const detail = await getDiagnosisSessionDetail("team-1", session.sessionId);
+    const content = await getDiagnosisContextDocumentContent("team-1", session.sessionId, stored.documentId);
+
+    expect(stored.markdownChunkCount).toBeGreaterThan(1);
+    expect(detail?.contextDocuments).toHaveLength(1);
+    expect(detail?.contextDocuments[0]).toMatchObject({
+      documentId: stored.documentId,
+      sourceFormat: "pdf",
+      role: "context",
+      originalName: "deck.pdf",
+    });
+    expect(content?.markdown).toBe(markdown);
+    expect(content?.plainText).toBe(plainText);
   });
 });

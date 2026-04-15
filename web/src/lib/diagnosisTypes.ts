@@ -5,9 +5,14 @@ export type DiagnosisRunStatus = "queued" | "running" | "succeeded" | "failed";
 export type DiagnosisEventType =
   | "session_created"
   | "upload_recorded"
+  | "context_document_added"
   | "run_started"
   | "run_succeeded"
   | "run_failed";
+
+export type DiagnosisDocumentRole = "primary" | "context";
+
+export type DiagnosisSourceFormat = "xlsx" | "xls" | "pdf" | "docx" | "pptx";
 
 export type DiagnosisSessionSummary = {
   sessionId: string;
@@ -56,8 +61,41 @@ export type DiagnosisHistoryEvent = {
   legacyJobId?: string;
 };
 
+export type DiagnosisNormalizedDocument = {
+  role: DiagnosisDocumentRole;
+  sourceFormat: DiagnosisSourceFormat;
+  markdown: string;
+  plainText: string;
+  warnings: string[];
+  metadata: Record<string, unknown>;
+};
+
+export type DiagnosisContextDocumentSummary = {
+  documentId: string;
+  sessionId: string;
+  fileId: string;
+  originalName: string;
+  contentType: string;
+  role: DiagnosisDocumentRole;
+  sourceFormat: DiagnosisSourceFormat;
+  previewText: string;
+  createdAt: string;
+  createdBy: string;
+  warningCount: number;
+  markdownChunkCount: number;
+  plainTextChunkCount: number;
+  metadata: Record<string, unknown>;
+};
+
+export type DiagnosisContextDocumentContent = {
+  documentId: string;
+  markdown: string;
+  plainText: string;
+};
+
 export type DiagnosisSessionDetail = DiagnosisSessionSummary & {
   uploads: DiagnosisUploadRecord[];
   runs: DiagnosisRunRecord[];
   events: DiagnosisHistoryEvent[];
+  contextDocuments: DiagnosisContextDocumentSummary[];
 };

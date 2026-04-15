@@ -42,6 +42,7 @@ const ALLOWED_MIMES: ReadonlySet<string> = new Set([
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",  // xlsx
   "application/vnd.ms-excel",  // xls
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",  // docx
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",  // pptx
   "image/png",
   "image/jpeg",
   "image/gif",
@@ -64,6 +65,7 @@ const EXT_TO_MIME: Record<string, string> = {
   ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ".xls": "application/vnd.ms-excel",
   ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   ".png": "image/png",
   ".jpg": "image/jpeg",
   ".jpeg": "image/jpeg",

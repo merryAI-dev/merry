@@ -2,12 +2,33 @@ import { SendMessageCommand } from "@aws-sdk/client-sqs";
 
 import { getSqsQueueUrl } from "@/lib/aws/env";
 import { getSqsClient } from "@/lib/aws/sqs";
+import { normalizeDiagnosisDocumentFromUpload } from "@/lib/diagnosisIngestion";
 import {
   createDiagnosisRun,
   createDiagnosisSession,
+  recordDiagnosisContextDocument,
   recordDiagnosisUpload,
 } from "@/lib/diagnosisSessionStore";
 import { createJob, getUploadFile } from "@/lib/jobStore";
+
+function getExt(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  return dot >= 0 ? filename.slice(dot).toLowerCase() : "";
+}
+
+function assertPrimaryDiagnosisFile(filename: string) {
+  const ext = getExt(filename);
+  if (ext !== ".xlsx" && ext !== ".xls") {
+    throw new Error("UNSUPPORTED_PRIMARY_FILE");
+  }
+}
+
+function assertContextDiagnosisFile(filename: string) {
+  const ext = getExt(filename);
+  if (ext !== ".pdf" && ext !== ".docx" && ext !== ".pptx") {
+    throw new Error("UNSUPPORTED_CONTEXT_FILE");
+  }
+}
 
 export async function startDiagnosisFromUploadedFile(args: {
   teamId: string;
@@ -18,6 +39,7 @@ export async function startDiagnosisFromUploadedFile(args: {
   const file = await getUploadFile(args.teamId, args.fileId);
   if (!file) throw new Error("FILE_NOT_FOUND");
   if (file.status !== "uploaded") throw new Error("FILE_NOT_UPLOADED");
+  assertPrimaryDiagnosisFile(file.originalName);
 
   const session = await createDiagnosisSession({
     teamId: args.teamId,
@@ -76,4 +98,31 @@ export async function startDiagnosisFromUploadedFile(args: {
     run,
     legacyJobId: jobId,
   };
+}
+
+export async function attachDiagnosisContextDocumentFromUploadedFile(args: {
+  teamId: string;
+  memberName: string;
+  sessionId: string;
+  fileId: string;
+}) {
+  const file = await getUploadFile(args.teamId, args.fileId);
+  if (!file) throw new Error("FILE_NOT_FOUND");
+  if (file.status !== "uploaded") throw new Error("FILE_NOT_UPLOADED");
+  assertContextDiagnosisFile(file.originalName);
+
+  const normalized = await normalizeDiagnosisDocumentFromUpload({
+    file,
+    role: "context",
+  });
+
+  const document = await recordDiagnosisContextDocument({
+    teamId: args.teamId,
+    sessionId: args.sessionId,
+    actor: args.memberName,
+    file,
+    normalized,
+  });
+
+  return { document };
 }
