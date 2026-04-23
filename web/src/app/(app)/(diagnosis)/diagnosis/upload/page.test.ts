@@ -46,7 +46,7 @@ describe("DiagnosisUploadPage", () => {
     });
   });
 
-  it("uploads an xlsx file and starts a diagnosis session", async () => {
+  it("uploads an xlsx file and starts a diagnosis chat session", async () => {
     render(React.createElement(DiagnosisUploadPage));
 
     const file = new File(["sheet"], "bbb.xlsx", {
@@ -56,7 +56,7 @@ describe("DiagnosisUploadPage", () => {
     fireEvent.change(screen.getByLabelText("진단 시트 파일"), {
       target: { files: [file] },
     });
-    fireEvent.click(screen.getByRole("button", { name: "진단 시작" }));
+    fireEvent.click(screen.getByRole("button", { name: "진단 대화 시작" }));
 
     await waitFor(() => {
       expect(apiFetchMock).toHaveBeenCalledWith(

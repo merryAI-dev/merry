@@ -15,7 +15,7 @@ export default function DiagnosisPage() {
             기업 현황을 진단하고 다음 작업을 준비합니다
           </h1>
           <p className="mt-3 max-w-2xl text-base leading-7 text-[#6C624D]">
-            업로드 후 바로 진단 세션이 생성되고, 세션과 히스토리에서 실행 상태와 산출물을 추적할 수 있습니다.
+            업로드 후 자동 분석과 첫 질문이 생성되며, 이후에는 현황진단 Copilot과 대화하면서 마지막에만 분석보고서를 생성합니다.
           </p>
         </div>
 
@@ -24,17 +24,17 @@ export default function DiagnosisPage() {
             {
               href: "/diagnosis/upload",
               eyebrow: "Upload",
-              title: "진단 시트를 업로드하고 바로 실행을 시작합니다",
+              title: "진단 시트를 올리면 자동 분석과 첫 질문이 바로 시작됩니다",
             },
             {
               href: "/diagnosis/sessions",
               eyebrow: "Sessions",
-              title: "업로드 이후 세션 상태와 산출물을 확인합니다",
+              title: "대화형 진단 세션과 생성된 결과물을 이어서 확인합니다",
             },
             {
               href: "/diagnosis/history",
               eyebrow: "History",
-              title: "세션별 실행 기록과 후속 작업을 추적합니다",
+              title: "세션별 시작·생성 이력과 후속 작업을 추적합니다",
             },
           ].map((item) => (
             <Link

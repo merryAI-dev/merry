@@ -2,43 +2,39 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   getUploadFileMock,
-  createJobMock,
-  getSqsClientMock,
   createDiagnosisSessionMock,
   recordDiagnosisUploadMock,
-  createDiagnosisRunMock,
+  saveDiagnosisConversationStartMock,
+  markDiagnosisSessionStatusMock,
+  materializeDiagnosisSourceFileMock,
+  runDiagnosisAgentTurnMock,
 } = vi.hoisted(() => ({
   getUploadFileMock: vi.fn(),
-  createJobMock: vi.fn(),
-  getSqsClientMock: vi.fn(),
   createDiagnosisSessionMock: vi.fn(),
   recordDiagnosisUploadMock: vi.fn(),
-  createDiagnosisRunMock: vi.fn(),
+  saveDiagnosisConversationStartMock: vi.fn(),
+  markDiagnosisSessionStatusMock: vi.fn(),
+  materializeDiagnosisSourceFileMock: vi.fn(),
+  runDiagnosisAgentTurnMock: vi.fn(),
 }));
 
 vi.mock("@/lib/jobStore", () => ({
   getUploadFile: getUploadFileMock,
-  createJob: createJobMock,
 }));
-
-const sqsSendMock = vi.fn();
-
-vi.mock("@/lib/aws/sqs", () => ({
-  getSqsClient: () => ({ send: sqsSendMock }),
-}));
-
-vi.mock("@/lib/aws/env", async () => {
-  const actual = await vi.importActual<typeof import("@/lib/aws/env")>("@/lib/aws/env");
-  return {
-    ...actual,
-    getSqsQueueUrl: () => "https://example.com/queue",
-  };
-});
 
 vi.mock("@/lib/diagnosisSessionStore", () => ({
   createDiagnosisSession: createDiagnosisSessionMock,
   recordDiagnosisUpload: recordDiagnosisUploadMock,
-  createDiagnosisRun: createDiagnosisRunMock,
+  saveDiagnosisConversationStart: saveDiagnosisConversationStartMock,
+  markDiagnosisSessionStatus: markDiagnosisSessionStatusMock,
+}));
+
+vi.mock("@/lib/diagnosisAgentBridge", () => ({
+  materializeDiagnosisSourceFile: materializeDiagnosisSourceFileMock,
+  runDiagnosisAgentTurn: runDiagnosisAgentTurnMock,
+  buildDiagnosisStartPrompt: (path: string) => `start:${path}`,
+  buildDiagnosisReplyPrompt: (path: string, content: string) => `reply:${path}:${content}`,
+  buildDiagnosisGeneratePrompt: (path: string) => `generate:${path}`,
 }));
 
 import { startDiagnosisFromUploadedFile } from "./diagnosisWorkflows";
@@ -46,11 +42,12 @@ import { startDiagnosisFromUploadedFile } from "./diagnosisWorkflows";
 describe("diagnosis workflow adapter", () => {
   beforeEach(() => {
     getUploadFileMock.mockReset();
-    createJobMock.mockReset();
     createDiagnosisSessionMock.mockReset();
     recordDiagnosisUploadMock.mockReset();
-    createDiagnosisRunMock.mockReset();
-    sqsSendMock.mockReset();
+    saveDiagnosisConversationStartMock.mockReset();
+    markDiagnosisSessionStatusMock.mockReset();
+    materializeDiagnosisSourceFileMock.mockReset();
+    runDiagnosisAgentTurnMock.mockReset();
 
     getUploadFileMock.mockResolvedValue({
       fileId: "file-1",
@@ -77,29 +74,32 @@ describe("diagnosis workflow adapter", () => {
       legacyJobId: null,
       latestArtifactCount: 0,
     });
-    recordDiagnosisUploadMock.mockResolvedValue({
-      uploadId: "upload-1",
-      sessionId: "diag_1",
+    materializeDiagnosisSourceFileMock.mockResolvedValue({
+      localPath: "/Users/boram/merry/temp/diagnosis_team-1_diag_1/bbb.xlsx",
       fileId: "file-1",
       originalName: "bbb.xlsx",
       contentType: "application/vnd.ms-excel",
-      createdAt: "2026-04-09T00:00:00.000Z",
-      uploadedAt: "2026-04-09T00:00:10.000Z",
-      s3Bucket: "bucket",
-      s3Key: "uploads/team-1/file-1.xlsx",
-      sizeBytes: 1234,
     });
-    createDiagnosisRunMock.mockResolvedValue({
-      runId: "run-1",
+    runDiagnosisAgentTurnMock.mockResolvedValue({
+      assistantText: "초기 진단 요약입니다. 가장 먼저 고객 획득 채널을 확인하고 싶습니다.",
+      analysisSummary: {
+        companyName: "비비비당",
+        gapCount: 3,
+        sheets: ["기업정보", "현황진단", "(컨설턴트용) 분석보고서"],
+        scoreCards: [{ category: "문제", score: 14.5, yesRatePct: 72.5 }],
+        sampleGaps: [{ module: "사업화", question: "핵심 KPI가 정리돼 있나요?" }],
+      },
+    });
+    saveDiagnosisConversationStartMock.mockResolvedValue({
+      messageId: "diag_msg_1",
       sessionId: "diag_1",
-      legacyJobId: "job-1",
-      status: "queued",
-      createdAt: "2026-04-09T00:00:11.000Z",
-      updatedAt: "2026-04-09T00:00:11.000Z",
+      role: "assistant",
+      content: "초기 진단 요약입니다. 가장 먼저 고객 획득 채널을 확인하고 싶습니다.",
+      createdAt: "2026-04-09T00:00:12.000Z",
     });
   });
 
-  it("creates diagnosis metadata and enqueues the legacy diagnosis job", async () => {
+  it("creates diagnosis metadata and stores the first assistant question instead of enqueuing a legacy job", async () => {
     const result = await startDiagnosisFromUploadedFile({
       teamId: "team-1",
       memberName: "kim",
@@ -113,24 +113,40 @@ describe("diagnosis workflow adapter", () => {
         originalFileName: "bbb.xlsx",
       }),
     );
-    expect(createJobMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        teamId: "team-1",
-        type: "diagnosis_analysis",
-        inputFileIds: ["file-1"],
-        params: expect.objectContaining({ diagnosisSessionId: "diag_1" }),
-      }),
-    );
-    expect(sqsSendMock).toHaveBeenCalledTimes(1);
-    expect(createDiagnosisRunMock).toHaveBeenCalledWith(
+    expect(materializeDiagnosisSourceFileMock).toHaveBeenCalledWith(
       expect.objectContaining({
         teamId: "team-1",
         sessionId: "diag_1",
-        status: "queued",
+        file: expect.objectContaining({
+          fileId: "file-1",
+        }),
+      }),
+    );
+    expect(runDiagnosisAgentTurnMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        teamId: "team-1",
+        sessionId: "diag_1",
+        memberName: "kim",
+        mode: "start",
+      }),
+    );
+    expect(saveDiagnosisConversationStartMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        teamId: "team-1",
+        sessionId: "diag_1",
+        actor: "kim",
+        assistantText: "초기 진단 요약입니다. 가장 먼저 고객 획득 채널을 확인하고 싶습니다.",
+      }),
+    );
+    expect(markDiagnosisSessionStatusMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        teamId: "team-1",
+        sessionId: "diag_1",
+        status: "ready",
       }),
     );
     expect(result.session.sessionId).toBe("diag_1");
-    expect(result.run.runId).toBe("run-1");
+    expect(result.assistantMessage.content).toContain("고객 획득 채널");
   });
 
   it("rejects files that are not fully uploaded", async () => {

@@ -1,15 +1,35 @@
-import { SendMessageCommand } from "@aws-sdk/client-sqs";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { basename } from "path";
+import { readFile } from "fs/promises";
 
-import { getSqsQueueUrl } from "@/lib/aws/env";
-import { getSqsClient } from "@/lib/aws/sqs";
-import { normalizeDiagnosisDocumentFromUpload } from "@/lib/diagnosisIngestion";
+import { getS3BucketName } from "@/lib/aws/env";
+import { getS3Client } from "@/lib/aws/s3";
 import {
-  createDiagnosisRun,
+  appendDiagnosisAssistantMessage,
+  appendDiagnosisConversationTurn,
   createDiagnosisSession,
+  getDiagnosisSessionDetail,
+  getDiagnosisSessionRuntimeState,
+  markDiagnosisSessionStatus,
+  recordDiagnosisArtifact,
   recordDiagnosisContextDocument,
   recordDiagnosisUpload,
+  saveDiagnosisConversationStart,
+  setDiagnosisConversationState,
 } from "@/lib/diagnosisSessionStore";
-import { createJob, getUploadFile } from "@/lib/jobStore";
+import {
+  buildDiagnosisGeneratePrompt,
+  buildDiagnosisReplyPrompt,
+  buildDiagnosisStartPrompt,
+  materializeDiagnosisSourceFile,
+  runDiagnosisAgentTurn,
+} from "@/lib/diagnosisAgentBridge";
+import { normalizeDiagnosisDocumentFromUpload } from "@/lib/diagnosisIngestion";
+import { getUploadFile } from "@/lib/jobStore";
+
+function diagnosisModel() {
+  return process.env.MERRY_DIAGNOSIS_CHAT_MODEL ?? "claude-opus-4-6";
+}
 
 function getExt(filename: string): string {
   const dot = filename.lastIndexOf(".");
@@ -55,49 +75,79 @@ export async function startDiagnosisFromUploadedFile(args: {
     actor: args.memberName,
   });
 
-  const jobId = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
-  const correlationId = `${jobId}-${Date.now().toString(36)}`;
-  const createdAt = new Date().toISOString();
+  let materializedPath: string | undefined;
+  try {
+    await markDiagnosisSessionStatus({
+      teamId: args.teamId,
+      sessionId: session.sessionId,
+      status: "processing",
+    });
 
-  await createJob({
-    jobId,
-    teamId: args.teamId,
-    type: "diagnosis_analysis",
-    status: "queued",
-    title: (args.title ?? "현황진단 실행").trim(),
-    createdBy: args.memberName,
-    createdAt,
-    inputFileIds: [args.fileId],
-    params: {
-      diagnosisSessionId: session.sessionId,
-    },
-  });
+    const materialized = await materializeDiagnosisSourceFile({
+      teamId: args.teamId,
+      sessionId: session.sessionId,
+      file,
+    });
+    materializedPath = materialized.localPath;
 
-  const sqs = getSqsClient();
-  await sqs.send(
-    new SendMessageCommand({
-      QueueUrl: getSqsQueueUrl(),
-      MessageBody: JSON.stringify({
+    const agentTurn = await runDiagnosisAgentTurn({
+      mode: "start",
+      sessionId: session.sessionId,
+      teamId: args.teamId,
+      memberName: args.memberName,
+      history: [],
+      prompt: buildDiagnosisStartPrompt(materialized.localPath),
+      model: diagnosisModel(),
+      sourceFilePath: materialized.localPath,
+    });
+
+    const assistantMessage = await saveDiagnosisConversationStart({
+      teamId: args.teamId,
+      sessionId: session.sessionId,
+      actor: args.memberName,
+      assistantText: agentTurn.assistantText,
+      sourceFile: {
+        fileId: materialized.fileId,
+        originalName: materialized.originalName,
+      },
+      sourceFileLocalPath: materialized.localPath,
+      analysisSummary: agentTurn.analysisSummary,
+    });
+
+    await markDiagnosisSessionStatus({
+      teamId: args.teamId,
+      sessionId: session.sessionId,
+      status: "ready",
+    });
+
+    return {
+      session: {
+        ...session,
+        status: "ready" as const,
+      },
+      assistantMessage,
+    };
+  } catch (err) {
+    await markDiagnosisSessionStatus({
+      teamId: args.teamId,
+      sessionId: session.sessionId,
+      status: "failed",
+    }).catch(() => {});
+    if (materializedPath) {
+      await setDiagnosisConversationState({
         teamId: args.teamId,
-        jobId,
-        correlationId,
-      }),
-    }),
-  );
-
-  const run = await createDiagnosisRun({
-    teamId: args.teamId,
-    sessionId: session.sessionId,
-    legacyJobId: jobId,
-    status: "queued",
-    actor: args.memberName,
-  });
-
-  return {
-    session,
-    run,
-    legacyJobId: jobId,
-  };
+        sessionId: session.sessionId,
+        status: "failed",
+        canGenerateReport: false,
+        sourceFile: {
+          fileId: file.fileId,
+          originalName: file.originalName,
+        },
+        sourceFileLocalPath: materializedPath,
+      }).catch(() => {});
+    }
+    throw err;
+  }
 }
 
 export async function attachDiagnosisContextDocumentFromUploadedFile(args: {
@@ -125,4 +175,192 @@ export async function attachDiagnosisContextDocumentFromUploadedFile(args: {
   });
 
   return { document };
+}
+
+export async function replyInDiagnosisSession(args: {
+  teamId: string;
+  memberName: string;
+  sessionId: string;
+  content: string;
+}) {
+  const detail = await getDiagnosisSessionDetail(args.teamId, args.sessionId);
+  if (!detail) throw new Error("NOT_FOUND");
+
+  const runtimeState = await getDiagnosisSessionRuntimeState(args.teamId, args.sessionId);
+  const sourceFileLocalPath = runtimeState?.sourceFileLocalPath;
+  const sourceFile = runtimeState?.conversationState?.sourceFile;
+  if (!sourceFileLocalPath || !sourceFile) throw new Error("SOURCE_FILE_MISSING");
+
+  await markDiagnosisSessionStatus({
+    teamId: args.teamId,
+    sessionId: args.sessionId,
+    status: "processing",
+  });
+  await setDiagnosisConversationState({
+    teamId: args.teamId,
+    sessionId: args.sessionId,
+    status: "thinking",
+    canGenerateReport: true,
+    sourceFile,
+    sourceFileLocalPath,
+    analysisSummary: runtimeState?.conversationState?.analysisSummary ?? null,
+  });
+
+  try {
+    const history = detail.messages.map((message) => ({
+      role: message.role,
+      content: message.content,
+    }));
+    const agentTurn = await runDiagnosisAgentTurn({
+      mode: "reply",
+      sessionId: args.sessionId,
+      teamId: args.teamId,
+      memberName: args.memberName,
+      history,
+      prompt: buildDiagnosisReplyPrompt(sourceFileLocalPath, args.content),
+      model: diagnosisModel(),
+      sourceFilePath: sourceFileLocalPath,
+    });
+
+    const assistantMessage = await appendDiagnosisConversationTurn({
+      teamId: args.teamId,
+      sessionId: args.sessionId,
+      userContent: args.content,
+      assistantText: agentTurn.assistantText,
+      analysisSummary: agentTurn.analysisSummary,
+    });
+
+    await markDiagnosisSessionStatus({
+      teamId: args.teamId,
+      sessionId: args.sessionId,
+      status: "ready",
+    });
+
+    return { assistantMessage };
+  } catch (err) {
+    await markDiagnosisSessionStatus({
+      teamId: args.teamId,
+      sessionId: args.sessionId,
+      status: "failed",
+    }).catch(() => {});
+    await setDiagnosisConversationState({
+      teamId: args.teamId,
+      sessionId: args.sessionId,
+      status: "failed",
+      canGenerateReport: true,
+      sourceFile,
+      sourceFileLocalPath,
+      analysisSummary: runtimeState?.conversationState?.analysisSummary ?? null,
+    }).catch(() => {});
+    throw err;
+  }
+}
+
+export async function generateDiagnosisReport(args: {
+  teamId: string;
+  memberName: string;
+  sessionId: string;
+}) {
+  const detail = await getDiagnosisSessionDetail(args.teamId, args.sessionId);
+  if (!detail) throw new Error("NOT_FOUND");
+
+  const runtimeState = await getDiagnosisSessionRuntimeState(args.teamId, args.sessionId);
+  const sourceFileLocalPath = runtimeState?.sourceFileLocalPath;
+  const sourceFile = runtimeState?.conversationState?.sourceFile;
+  if (!sourceFileLocalPath || !sourceFile) throw new Error("SOURCE_FILE_MISSING");
+
+  await markDiagnosisSessionStatus({
+    teamId: args.teamId,
+    sessionId: args.sessionId,
+    status: "processing",
+  });
+  await setDiagnosisConversationState({
+    teamId: args.teamId,
+    sessionId: args.sessionId,
+    status: "generating_report",
+    canGenerateReport: true,
+    sourceFile,
+    sourceFileLocalPath,
+    analysisSummary: runtimeState?.conversationState?.analysisSummary ?? null,
+  });
+
+  try {
+    const agentTurn = await runDiagnosisAgentTurn({
+      mode: "generate",
+      sessionId: args.sessionId,
+      teamId: args.teamId,
+      memberName: args.memberName,
+      history: detail.messages.map((message) => ({
+        role: message.role,
+        content: message.content,
+      })),
+      prompt: buildDiagnosisGeneratePrompt(sourceFileLocalPath),
+      model: diagnosisModel(),
+      sourceFilePath: sourceFileLocalPath,
+    });
+
+    const generatedFile = agentTurn.latestGeneratedFile;
+    if (!generatedFile) throw new Error("REPORT_NOT_GENERATED");
+
+    const fileBytes = await readFile(generatedFile);
+    const bucket = getS3BucketName();
+    const label = basename(generatedFile);
+    const artifactKey = `diagnosis-artifacts/${args.teamId}/${args.sessionId}/${crypto
+      .randomUUID()
+      .replaceAll("-", "")
+      .slice(0, 16)}_${label}`;
+
+    const s3 = getS3Client();
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: artifactKey,
+        Body: fileBytes,
+        ContentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      }),
+    );
+
+    const artifact = await recordDiagnosisArtifact({
+      teamId: args.teamId,
+      sessionId: args.sessionId,
+      actor: args.memberName,
+      label,
+      contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      s3Bucket: bucket,
+      s3Key: artifactKey,
+      sizeBytes: fileBytes.byteLength,
+    });
+
+    const assistantMessage = await appendDiagnosisAssistantMessage({
+      teamId: args.teamId,
+      sessionId: args.sessionId,
+      assistantText:
+        agentTurn.assistantText || `${label} 결과물을 생성했습니다. 다운로드해서 확인해 주세요.`,
+      analysisSummary: agentTurn.analysisSummary,
+    });
+
+    await markDiagnosisSessionStatus({
+      teamId: args.teamId,
+      sessionId: args.sessionId,
+      status: "ready",
+    });
+
+    return { assistantMessage, artifact };
+  } catch (err) {
+    await markDiagnosisSessionStatus({
+      teamId: args.teamId,
+      sessionId: args.sessionId,
+      status: "failed",
+    }).catch(() => {});
+    await setDiagnosisConversationState({
+      teamId: args.teamId,
+      sessionId: args.sessionId,
+      status: "failed",
+      canGenerateReport: true,
+      sourceFile,
+      sourceFileLocalPath,
+      analysisSummary: runtimeState?.conversationState?.analysisSummary ?? null,
+    }).catch(() => {});
+    throw err;
+  }
 }

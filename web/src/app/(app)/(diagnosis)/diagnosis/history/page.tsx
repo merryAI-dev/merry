@@ -44,9 +44,9 @@ export default function DiagnosisHistoryPage() {
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <div className="text-sm font-semibold uppercase tracking-[0.22em] text-[#A68645]">History</div>
-            <h1 className="mt-3 text-3xl font-black tracking-tight text-[#231F16]">진단 실행 히스토리</h1>
+            <h1 className="mt-3 text-3xl font-black tracking-tight text-[#231F16]">진단 세션 히스토리</h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-[#6C624D]">
-              diagnosis 전용 세션 생성, 업로드, 실행 시작, 완료/실패 이벤트를 시간순으로 확인합니다.
+              diagnosis 전용 세션 생성, 첫 질문 시작, 결과물 생성 같은 주요 이벤트를 시간순으로 확인합니다.
             </p>
           </div>
           <Button variant="secondary" onClick={() => void load()} disabled={loading}>

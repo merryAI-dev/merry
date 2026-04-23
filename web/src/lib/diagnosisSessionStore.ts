@@ -5,20 +5,31 @@ import { getDiagnosisDdbTableName } from "@/lib/aws/env";
 import { getJob, type UploadFileRecord } from "@/lib/jobStore";
 
 import type {
+  DiagnosisAnalysisSummary,
+  DiagnosisArtifactRecord,
+  DiagnosisConversationState,
+  DiagnosisConversationStatus,
   DiagnosisContextDocumentContent,
   DiagnosisContextDocumentSummary,
   DiagnosisDocumentRole,
   DiagnosisEventType,
   DiagnosisHistoryEvent,
+  DiagnosisMessageRecord,
+  DiagnosisMessageRole,
   DiagnosisNormalizedDocument,
   DiagnosisRunRecord,
   DiagnosisRunStatus,
   DiagnosisSessionDetail,
   DiagnosisSessionStatus,
-  DiagnosisSourceFormat,
   DiagnosisSessionSummary,
+  DiagnosisSourceFile,
   DiagnosisUploadRecord,
 } from "./diagnosisTypes";
+
+export type DiagnosisSessionRuntimeState = {
+  sourceFileLocalPath?: string;
+  conversationState: DiagnosisConversationState | null;
+};
 
 function pkTeam(teamId: string) {
   return `TEAM#${teamId}`;
@@ -56,12 +67,24 @@ function skEvent(createdAt: string, eventId: string) {
   return `EVENT#${createdAt}#${eventId}`;
 }
 
+function skMessage(createdAt: string, messageId: string) {
+  return `MSG#${createdAt}#${messageId}`;
+}
+
+function skArtifact(createdAt: string, artifactId: string) {
+  return `ARTIFACT#${createdAt}#${artifactId}`;
+}
+
 function skContextDocument(documentId: string) {
   return `CTXDOC#${documentId}`;
 }
 
 function skContextDocumentChunk(documentId: string, contentType: "markdown" | "plain", index: number) {
   return `CTXDOC#${documentId}#CHUNK#${contentType.toUpperCase()}#${String(index).padStart(4, "0")}`;
+}
+
+function skState() {
+  return "STATE#CURRENT";
 }
 
 function newId(prefix: string) {
@@ -80,15 +103,14 @@ function asNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
 function asSessionStatus(value: unknown): DiagnosisSessionStatus {
   if (value === "processing" || value === "ready" || value === "failed") return value;
   return "uploaded";
+}
+
+function asConversationStatus(value: unknown): DiagnosisConversationStatus {
+  if (value === "thinking" || value === "generating_report" || value === "failed") return value;
+  return "awaiting_user";
 }
 
 function asRunStatus(value: unknown): DiagnosisRunStatus {
@@ -98,13 +120,6 @@ function asRunStatus(value: unknown): DiagnosisRunStatus {
 
 function asDocumentRole(value: unknown): DiagnosisDocumentRole {
   return value === "primary" ? "primary" : "context";
-}
-
-function asSourceFormat(value: unknown): DiagnosisSourceFormat {
-  if (value === "xlsx" || value === "xls" || value === "pdf" || value === "docx" || value === "pptx") {
-    return value;
-  }
-  return "pdf";
 }
 
 function deserializeSession(row: Record<string, unknown>): DiagnosisSessionSummary {
@@ -154,6 +169,8 @@ function deserializeEvent(row: Record<string, unknown>): DiagnosisHistoryEvent {
   const type: DiagnosisEventType =
     typeRaw === "upload_recorded" ||
     typeRaw === "context_document_added" ||
+    typeRaw === "conversation_started" ||
+    typeRaw === "artifact_generated" ||
     typeRaw === "run_started" ||
     typeRaw === "run_succeeded" ||
     typeRaw === "run_failed"
@@ -171,6 +188,32 @@ function deserializeEvent(row: Record<string, unknown>): DiagnosisHistoryEvent {
   };
 }
 
+function deserializeMessage(row: Record<string, unknown>, sessionId: string): DiagnosisMessageRecord {
+  const roleRaw = asString(row["role"]);
+  const role: DiagnosisMessageRole =
+    roleRaw === "user" || roleRaw === "assistant" || roleRaw === "system" ? roleRaw : "assistant";
+  return {
+    messageId: asString(row["message_id"]),
+    sessionId,
+    role,
+    content: asString(row["content"]),
+    createdAt: asString(row["created_at"]),
+  };
+}
+
+function deserializeArtifact(row: Record<string, unknown>, sessionId: string): DiagnosisArtifactRecord {
+  return {
+    artifactId: asString(row["artifact_id"]),
+    sessionId,
+    label: asString(row["label"]),
+    contentType: asString(row["content_type"]),
+    createdAt: asString(row["created_at"]),
+    s3Bucket: asString(row["s3_bucket"]),
+    s3Key: asString(row["s3_key"]),
+    sizeBytes: typeof row["size_bytes"] === "number" ? row["size_bytes"] : undefined,
+  };
+}
+
 function deserializeContextDocument(
   row: Record<string, unknown>,
   sessionId: string,
@@ -182,46 +225,78 @@ function deserializeContextDocument(
     originalName: asString(row["original_name"]),
     contentType: asString(row["content_type"]),
     role: asDocumentRole(row["role"]),
-    sourceFormat: asSourceFormat(row["source_format"]),
+    sourceFormat: asString(row["source_format"]) as DiagnosisContextDocumentSummary["sourceFormat"],
     previewText: asString(row["preview_text"]),
     createdAt: asString(row["created_at"]),
     createdBy: asString(row["created_by"]),
     warningCount: asNumber(row["warning_count"]),
     markdownChunkCount: asNumber(row["markdown_chunk_count"]),
     plainTextChunkCount: asNumber(row["plain_text_chunk_count"]),
-    metadata: asRecord(row["metadata"]),
+    metadata:
+      row["metadata"] && typeof row["metadata"] === "object"
+        ? (row["metadata"] as Record<string, unknown>)
+        : {},
   };
 }
 
-const MAX_DOCUMENT_CHUNK_BYTES = 160_000;
-
-function splitUtf8Text(value: string, maxBytes = MAX_DOCUMENT_CHUNK_BYTES): string[] {
+function splitUtf8Text(value: string, maxBytes = 180_000): string[] {
   if (!value) return [""];
   const codePoints = Array.from(value);
   const chunks: string[] = [];
   let start = 0;
-
   while (start < codePoints.length) {
     let low = 1;
     let high = codePoints.length - start;
     let best = 1;
-
     while (low <= high) {
       const mid = Math.floor((low + high) / 2);
-      const candidate = codePoints.slice(start, start + mid).join("");
-      if (Buffer.byteLength(candidate, "utf-8") <= maxBytes) {
+      const bytes = Buffer.byteLength(codePoints.slice(start, start + mid).join(""), "utf8");
+      if (bytes <= maxBytes) {
         best = mid;
         low = mid + 1;
       } else {
         high = mid - 1;
       }
     }
-
     chunks.push(codePoints.slice(start, start + best).join(""));
     start += best;
   }
-
   return chunks;
+}
+
+function normalizePreviewText(value: string): string {
+  return value.replace(/\s+/g, " ").trim().slice(0, 240);
+}
+
+function parseAnalysisSummary(value: unknown): DiagnosisAnalysisSummary | null {
+  if (typeof value !== "string" || !value) return null;
+  try {
+    return JSON.parse(value) as DiagnosisAnalysisSummary;
+  } catch {
+    return null;
+  }
+}
+
+function deserializeConversationState(row: Record<string, unknown>): DiagnosisSessionRuntimeState {
+  const sourceFileId = asOptionalString(row["source_file_id"]);
+  const sourceFileName = asOptionalString(row["source_file_name"]);
+  const sourceFile: DiagnosisSourceFile | undefined =
+    sourceFileId && sourceFileName
+      ? {
+          fileId: sourceFileId,
+          originalName: sourceFileName,
+        }
+      : undefined;
+
+  return {
+    sourceFileLocalPath: asOptionalString(row["source_file_local_path"]),
+    conversationState: {
+      status: asConversationStatus(row["conversation_status"]),
+      canGenerateReport: row["can_generate_report"] === true,
+      sourceFile,
+      analysisSummary: parseAnalysisSummary(row["analysis_summary"]),
+    },
+  };
 }
 
 async function getDiagnosisSessionSummary(teamId: string, sessionId: string): Promise<DiagnosisSessionSummary | null> {
@@ -300,6 +375,84 @@ async function updateSessionSummary(
   };
 }
 
+export async function markDiagnosisSessionStatus(args: {
+  teamId: string;
+  sessionId: string;
+  status: DiagnosisSessionStatus;
+  updatedAt?: string;
+}) {
+  return await updateSessionSummary(args.teamId, args.sessionId, {
+    status: args.status,
+    updatedAt: args.updatedAt ?? new Date().toISOString(),
+  });
+}
+
+async function getConversationStateRow(
+  teamId: string,
+  sessionId: string,
+): Promise<Record<string, unknown> | null> {
+  const ddb = getDdbDocClient();
+  const TableName = getDiagnosisDdbTableName();
+  const res = await ddb.send(
+    new GetCommand({
+      TableName,
+      Key: {
+        pk: pkDiagnosisSession(teamId, sessionId),
+        sk: skState(),
+      },
+    }),
+  );
+  return (res.Item ?? null) as Record<string, unknown> | null;
+}
+
+export async function getDiagnosisSessionRuntimeState(
+  teamId: string,
+  sessionId: string,
+): Promise<DiagnosisSessionRuntimeState | null> {
+  const row = await getConversationStateRow(teamId, sessionId);
+  if (!row) return null;
+  return deserializeConversationState(row);
+}
+
+export async function setDiagnosisConversationState(args: {
+  teamId: string;
+  sessionId: string;
+  status: DiagnosisConversationStatus;
+  canGenerateReport: boolean;
+  sourceFile?: DiagnosisSourceFile;
+  sourceFileLocalPath?: string;
+  analysisSummary?: DiagnosisAnalysisSummary | null;
+  updatedAt?: string;
+}) {
+  const existing = await getConversationStateRow(args.teamId, args.sessionId);
+  const updatedAt = args.updatedAt ?? new Date().toISOString();
+  const mergedSourceFileId = args.sourceFile?.fileId ?? asOptionalString(existing?.["source_file_id"]);
+  const mergedSourceFileName = args.sourceFile?.originalName ?? asOptionalString(existing?.["source_file_name"]);
+  const mergedSourceFilePath = args.sourceFileLocalPath ?? asOptionalString(existing?.["source_file_local_path"]);
+  const mergedSummary =
+    args.analysisSummary === undefined ? parseAnalysisSummary(existing?.["analysis_summary"]) : args.analysisSummary;
+
+  const ddb = getDdbDocClient();
+  const TableName = getDiagnosisDdbTableName();
+  await ddb.send(
+    new PutCommand({
+      TableName,
+      Item: {
+        pk: pkDiagnosisSession(args.teamId, args.sessionId),
+        sk: skState(),
+        entity: "diagnosis_state",
+        conversation_status: args.status,
+        can_generate_report: args.canGenerateReport,
+        source_file_id: mergedSourceFileId ?? "",
+        source_file_name: mergedSourceFileName ?? "",
+        source_file_local_path: mergedSourceFilePath ?? "",
+        analysis_summary: mergedSummary ? JSON.stringify(mergedSummary) : "",
+        updated_at: updatedAt,
+      },
+    }),
+  );
+}
+
 async function appendHistoryEvent(args: {
   teamId: string;
   sessionId: string;
@@ -350,6 +503,180 @@ async function appendHistoryEvent(args: {
   );
 
   return deserializeEvent(item);
+}
+
+export async function saveDiagnosisConversationStart(args: {
+  teamId: string;
+  sessionId: string;
+  actor: string;
+  assistantText: string;
+  sourceFile: DiagnosisSourceFile;
+  sourceFileLocalPath: string;
+  analysisSummary?: DiagnosisAnalysisSummary | null;
+  createdAt?: string;
+}): Promise<DiagnosisMessageRecord> {
+  const session = await getDiagnosisSessionSummary(args.teamId, args.sessionId);
+  if (!session) throw new Error("NOT_FOUND");
+
+  const createdAt = args.createdAt ?? new Date().toISOString();
+  const messageId = newId("diag_msg");
+  const ddb = getDdbDocClient();
+  const TableName = getDiagnosisDdbTableName();
+
+  await ddb.send(
+    new PutCommand({
+      TableName,
+      Item: {
+        pk: pkDiagnosisSession(args.teamId, args.sessionId),
+        sk: skMessage(createdAt, messageId),
+        entity: "diagnosis_message",
+        message_id: messageId,
+        session_id: args.sessionId,
+        role: "assistant",
+        content: args.assistantText,
+        created_at: createdAt,
+      },
+    }),
+  );
+
+  await setDiagnosisConversationState({
+    teamId: args.teamId,
+    sessionId: args.sessionId,
+    status: "awaiting_user",
+    canGenerateReport: true,
+    sourceFile: args.sourceFile,
+    sourceFileLocalPath: args.sourceFileLocalPath,
+    analysisSummary: args.analysisSummary ?? null,
+    updatedAt: createdAt,
+  });
+
+  await appendHistoryEvent({
+    teamId: args.teamId,
+    sessionId: args.sessionId,
+    sessionTitle: session.title,
+    type: "conversation_started",
+    actor: args.actor,
+    description: "초기 진단 요약과 첫 질문을 생성했습니다.",
+    createdAt,
+  });
+
+  return {
+    messageId,
+    sessionId: args.sessionId,
+    role: "assistant",
+    content: args.assistantText,
+    createdAt,
+  };
+}
+
+export async function appendDiagnosisConversationTurn(args: {
+  teamId: string;
+  sessionId: string;
+  userContent: string;
+  assistantText: string;
+  analysisSummary?: DiagnosisAnalysisSummary | null;
+}): Promise<DiagnosisMessageRecord> {
+  const createdAt = new Date();
+  const userCreatedAt = createdAt.toISOString();
+  const assistantCreatedAt = new Date(createdAt.getTime() + 1).toISOString();
+  const userMessageId = newId("diag_msg");
+  const assistantMessageId = newId("diag_msg");
+  const ddb = getDdbDocClient();
+  const TableName = getDiagnosisDdbTableName();
+
+  await ddb.send(
+    new PutCommand({
+      TableName,
+      Item: {
+        pk: pkDiagnosisSession(args.teamId, args.sessionId),
+        sk: skMessage(userCreatedAt, userMessageId),
+        entity: "diagnosis_message",
+        message_id: userMessageId,
+        session_id: args.sessionId,
+        role: "user",
+        content: args.userContent,
+        created_at: userCreatedAt,
+      },
+    }),
+  );
+
+  await ddb.send(
+    new PutCommand({
+      TableName,
+      Item: {
+        pk: pkDiagnosisSession(args.teamId, args.sessionId),
+        sk: skMessage(assistantCreatedAt, assistantMessageId),
+        entity: "diagnosis_message",
+        message_id: assistantMessageId,
+        session_id: args.sessionId,
+        role: "assistant",
+        content: args.assistantText,
+        created_at: assistantCreatedAt,
+      },
+    }),
+  );
+
+  await setDiagnosisConversationState({
+    teamId: args.teamId,
+    sessionId: args.sessionId,
+    status: "awaiting_user",
+    canGenerateReport: true,
+    analysisSummary: args.analysisSummary,
+    updatedAt: assistantCreatedAt,
+  });
+
+  return {
+    messageId: assistantMessageId,
+    sessionId: args.sessionId,
+    role: "assistant",
+    content: args.assistantText,
+    createdAt: assistantCreatedAt,
+  };
+}
+
+export async function appendDiagnosisAssistantMessage(args: {
+  teamId: string;
+  sessionId: string;
+  assistantText: string;
+  analysisSummary?: DiagnosisAnalysisSummary | null;
+}): Promise<DiagnosisMessageRecord> {
+  const createdAt = new Date().toISOString();
+  const messageId = newId("diag_msg");
+  const ddb = getDdbDocClient();
+  const TableName = getDiagnosisDdbTableName();
+
+  await ddb.send(
+    new PutCommand({
+      TableName,
+      Item: {
+        pk: pkDiagnosisSession(args.teamId, args.sessionId),
+        sk: skMessage(createdAt, messageId),
+        entity: "diagnosis_message",
+        message_id: messageId,
+        session_id: args.sessionId,
+        role: "assistant",
+        content: args.assistantText,
+        created_at: createdAt,
+      },
+    }),
+  );
+
+  await setDiagnosisConversationState({
+    teamId: args.teamId,
+    sessionId: args.sessionId,
+    status: "awaiting_user",
+    canGenerateReport: true,
+    analysisSummary: args.analysisSummary,
+    updatedAt: createdAt,
+  });
+
+  return {
+    messageId,
+    sessionId: args.sessionId,
+    role: "assistant",
+    content: args.assistantText,
+    createdAt,
+  };
 }
 
 export async function createDiagnosisSession(args: {
@@ -665,8 +992,96 @@ export async function recordDiagnosisContextDocument(args: {
   };
 }
 
-function normalizePreviewText(value: string): string {
-  return value.replace(/\s+/g, " ").trim().slice(0, 240);
+export async function recordDiagnosisArtifact(args: {
+  teamId: string;
+  sessionId: string;
+  actor: string;
+  label: string;
+  contentType: string;
+  s3Bucket: string;
+  s3Key: string;
+  sizeBytes?: number;
+  createdAt?: string;
+}): Promise<DiagnosisArtifactRecord> {
+  const session = await getDiagnosisSessionSummary(args.teamId, args.sessionId);
+  if (!session) throw new Error("NOT_FOUND");
+
+  const createdAt = args.createdAt ?? new Date().toISOString();
+  const artifactId = newId("diag_art");
+  const ddb = getDdbDocClient();
+  const TableName = getDiagnosisDdbTableName();
+
+  await ddb.send(
+    new PutCommand({
+      TableName,
+      Item: {
+        pk: pkDiagnosisSession(args.teamId, args.sessionId),
+        sk: skArtifact(createdAt, artifactId),
+        entity: "diagnosis_artifact",
+        artifact_id: artifactId,
+        session_id: args.sessionId,
+        label: args.label,
+        content_type: args.contentType,
+        created_at: createdAt,
+        s3_bucket: args.s3Bucket,
+        s3_key: args.s3Key,
+        size_bytes: args.sizeBytes,
+      },
+    }),
+  );
+
+  await updateSessionSummary(args.teamId, args.sessionId, {
+    updatedAt: createdAt,
+    latestArtifactCount: session.latestArtifactCount + 1,
+  });
+
+  await appendHistoryEvent({
+    teamId: args.teamId,
+    sessionId: args.sessionId,
+    sessionTitle: session.title,
+    type: "artifact_generated",
+    actor: args.actor,
+    description: `${args.label} 결과물을 생성했습니다.`,
+    createdAt,
+  });
+
+  return {
+    artifactId,
+    sessionId: args.sessionId,
+    label: args.label,
+    contentType: args.contentType,
+    createdAt,
+    s3Bucket: args.s3Bucket,
+    s3Key: args.s3Key,
+    sizeBytes: args.sizeBytes,
+  };
+}
+
+export async function getDiagnosisArtifact(
+  teamId: string,
+  sessionId: string,
+  artifactId: string,
+): Promise<DiagnosisArtifactRecord | null> {
+  const ddb = getDdbDocClient();
+  const TableName = getDiagnosisDdbTableName();
+  const res = await ddb.send(
+    new QueryCommand({
+      TableName,
+      KeyConditionExpression: "pk = :pk AND begins_with(sk, :prefix)",
+      ExpressionAttributeValues: {
+        ":pk": pkDiagnosisSession(teamId, sessionId),
+        ":prefix": "ARTIFACT#",
+      },
+    }),
+  );
+
+  for (const item of res.Items ?? []) {
+    const row = item as Record<string, unknown>;
+    if (asString(row["artifact_id"]) === artifactId) {
+      return deserializeArtifact(row, sessionId);
+    }
+  }
+  return null;
 }
 
 async function updateDiagnosisRun(teamId: string, sessionId: string, runId: string, updates: {
@@ -736,6 +1151,9 @@ export async function getDiagnosisSessionDetail(teamId: string, sessionId: strin
   const runs: DiagnosisRunRecord[] = [];
   const events: DiagnosisHistoryEvent[] = [];
   const contextDocuments: DiagnosisContextDocumentSummary[] = [];
+  const messages: DiagnosisMessageRecord[] = [];
+  const artifacts: DiagnosisArtifactRecord[] = [];
+  let conversationState: DiagnosisConversationState | null = null;
 
   for (const item of res.Items ?? []) {
     const row = item as Record<string, unknown>;
@@ -743,12 +1161,19 @@ export async function getDiagnosisSessionDetail(teamId: string, sessionId: strin
     if (row["entity"] === "diagnosis_run") runs.push(deserializeRun(row, sessionId));
     if (row["entity"] === "diagnosis_event") events.push(deserializeEvent(row));
     if (row["entity"] === "diagnosis_context_document") contextDocuments.push(deserializeContextDocument(row, sessionId));
+    if (row["entity"] === "diagnosis_message") messages.push(deserializeMessage(row, sessionId));
+    if (row["entity"] === "diagnosis_artifact") artifacts.push(deserializeArtifact(row, sessionId));
+    if (row["entity"] === "diagnosis_state") {
+      conversationState = deserializeConversationState(row).conversationState;
+    }
   }
 
   uploads.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   runs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   events.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   contextDocuments.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  messages.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  artifacts.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   return {
     ...session,
@@ -756,6 +1181,9 @@ export async function getDiagnosisSessionDetail(teamId: string, sessionId: strin
     runs,
     events,
     contextDocuments,
+    messages,
+    artifacts,
+    conversationState,
   };
 }
 

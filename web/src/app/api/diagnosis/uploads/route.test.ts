@@ -23,12 +23,11 @@ describe("diagnosis uploads route", () => {
     requireWorkspaceFromCookiesMock.mockResolvedValue({ teamId: "team-1", memberName: "kim" });
     startDiagnosisFromUploadedFileMock.mockResolvedValue({
       session: { sessionId: "diag_1" },
-      run: { runId: "run-1" },
-      legacyJobId: "job-1",
+      assistantMessage: { messageId: "diag_msg_1", content: "초기 진단 요약과 첫 질문" },
     });
   });
 
-  it("starts a diagnosis workflow from an uploaded file", async () => {
+  it("starts a chat-first diagnosis session from an uploaded file", async () => {
     const response = await POST(
       new Request("http://localhost/api/diagnosis/uploads", {
         method: "POST",
@@ -47,8 +46,6 @@ describe("diagnosis uploads route", () => {
     expect(body).toMatchObject({
       ok: true,
       sessionId: "diag_1",
-      runId: "run-1",
-      legacyJobId: "job-1",
       href: "/diagnosis/sessions/diag_1",
     });
   });

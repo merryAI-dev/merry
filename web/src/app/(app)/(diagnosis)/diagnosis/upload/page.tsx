@@ -77,7 +77,7 @@ export default function DiagnosisUploadPage() {
           </div>
           <h1 className="mt-3 text-3xl font-black tracking-tight text-[#231F16]">현황진단 시트 업로드</h1>
           <p className="mt-4 max-w-2xl text-base leading-7 text-[#6C624D]">
-            엑셀 시트를 업로드하면 진단 세션을 만들고 기존 diagnosis 엔진으로 바로 실행을 시작합니다.
+            엑셀 시트를 업로드하면 자동 분석 후 첫 질문까지 생성된 대화형 진단 세션이 바로 열립니다.
           </p>
 
           <div className="mt-8 rounded-[28px] border border-dashed border-[#C9B789] bg-[#FFFCF5] p-6">
@@ -108,7 +108,7 @@ export default function DiagnosisUploadPage() {
             <div className="mt-6">
               <Button onClick={startDiagnosis} disabled={busy || !file}>
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
-                진단 시작
+                진단 대화 시작
               </Button>
             </div>
           </div>
@@ -120,9 +120,9 @@ export default function DiagnosisUploadPage() {
           </div>
           <ol className="mt-5 space-y-4 text-sm leading-6 text-[#E7D6B1]">
             <li>1. 시트를 업로드하고 업로드 완료를 확인합니다.</li>
-            <li>2. diagnosis 전용 세션과 실행 메타데이터를 별도 테이블에 기록합니다.</li>
-            <li>3. 기존 `diagnosis_analysis` 엔진으로 실행을 전달합니다.</li>
-            <li>4. 세션 화면에서 상태와 산출물을 확인합니다.</li>
+            <li>2. diagnosis 전용 세션에 분석 요약과 첫 질문을 자동으로 생성합니다.</li>
+            <li>3. 이후 답변은 기존 Merry diagnosis 루프를 따라 질문-응답형으로 이어집니다.</li>
+            <li>4. 마지막에만 분석보고서를 생성해 결과물을 남깁니다.</li>
           </ol>
         </aside>
       </div>

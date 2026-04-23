@@ -6,6 +6,8 @@ export type DiagnosisEventType =
   | "session_created"
   | "upload_recorded"
   | "context_document_added"
+  | "conversation_started"
+  | "artifact_generated"
   | "run_started"
   | "run_succeeded"
   | "run_failed";
@@ -13,6 +15,12 @@ export type DiagnosisEventType =
 export type DiagnosisDocumentRole = "primary" | "context";
 
 export type DiagnosisSourceFormat = "xlsx" | "xls" | "pdf" | "docx" | "pptx";
+
+export type DiagnosisConversationStatus =
+  | "awaiting_user"
+  | "thinking"
+  | "generating_report"
+  | "failed";
 
 export type DiagnosisSessionSummary = {
   sessionId: string;
@@ -61,6 +69,27 @@ export type DiagnosisHistoryEvent = {
   legacyJobId?: string;
 };
 
+export type DiagnosisMessageRole = "user" | "assistant" | "system";
+
+export type DiagnosisMessageRecord = {
+  messageId: string;
+  sessionId: string;
+  role: DiagnosisMessageRole;
+  content: string;
+  createdAt: string;
+};
+
+export type DiagnosisArtifactRecord = {
+  artifactId: string;
+  sessionId: string;
+  label: string;
+  contentType: string;
+  createdAt: string;
+  s3Bucket: string;
+  s3Key: string;
+  sizeBytes?: number;
+};
+
 export type DiagnosisNormalizedDocument = {
   role: DiagnosisDocumentRole;
   sourceFormat: DiagnosisSourceFormat;
@@ -93,9 +122,48 @@ export type DiagnosisContextDocumentContent = {
   plainText: string;
 };
 
+export type DiagnosisAnalysisScoreCard = {
+  category: string;
+  score?: number | null;
+  yesRatePct?: number | null;
+  weight?: number | null;
+  yes?: number;
+  no?: number;
+  total?: number;
+};
+
+export type DiagnosisAnalysisGap = {
+  module?: string;
+  question?: string;
+  detail?: string;
+};
+
+export type DiagnosisAnalysisSummary = {
+  companyName?: string;
+  sheets: string[];
+  gapCount: number;
+  scoreCards: DiagnosisAnalysisScoreCard[];
+  sampleGaps: DiagnosisAnalysisGap[];
+};
+
+export type DiagnosisSourceFile = {
+  fileId: string;
+  originalName: string;
+};
+
+export type DiagnosisConversationState = {
+  status: DiagnosisConversationStatus;
+  canGenerateReport: boolean;
+  sourceFile?: DiagnosisSourceFile;
+  analysisSummary?: DiagnosisAnalysisSummary | null;
+};
+
 export type DiagnosisSessionDetail = DiagnosisSessionSummary & {
   uploads: DiagnosisUploadRecord[];
   runs: DiagnosisRunRecord[];
   events: DiagnosisHistoryEvent[];
   contextDocuments: DiagnosisContextDocumentSummary[];
+  messages: DiagnosisMessageRecord[];
+  artifacts: DiagnosisArtifactRecord[];
+  conversationState: DiagnosisConversationState | null;
 };

@@ -29,8 +29,8 @@ describe("DiagnosisPage", () => {
     const text = collectText(tree);
 
     expect(text).toContain("기업 현황을 진단하고 다음 작업을 준비합니다");
-    expect(text).toContain("진단 시트를 업로드하고 바로 실행을 시작합니다");
-    expect(text).toContain("업로드 이후 세션 상태와 산출물을 확인합니다");
-    expect(text).toContain("세션별 실행 기록과 후속 작업을 추적합니다");
+    expect(text).toContain("자동 분석과 첫 질문");
+    expect(text).toContain("대화형 진단 세션");
+    expect(text).toContain("후속 작업을 추적합니다");
   });
 });

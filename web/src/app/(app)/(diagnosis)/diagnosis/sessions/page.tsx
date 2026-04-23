@@ -24,7 +24,7 @@ function statusLabel(status: DiagnosisSessionRow["status"]): string {
     case "processing":
       return "처리 중";
     case "ready":
-      return "완료";
+      return "대화 중";
     case "failed":
       return "실패";
     default:
@@ -61,7 +61,7 @@ export default function DiagnosisSessionsPage() {
             <div className="text-sm font-semibold uppercase tracking-[0.22em] text-[#A68645]">Sessions</div>
             <h1 className="mt-3 text-3xl font-black tracking-tight text-[#231F16]">최근 진단 세션</h1>
             <p className="mt-4 max-w-2xl text-base leading-7 text-[#6C624D]">
-              diagnosis 전용 세션, 실행 상태, 산출물 준비 여부를 한 곳에서 확인합니다.
+              diagnosis 전용 대화 세션, 응답 상태, 생성된 결과물을 한 곳에서 확인합니다.
             </p>
           </div>
           <Button variant="secondary" onClick={() => void load()} disabled={loading}>
